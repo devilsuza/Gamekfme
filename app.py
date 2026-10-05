@@ -34,7 +34,7 @@ GITHUB_BRANCH = os.getenv('GITHUB_BRANCH', 'main')
 # Persistent Storage Files
 LEAVE_JSON_FILE = 'leave_requests.json'
 LEAVE_EXCEL_FILE = 'leave_records.xlsx'
-MANUAL_PUNCHES_FILE = 'manual_punches.json' # Naya file developer corrections ke liye
+ATTENDANCE_OVERRIDES_FILE = 'attendance_overrides.json'
 
 # Global storage for synced biometric logs
 SYNCED_ATTENDANCE_LOGS = []
@@ -96,7 +96,6 @@ def load_leave_requests():
             with open(LEAVE_JSON_FILE, 'r', encoding='utf-8') as f:
                 return json.load(f)
         except Exception as e:
-            print(f"Error loading {LEAVE_JSON_FILE}: {e}")
             return []
     return []
 
@@ -107,23 +106,22 @@ def save_leave_requests(leave_list):
     except Exception as e:
         print(f"Error saving {LEAVE_JSON_FILE}: {e}")
 
-# Persistent storage helpers for Developer Manual Punches
-def load_manual_punches():
-    if os.path.exists(MANUAL_PUNCHES_FILE):
+# Helper for inline attendance overrides
+def load_overrides():
+    if os.path.exists(ATTENDANCE_OVERRIDES_FILE):
         try:
-            with open(MANUAL_PUNCHES_FILE, 'r', encoding='utf-8') as f:
+            with open(ATTENDANCE_OVERRIDES_FILE, 'r', encoding='utf-8') as f:
                 return json.load(f)
         except Exception as e:
-            print(f"Error loading {MANUAL_PUNCHES_FILE}: {e}")
-            return []
-    return []
+            return {}
+    return {}
 
-def save_manual_punches(punches_list):
+def save_overrides(data):
     try:
-        with open(MANUAL_PUNCHES_FILE, 'w', encoding='utf-8') as f:
-            json.dump(punches_list, f, indent=4, ensure_ascii=False)
+        with open(ATTENDANCE_OVERRIDES_FILE, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=4, ensure_ascii=False)
     except Exception as e:
-        print(f"Error saving {MANUAL_PUNCHES_FILE}: {e}")
+        pass
 
 LEAVE_REQUESTS = load_leave_requests()
 
@@ -139,7 +137,6 @@ def get_emp_info(emp_code):
 
 def upload_file_to_github(file_path, github_destination_path):
     if not GITHUB_TOKEN or GITHUB_TOKEN == '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':
-        print("GitHub token default or missing, skipping GitHub upload.")
         return False
     try:
         g = Github(GITHUB_TOKEN)
@@ -166,7 +163,6 @@ def upload_file_to_github(file_path, github_destination_path):
             )
         return True
     except Exception as e:
-        print(f"GitHub Upload Error: {e}")
         return False
 
 def save_leave_to_excel(emp_code, emp_name, start_date, end_date, leave_type, doc_filename):
@@ -239,7 +235,7 @@ def fetch_attendance_data(start_date_str, end_date_str, filter_user_id):
                 })
             conn.disconnect()
     except Exception as e:
-        print(f"Direct connection to local device failed (cloud fallback active): {e}")
+        pass
 
     # Add locally synced punches
     if SYNCED_ATTENDANCE_LOGS:
@@ -257,18 +253,6 @@ def fetch_attendance_data(start_date_str, end_date_str, filter_user_id):
                 'user_id': str(log['user_id']),
                 'timestamp': ts
             })
-
-    # Include Developer's Manual Punches (Corrections)
-    manual_punches = load_manual_punches()
-    for mp in manual_punches:
-        try:
-            ts = datetime.strptime(mp['timestamp'], '%Y-%m-%d %H:%M:%S')
-            attendance_records.append({
-                'user_id': str(mp['user_id']),
-                'timestamp': ts
-            })
-        except Exception:
-            continue
 
     for att in attendance_records:
         att_ts = att['timestamp']
@@ -319,6 +303,8 @@ def fetch_attendance_data(start_date_str, end_date_str, filter_user_id):
     if not dates_to_process and start_date_str == end_date_str:
         dates_to_process = [start_date_str]
 
+    overrides = load_overrides()
+
     for date_str in dates_to_process:
         day_users_dict = period_data.get(date_str, {})
         current_dt = datetime.strptime(date_str, '%Y-%m-%d')
@@ -352,76 +338,104 @@ def fetch_attendance_data(start_date_str, end_date_str, filter_user_id):
                 continue
 
             matched_key = emp_code if emp_code in day_users_dict else (final_emp_code if final_emp_code in day_users_dict else None)
+            day_ovr = overrides.get(date_str, {}).get(final_emp_code, {})
+            has_override = len(day_ovr) > 0
 
-            if matched_key:
+            if matched_key or has_override:
                 present_count += 1
-                data_obj = day_users_dict[matched_key]
-                sorted_times = sorted(list(set(data_obj['timestamps']))) # Removed duplicates from manual+sync
+                data_obj = day_users_dict.get(matched_key, {'timestamps': []}) if matched_key else {'timestamps': []}
+                sorted_times = sorted(list(set(data_obj['timestamps'])))
                 total_punches = len(sorted_times)
                 
-                store_in, lunch_out, lunch_in, out_time = '-', '-', '-', '-'
-                lunch_seconds, net_duration_seconds = 0, 0
-                total_lunch_str, total_hours_str, net_variance_str = '-', '-', '-'
-                variance_type, status, is_late = 'neutral', 'Present', False
-                shift_type = '-'
+                # Fetch original string times
+                store_in = sorted_times[0].strftime('%H:%M:%S') if total_punches > 0 else '-'
+                lunch_out = sorted_times[1].strftime('%H:%M:%S') if total_punches >= 3 else '-'
+                lunch_in = sorted_times[2].strftime('%H:%M:%S') if total_punches >= 3 else '-'
+                out_time = sorted_times[-1].strftime('%H:%M:%S') if total_punches > 1 else '-'
 
-                first_punch_time = sorted_times[0].time()
-                if first_punch_time <= time(10, 0, 0):
-                    shift_type = 'Shift A'
-                    shift_a_count += 1
-                else:
-                    shift_type = 'Shift B'
-                    shift_b_count += 1
-                
-                if total_punches == 1:
-                    store_in = sorted_times[0].strftime('%H:%M:%S')
-                    status = 'Mis Punch'
-                    mis_punch_count += 1
-                else:
-                    store_in = sorted_times[0].strftime('%H:%M:%S')
-                    out_time = sorted_times[-1].strftime('%H:%M:%S')
-                    store_in_time = sorted_times[0].time()
-                    limit_time = time(13, 10, 0) if emp_shift == 'second' else time(7, 0, 0)
-                    if store_in_time > limit_time:
+                # Apply Dev Overrides
+                if 'store_in' in day_ovr: store_in = day_ovr['store_in']
+                if 'lunch_out' in day_ovr: lunch_out = day_ovr['lunch_out']
+                if 'lunch_in' in day_ovr: lunch_in = day_ovr['lunch_in']
+                if 'out_time' in day_ovr: out_time = day_ovr['out_time']
+
+                # Convert to seconds for math
+                def get_sec(t_s):
+                    if t_s == '-': return None
+                    try:
+                        h, m, s = map(int, t_s.split(':'))
+                        return h * 3600 + m * 60 + s
+                    except: return None
+
+                s_in = get_sec(store_in)
+                l_o = get_sec(lunch_out)
+                l_i = get_sec(lunch_in)
+                s_out = get_sec(out_time)
+
+                # Shifts and Latings
+                shift_type = '-'
+                is_late = False
+                if s_in is not None:
+                    if s_in <= 10 * 3600:
+                        shift_type = 'Shift A'
+                        shift_a_count += 1
+                    else:
+                        shift_type = 'Shift B'
+                        shift_b_count += 1
+                    
+                    limit_sec = (13 * 3600 + 10 * 60) if emp_shift == 'second' else (7 * 3600)
+                    if s_in > limit_sec:
                         late_arrival_count += 1
                         is_late = True
 
-                    if total_punches >= 3:
-                        lunch_out = sorted_times[1].strftime('%H:%M:%S')
-                        lunch_in = sorted_times[2].strftime('%H:%M:%S')
-                        actual_lunch_seconds = (sorted_times[2] - sorted_times[1]).seconds
-                        lunch_seconds = 3600 if actual_lunch_seconds < 3600 else actual_lunch_seconds
-                    else:
-                        lunch_seconds = 3600
-                        
-                    total_lunch_seconds += lunch_seconds
-                    l_hrs = divmod(lunch_seconds, 3600)
-                    total_lunch_str = f"{l_hrs[0]}h {l_hrs[1]//60}m"
-                    
-                    gross_seconds = (sorted_times[-1] - sorted_times[0]).seconds
-                    net_duration_seconds = max(0, gross_seconds - lunch_seconds)
-                    total_duration_seconds += net_duration_seconds
-                    
+                # Lunch calculations
+                lunch_seconds = 3600
+                if l_o is not None and l_i is not None:
+                    act_l = l_i - l_o
+                    lunch_seconds = 3600 if act_l < 3600 else act_l
+
+                total_lunch_seconds += lunch_seconds
+                l_hrs = divmod(lunch_seconds, 3600)
+                total_lunch_str = f"{l_hrs[0]}h {l_hrs[1]//60}m"
+                
+                # Net hours
+                net_duration_seconds = 0
+                if s_in is not None and s_out is not None and s_out > s_in:
+                    gross = s_out - s_in
+                    net_duration_seconds = max(0, gross - lunch_seconds)
+                total_duration_seconds += net_duration_seconds
+                
+                if s_in is not None and s_out is not None:
                     hours = divmod(net_duration_seconds, 3600)
                     total_hours_str = f"{hours[0]}h {hours[1]//60}m"
-                    
-                    diff_from_target = net_duration_seconds - (7 * 3600)
-                    total_net_variance_seconds += diff_from_target
-                    
-                    if diff_from_target > 0:
-                        e_hrs = divmod(diff_from_target, 3600)
+                else:
+                    total_hours_str = "-"
+                
+                # Variance
+                net_variance_str, variance_type = "-", "neutral"
+                if s_in is not None and s_out is not None:
+                    diff = net_duration_seconds - (7 * 3600)
+                    total_net_variance_seconds += diff
+                    if diff > 0:
+                        e_hrs = divmod(diff, 3600)
                         extra_hours_val = e_hrs[0] + (1 if e_hrs[1] > 0 else 0)
                         code_prefix = 'H07' if is_weekend else 'H06'
                         net_variance_str, variance_type = f"{code_prefix};{extra_hours_val}", 'positive'
-                    elif diff_from_target < 0:
-                        short_sec = abs(diff_from_target)
-                        s_hrs = divmod(short_sec, 3600)
+                    elif diff < 0:
+                        s_hrs = divmod(abs(diff), 3600)
                         net_variance_str, variance_type = f"-{s_hrs[0]}h {s_hrs[1]//60}m", 'negative'
                     else:
                         net_variance_str, variance_type = "0h 0m", 'neutral'
-                    
-                    status = 'Present'
                 
+                # Status
+                if s_in is not None and s_out is None:
+                    status = 'Mis Punch'
+                    mis_punch_count += 1
+                elif s_in is None and s_out is None:
+                    status = 'Absent'
+                else:
+                    status = 'Present'
+
                 if current_day_name == emp_off:
                     status = 'Weekly Off'
 
@@ -700,18 +714,21 @@ HTML_TEMPLATE = """
 
         function openExportModal() { document.getElementById('export-modal').classList.remove('hidden'); }
         function closeExportModal() { document.getElementById('export-modal').classList.add('hidden'); }
-
         function openRosterModal() { document.getElementById('roster-modal').classList.remove('hidden'); }
         function closeRosterModal() { document.getElementById('roster-modal').classList.add('hidden'); }
-
         function openCalendarModal() { document.getElementById('calendar-modal').classList.remove('hidden'); }
         function closeCalendarModal() { document.getElementById('calendar-modal').classList.add('hidden'); }
-
         function openLeaveModal() { document.getElementById('leave-modal').classList.remove('hidden'); }
         function closeLeaveModal() { document.getElementById('leave-modal').classList.add('hidden'); }
 
-        function openCorrectionModal() { document.getElementById('correction-modal').classList.remove('hidden'); }
-        function closeCorrectionModal() { document.getElementById('correction-modal').classList.add('hidden'); }
+        function inlineEdit(date, empId, field, currVal) {
+            let title = field.replace('_', ' ').toUpperCase();
+            let promptVal = currVal !== '-' ? currVal : '';
+            let newVal = prompt(`Direct Editing: ${empId} | ${date}\\n\\nEnter new time for ${title} (HH:MM:SS) or leave blank to clear the overridden value:`, promptVal);
+            if (newVal !== null) {
+                window.location.href = `/quick_edit?date=${date}&emp_id=${empId}&field=${field}&time=${encodeURIComponent(newVal)}`;
+            }
+        }
 
         function secureShutdown() {
             let pwd = prompt("Server band karne ke liye password enter karein:");
@@ -766,7 +783,7 @@ HTML_TEMPLATE = """
                     {% endif %}
                 </a>
                 <a href="#" onclick="alert('Module under preparation.'); return false;" class="flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 font-medium text-xs transition">
-                    <span>⚙️️</span>
+                    <span>⚙</span>
                     <span>Settings</span>
                 </a>
 
@@ -902,7 +919,7 @@ HTML_TEMPLATE = """
                         <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Shift A (06-10)</p>
                         <h3 class="text-xl font-black text-blue-600 mt-0.5">{{ stats.shift_a }}</h3>
                     </div>
-                    <div class="p-2 bg-blue-50 text-blue-600 rounded-xl">☀️</div>
+                    <div class="p-2 bg-blue-50 text-blue-600 rounded-xl">☀️️</div>
                 </div>
                 <div onclick="filterByStatus('Shift B')" class="stat-card bg-white p-3.5 rounded-2xl shadow-sm border border-slate-200 flex items-center justify-between border-l-4 border-l-indigo-500">
                     <div>
@@ -951,9 +968,6 @@ HTML_TEMPLATE = """
                     <div class="flex space-x-2">
                         {% if role == 'admin' or role == 'developer' %}
                         <button type="button" onclick="openExportModal()" class="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs uppercase tracking-wider py-3 px-3 rounded-xl text-center shadow-md transition">Export 📥</button>
-                        {% endif %}
-                        {% if role == 'developer' %}
-                        <button type="button" onclick="openCorrectionModal()" class="flex-1 bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs uppercase tracking-wider py-3 px-3 rounded-xl text-center shadow-md transition">🛠️ Edit</button>
                         {% endif %}
                         <button type="button" onclick="openCalendarModal()" class="flex-1 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs uppercase tracking-wider py-3 px-3 rounded-xl text-center shadow-md transition">📅 Rota</button>
                     </div>
@@ -1007,17 +1021,37 @@ HTML_TEMPLATE = """
                                     <td class="py-3 px-4 nowrap-cell text-slate-500 font-mono text-xs">{{ log.user_id }}</td>
                                     <td class="py-3 px-4 font-bold text-slate-900 nowrap-cell">{{ log.name }}</td>
                                     <td class="py-3 px-4 nowrap-cell"><span class="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 text-[11px] font-bold">{{ log.dept }}</span></td>
-                                    <td class="py-3 px-4 nowrap-cell font-mono text-xs">
+                                    
+                                    <td class="py-3 px-4 nowrap-cell font-mono text-xs group">
                                         {{ log.store_in }}
+                                        {% if role == 'developer' %}
+                                        <span onclick="inlineEdit('{{ log.date }}', '{{ log.user_id }}', 'store_in', '{{ log.store_in }}')" class="cursor-pointer ml-1 text-amber-400 hover:text-amber-600 opacity-0 group-hover:opacity-100 transition-opacity" title="Edit Store In">✎</span>
+                                        {% endif %}
                                         {% if log.shift_type == 'Shift A' %}
-                                            <span class="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-sans font-bold ml-1">Shift A</span>
+                                            <span class="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-sans font-bold ml-1 block mt-1">Shift A</span>
                                         {% elif log.shift_type == 'Shift B' %}
-                                            <span class="text-[10px] bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded font-sans font-bold ml-1">Shift B</span>
+                                            <span class="text-[10px] bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded font-sans font-bold ml-1 block mt-1">Shift B</span>
                                         {% endif %}
                                     </td>
-                                    <td class="py-3 px-4 nowrap-cell font-mono text-xs text-slate-500">{{ log.lunch_out }}</td>
-                                    <td class="py-3 px-4 nowrap-cell font-mono text-xs text-slate-500">{{ log.lunch_in }}</td>
-                                    <td class="py-3 px-4 nowrap-cell font-mono text-xs">{{ log.out_time }}</td>
+                                    <td class="py-3 px-4 nowrap-cell font-mono text-xs text-slate-500 group">
+                                        {{ log.lunch_out }}
+                                        {% if role == 'developer' %}
+                                        <span onclick="inlineEdit('{{ log.date }}', '{{ log.user_id }}', 'lunch_out', '{{ log.lunch_out }}')" class="cursor-pointer ml-1 text-amber-400 hover:text-amber-600 opacity-0 group-hover:opacity-100 transition-opacity" title="Edit Lunch Out">✎</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="py-3 px-4 nowrap-cell font-mono text-xs text-slate-500 group">
+                                        {{ log.lunch_in }}
+                                        {% if role == 'developer' %}
+                                        <span onclick="inlineEdit('{{ log.date }}', '{{ log.user_id }}', 'lunch_in', '{{ log.lunch_in }}')" class="cursor-pointer ml-1 text-amber-400 hover:text-amber-600 opacity-0 group-hover:opacity-100 transition-opacity" title="Edit Lunch In">✎</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="py-3 px-4 nowrap-cell font-mono text-xs group">
+                                        {{ log.out_time }}
+                                        {% if role == 'developer' %}
+                                        <span onclick="inlineEdit('{{ log.date }}', '{{ log.user_id }}', 'out_time', '{{ log.out_time }}')" class="cursor-pointer ml-1 text-amber-400 hover:text-amber-600 opacity-0 group-hover:opacity-100 transition-opacity" title="Edit Out Time">✎</span>
+                                        {% endif %}
+                                    </td>
+                                    
                                     <td class="py-3 px-4 font-bold nowrap-cell font-mono text-xs {% if log.lunch_seconds > 3600 %}text-rose-600 bg-rose-50/50{% else %}text-slate-700{% endif %}">{{ log.total_lunch }}</td>
                                     <td class="py-3 px-4 font-bold text-slate-900 nowrap-cell font-mono text-xs">{{ log.total_hours }}</td>
                                     <td class="py-3 px-4 font-bold nowrap-cell font-mono text-xs {% if log.variance_type == 'positive' %}text-emerald-600{% elif log.variance_type == 'negative' %}text-rose-600{% else %}text-slate-600{% endif %}">{{ log.net_variance }}</td>
@@ -1054,71 +1088,6 @@ HTML_TEMPLATE = """
                 </div>
             </div>
         </main>
-    </div>
-
-    <!-- Attendance Correction Modal (Developer Only) -->
-    <div id="correction-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center hidden">
-        <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 p-6 w-full max-w-lg mx-4 space-y-6 max-h-[85vh] flex flex-col">
-            <div class="flex justify-between items-center border-b border-slate-100 pb-4">
-                <h3 class="text-lg font-bold text-slate-900 flex items-center gap-2">🛠️️ Add Manual Punch (Dev Only)</h3>
-                <button onclick="closeCorrectionModal()" class="text-slate-400 hover:text-slate-600 font-bold text-lg">✕</button>
-            </div>
-            
-            <div class="overflow-y-auto flex-1">
-                <form method="POST" action="/add_manual_punch" class="space-y-4">
-                    <div>
-                        <label class="block text-xs font-bold uppercase text-slate-500 mb-1">Select Employee</label>
-                        <select name="emp_id" required class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm font-medium focus:ring-2 focus:ring-amber-500">
-                            <option value="">-- Choose Employee --</option>
-                            {% for emp in all_users %}
-                                <option value="{{ emp.user_id }}">{{ emp.name }} ({{ emp.user_id }})</option>
-                            {% endfor %}
-                        </select>
-                    </div>
-                    <div class="grid grid-cols-2 gap-4">
-                        <div>
-                            <label class="block text-xs font-bold uppercase text-slate-500 mb-1">Date</label>
-                            <input type="date" name="punch_date" required class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm font-medium focus:ring-2 focus:ring-amber-500">
-                        </div>
-                        <div>
-                            <label class="block text-xs font-bold uppercase text-slate-500 mb-1">Time (In/Out/Lunch)</label>
-                            <input type="time" name="punch_time" step="1" required class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm font-medium focus:ring-2 focus:ring-amber-500">
-                        </div>
-                    </div>
-                    <div class="flex justify-end pt-2">
-                        <button type="submit" class="bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs uppercase tracking-wider px-5 py-2.5 rounded-xl transition shadow">Add Punch</button>
-                    </div>
-                </form>
-
-                <div class="mt-8 pt-4 border-t border-slate-100">
-                    <h4 class="text-xs font-bold text-slate-500 uppercase mb-3">Recently Added Manual Punches</h4>
-                    <div class="overflow-x-auto border border-slate-200 rounded-xl">
-                        <table class="w-full text-left text-xs">
-                            <thead class="bg-slate-100 text-slate-600 font-bold uppercase text-[10px]">
-                                <tr>
-                                    <th class="py-2 px-3">Employee</th>
-                                    <th class="py-2 px-3">Date & Time</th>
-                                    <th class="py-2 px-3 text-right">Action</th>
-                                </tr>
-                            </thead>
-                            <tbody class="divide-y divide-slate-100">
-                                {% for mp in manual_punches|reverse %}
-                                <tr class="hover:bg-slate-50">
-                                    <td class="py-2 px-3 font-bold">{{ mp.user_id }}</td>
-                                    <td class="py-2 px-3 text-slate-500 font-mono">{{ mp.timestamp }}</td>
-                                    <td class="py-2 px-3 text-right">
-                                        <a href="/delete_manual_punch/{{ mp.id }}" class="text-rose-500 font-bold hover:text-rose-700 bg-rose-50 px-2 py-1 rounded">Drop</a>
-                                    </td>
-                                </tr>
-                                {% else %}
-                                <tr><td colspan="3" class="text-center py-4 text-slate-400 italic">No manual corrections made yet.</td></tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-        </div>
     </div>
 
     <!-- Leave Management Modal -->
@@ -1423,9 +1392,6 @@ def index():
     else:
         current_user_leave_requests = LEAVE_REQUESTS
         
-    # Sirf developer ke liye manual punches ka detail load karo (UI delete form ke liye)
-    manual_punches = load_manual_punches() if role == 'developer' else []
-    
     return render_template_string(
         HTML_TEMPLATE,
         logs=logs,
@@ -1441,9 +1407,38 @@ def index():
         role=role,
         logged_user_name=logged_user_name,
         leave_requests=current_user_leave_requests,
-        pending_leaves_count=pending_leaves_count,
-        manual_punches=manual_punches
+        pending_leaves_count=pending_leaves_count
     )
+
+# --- INLINE EDIT OVERRIDE ROUTE ---
+@app.route('/quick_edit')
+def quick_edit():
+    if session.get('role') != 'developer': 
+        return redirect(url_for('index'))
+        
+    date_str = request.args.get('date')
+    emp_id = request.args.get('emp_id')
+    field = request.args.get('field') # e.g., store_in, lunch_out
+    new_time = request.args.get('time', '').strip()
+
+    overrides = load_overrides()
+    if date_str not in overrides: overrides[date_str] = {}
+    if emp_id not in overrides[date_str]: overrides[date_str][emp_id] = {}
+
+    if new_time == '' or new_time == '-':
+        # Remove override to restore original punch
+        if field in overrides[date_str][emp_id]:
+            del overrides[date_str][emp_id][field]
+    else:
+        if len(new_time.split(':')) == 2: new_time += ":00" # Auto-pad seconds
+        overrides[date_str][emp_id][field] = new_time
+
+    save_overrides(overrides)
+    flash(f"Time successfully updated for {emp_id}!", "success")
+    
+    ref = request.referrer
+    if ref: return redirect(ref)
+    return redirect(url_for('index'))
 
 @app.route('/apply_leave', methods=['POST'])
 def apply_leave():
@@ -1508,47 +1503,6 @@ def update_leave(req_id, action):
             
     save_leave_requests(LEAVE_REQUESTS)
     return redirect(url_for('index'))
-
-# --- DEVELOPER ATTENDANCE CORRECTION ROUTES ---
-@app.route('/add_manual_punch', methods=['POST'])
-def add_manual_punch():
-    if not session.get('logged_in') or session.get('role') != 'developer':
-        return redirect(url_for('login'))
-        
-    emp_id = request.form.get('emp_id')
-    punch_date = request.form.get('punch_date')
-    punch_time = request.form.get('punch_time')
-    
-    if not emp_id or not punch_date or not punch_time:
-        flash("Sabhi fields bharo!", "danger")
-        return redirect(url_for('index'))
-
-    # Time format ensure (HH:MM:SS)
-    if len(punch_time.split(':')) == 2:
-        punch_time += ":00"
-        
-    ts_str = f"{punch_date} {punch_time}"
-    punch_id = int(datetime.now().timestamp()) # Generate unique ID
-    
-    punches = load_manual_punches()
-    punches.append({'id': punch_id, 'user_id': emp_id, 'timestamp': ts_str})
-    save_manual_punches(punches)
-    
-    flash(f"Manual punch for {emp_id} successfully added at {ts_str}!", 'success')
-    return redirect(url_for('index'))
-
-@app.route('/delete_manual_punch/<int:punch_id>')
-def delete_manual_punch(punch_id):
-    if not session.get('logged_in') or session.get('role') != 'developer':
-        return redirect(url_for('login'))
-        
-    punches = load_manual_punches()
-    new_punches = [p for p in punches if p.get('id') != punch_id]
-    save_manual_punches(new_punches)
-    
-    flash("Manual punch record delete kar diya gaya hai.", "success")
-    return redirect(url_for('index'))
-# ----------------------------------------------
 
 @app.route('/uploads/<filename>')
 def uploaded_file(filename):
@@ -1672,7 +1626,6 @@ def shutdown():
             func()
             return "Server successfully shutdown ho gaya hai."
         else:
-            # Modern Werkzeug fallback
             sys.exit(0)
     return "Unauthorized access!", 403
 
@@ -1697,10 +1650,8 @@ def sync_attendance():
                 added_count += 1
                 
         LAST_DEVICE_SYNC_TIME = datetime.now()
-        print(f"Received {len(logs)} logs from local device. {added_count} new records added.")
         return {'status': 'success', 'message': f'{len(logs)} records synced successfully ({added_count} new)'}, 200
     except Exception as e:
-        print(f"Error in sync_attendance: {e}")
         return {'status': 'error', 'message': str(e)}, 500
 
 if __name__ == '__main__':
