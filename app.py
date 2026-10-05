@@ -34,6 +34,7 @@ GITHUB_BRANCH = os.getenv('GITHUB_BRANCH', 'main')
 # Persistent Storage Files
 LEAVE_JSON_FILE = 'leave_requests.json'
 LEAVE_EXCEL_FILE = 'leave_records.xlsx'
+MANUAL_PUNCHES_FILE = 'manual_punches.json' # Naya file developer corrections ke liye
 
 # Global storage for synced biometric logs
 SYNCED_ATTENDANCE_LOGS = []
@@ -106,6 +107,24 @@ def save_leave_requests(leave_list):
     except Exception as e:
         print(f"Error saving {LEAVE_JSON_FILE}: {e}")
 
+# Persistent storage helpers for Developer Manual Punches
+def load_manual_punches():
+    if os.path.exists(MANUAL_PUNCHES_FILE):
+        try:
+            with open(MANUAL_PUNCHES_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"Error loading {MANUAL_PUNCHES_FILE}: {e}")
+            return []
+    return []
+
+def save_manual_punches(punches_list):
+    try:
+        with open(MANUAL_PUNCHES_FILE, 'w', encoding='utf-8') as f:
+            json.dump(punches_list, f, indent=4, ensure_ascii=False)
+    except Exception as e:
+        print(f"Error saving {MANUAL_PUNCHES_FILE}: {e}")
+
 LEAVE_REQUESTS = load_leave_requests()
 
 def get_emp_info(emp_code):
@@ -119,7 +138,6 @@ def get_emp_info(emp_code):
     return val
 
 def upload_file_to_github(file_path, github_destination_path):
-    """Local file ko GitHub repository ke folder me upload karta hai"""
     if not GITHUB_TOKEN or GITHUB_TOKEN == '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':
         print("GitHub token default or missing, skipping GitHub upload.")
         return False
@@ -152,7 +170,6 @@ def upload_file_to_github(file_path, github_destination_path):
         return False
 
 def save_leave_to_excel(emp_code, emp_name, start_date, end_date, leave_type, doc_filename):
-    """Excel file me employee ki leave details save karta hai"""
     if os.path.exists(LEAVE_EXCEL_FILE):
         wb = openpyxl.load_workbook(LEAVE_EXCEL_FILE)
         ws = wb.active
@@ -224,7 +241,8 @@ def fetch_attendance_data(start_date_str, end_date_str, filter_user_id):
     except Exception as e:
         print(f"Direct connection to local device failed (cloud fallback active): {e}")
 
-    if not attendance_records and SYNCED_ATTENDANCE_LOGS:
+    # Add locally synced punches
+    if SYNCED_ATTENDANCE_LOGS:
         for log in SYNCED_ATTENDANCE_LOGS:
             ts = log['timestamp']
             if isinstance(ts, str):
@@ -239,6 +257,18 @@ def fetch_attendance_data(start_date_str, end_date_str, filter_user_id):
                 'user_id': str(log['user_id']),
                 'timestamp': ts
             })
+
+    # Include Developer's Manual Punches (Corrections)
+    manual_punches = load_manual_punches()
+    for mp in manual_punches:
+        try:
+            ts = datetime.strptime(mp['timestamp'], '%Y-%m-%d %H:%M:%S')
+            attendance_records.append({
+                'user_id': str(mp['user_id']),
+                'timestamp': ts
+            })
+        except Exception:
+            continue
 
     for att in attendance_records:
         att_ts = att['timestamp']
@@ -326,7 +356,7 @@ def fetch_attendance_data(start_date_str, end_date_str, filter_user_id):
             if matched_key:
                 present_count += 1
                 data_obj = day_users_dict[matched_key]
-                sorted_times = sorted(data_obj['timestamps'])
+                sorted_times = sorted(list(set(data_obj['timestamps']))) # Removed duplicates from manual+sync
                 total_punches = len(sorted_times)
                 
                 store_in, lunch_out, lunch_in, out_time = '-', '-', '-', '-'
@@ -680,6 +710,9 @@ HTML_TEMPLATE = """
         function openLeaveModal() { document.getElementById('leave-modal').classList.remove('hidden'); }
         function closeLeaveModal() { document.getElementById('leave-modal').classList.add('hidden'); }
 
+        function openCorrectionModal() { document.getElementById('correction-modal').classList.remove('hidden'); }
+        function closeCorrectionModal() { document.getElementById('correction-modal').classList.add('hidden'); }
+
         function secureShutdown() {
             let pwd = prompt("Server band karne ke liye password enter karein:");
             if (pwd) window.location.href = "/shutdown?pwd=" + encodeURIComponent(pwd);
@@ -733,7 +766,7 @@ HTML_TEMPLATE = """
                     {% endif %}
                 </a>
                 <a href="#" onclick="alert('Module under preparation.'); return false;" class="flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 font-medium text-xs transition">
-                    <span>⚙️</span>
+                    <span>⚙️️</span>
                     <span>Settings</span>
                 </a>
 
@@ -919,7 +952,10 @@ HTML_TEMPLATE = """
                         {% if role == 'admin' or role == 'developer' %}
                         <button type="button" onclick="openExportModal()" class="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs uppercase tracking-wider py-3 px-3 rounded-xl text-center shadow-md transition">Export 📥</button>
                         {% endif %}
-                        <button type="button" onclick="openCalendarModal()" class="bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs uppercase tracking-wider py-3 px-3 rounded-xl text-center shadow-md transition">📅 Rota</button>
+                        {% if role == 'developer' %}
+                        <button type="button" onclick="openCorrectionModal()" class="flex-1 bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs uppercase tracking-wider py-3 px-3 rounded-xl text-center shadow-md transition">🛠️ Edit</button>
+                        {% endif %}
+                        <button type="button" onclick="openCalendarModal()" class="flex-1 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs uppercase tracking-wider py-3 px-3 rounded-xl text-center shadow-md transition">📅 Rota</button>
                     </div>
                 </form>
                 
@@ -1018,6 +1054,71 @@ HTML_TEMPLATE = """
                 </div>
             </div>
         </main>
+    </div>
+
+    <!-- Attendance Correction Modal (Developer Only) -->
+    <div id="correction-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center hidden">
+        <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 p-6 w-full max-w-lg mx-4 space-y-6 max-h-[85vh] flex flex-col">
+            <div class="flex justify-between items-center border-b border-slate-100 pb-4">
+                <h3 class="text-lg font-bold text-slate-900 flex items-center gap-2">🛠️️ Add Manual Punch (Dev Only)</h3>
+                <button onclick="closeCorrectionModal()" class="text-slate-400 hover:text-slate-600 font-bold text-lg">✕</button>
+            </div>
+            
+            <div class="overflow-y-auto flex-1">
+                <form method="POST" action="/add_manual_punch" class="space-y-4">
+                    <div>
+                        <label class="block text-xs font-bold uppercase text-slate-500 mb-1">Select Employee</label>
+                        <select name="emp_id" required class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm font-medium focus:ring-2 focus:ring-amber-500">
+                            <option value="">-- Choose Employee --</option>
+                            {% for emp in all_users %}
+                                <option value="{{ emp.user_id }}">{{ emp.name }} ({{ emp.user_id }})</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs font-bold uppercase text-slate-500 mb-1">Date</label>
+                            <input type="date" name="punch_date" required class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm font-medium focus:ring-2 focus:ring-amber-500">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold uppercase text-slate-500 mb-1">Time (In/Out/Lunch)</label>
+                            <input type="time" name="punch_time" step="1" required class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm font-medium focus:ring-2 focus:ring-amber-500">
+                        </div>
+                    </div>
+                    <div class="flex justify-end pt-2">
+                        <button type="submit" class="bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs uppercase tracking-wider px-5 py-2.5 rounded-xl transition shadow">Add Punch</button>
+                    </div>
+                </form>
+
+                <div class="mt-8 pt-4 border-t border-slate-100">
+                    <h4 class="text-xs font-bold text-slate-500 uppercase mb-3">Recently Added Manual Punches</h4>
+                    <div class="overflow-x-auto border border-slate-200 rounded-xl">
+                        <table class="w-full text-left text-xs">
+                            <thead class="bg-slate-100 text-slate-600 font-bold uppercase text-[10px]">
+                                <tr>
+                                    <th class="py-2 px-3">Employee</th>
+                                    <th class="py-2 px-3">Date & Time</th>
+                                    <th class="py-2 px-3 text-right">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-100">
+                                {% for mp in manual_punches|reverse %}
+                                <tr class="hover:bg-slate-50">
+                                    <td class="py-2 px-3 font-bold">{{ mp.user_id }}</td>
+                                    <td class="py-2 px-3 text-slate-500 font-mono">{{ mp.timestamp }}</td>
+                                    <td class="py-2 px-3 text-right">
+                                        <a href="/delete_manual_punch/{{ mp.id }}" class="text-rose-500 font-bold hover:text-rose-700 bg-rose-50 px-2 py-1 rounded">Drop</a>
+                                    </td>
+                                </tr>
+                                {% else %}
+                                <tr><td colspan="3" class="text-center py-4 text-slate-400 italic">No manual corrections made yet.</td></tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- Leave Management Modal -->
@@ -1321,6 +1422,9 @@ def index():
         current_user_leave_requests = [req for req in LEAVE_REQUESTS if req['user_id'] == logged_user_id]
     else:
         current_user_leave_requests = LEAVE_REQUESTS
+        
+    # Sirf developer ke liye manual punches ka detail load karo (UI delete form ke liye)
+    manual_punches = load_manual_punches() if role == 'developer' else []
     
     return render_template_string(
         HTML_TEMPLATE,
@@ -1337,7 +1441,8 @@ def index():
         role=role,
         logged_user_name=logged_user_name,
         leave_requests=current_user_leave_requests,
-        pending_leaves_count=pending_leaves_count
+        pending_leaves_count=pending_leaves_count,
+        manual_punches=manual_punches
     )
 
 @app.route('/apply_leave', methods=['POST'])
@@ -1403,6 +1508,47 @@ def update_leave(req_id, action):
             
     save_leave_requests(LEAVE_REQUESTS)
     return redirect(url_for('index'))
+
+# --- DEVELOPER ATTENDANCE CORRECTION ROUTES ---
+@app.route('/add_manual_punch', methods=['POST'])
+def add_manual_punch():
+    if not session.get('logged_in') or session.get('role') != 'developer':
+        return redirect(url_for('login'))
+        
+    emp_id = request.form.get('emp_id')
+    punch_date = request.form.get('punch_date')
+    punch_time = request.form.get('punch_time')
+    
+    if not emp_id or not punch_date or not punch_time:
+        flash("Sabhi fields bharo!", "danger")
+        return redirect(url_for('index'))
+
+    # Time format ensure (HH:MM:SS)
+    if len(punch_time.split(':')) == 2:
+        punch_time += ":00"
+        
+    ts_str = f"{punch_date} {punch_time}"
+    punch_id = int(datetime.now().timestamp()) # Generate unique ID
+    
+    punches = load_manual_punches()
+    punches.append({'id': punch_id, 'user_id': emp_id, 'timestamp': ts_str})
+    save_manual_punches(punches)
+    
+    flash(f"Manual punch for {emp_id} successfully added at {ts_str}!", 'success')
+    return redirect(url_for('index'))
+
+@app.route('/delete_manual_punch/<int:punch_id>')
+def delete_manual_punch(punch_id):
+    if not session.get('logged_in') or session.get('role') != 'developer':
+        return redirect(url_for('login'))
+        
+    punches = load_manual_punches()
+    new_punches = [p for p in punches if p.get('id') != punch_id]
+    save_manual_punches(new_punches)
+    
+    flash("Manual punch record delete kar diya gaya hai.", "success")
+    return redirect(url_for('index'))
+# ----------------------------------------------
 
 @app.route('/uploads/<filename>')
 def uploaded_file(filename):
