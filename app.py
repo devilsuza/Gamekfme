@@ -28,7 +28,7 @@ PORT = int(os.getenv('MACHINE_PORT', 4370))
 
 # GitHub Configurations via Environment Variables
 GITHUB_TOKEN = os.getenv('GITHUB_TOKEN', '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')
-GITHUB_REPO_NAME = os.getenv('GITHUB_REPO_NAME', 'fresmartgamek-hue/Biometric')
+GITHUB_REPO_NAME = os.getenv('GITHUB_REPO_NAME', 'devilsuza/Gamekfme')
 GITHUB_BRANCH = os.getenv('GITHUB_BRANCH', 'main')
 
 # Persistent Storage Files
