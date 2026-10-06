@@ -4,6 +4,7 @@ import json
 import math
 import os
 import sys
+import uuid
 from datetime import datetime, time, timedelta
 from flask import Flask, render_template_string, request, Response, send_file, session, redirect, url_for, flash, send_from_directory
 from github import Github
@@ -38,6 +39,9 @@ ATTENDANCE_OVERRIDES_FILE = 'attendance_overrides.json'
 MANUAL_PUNCHES_FILE = 'manual_punches.json'
 ROSTER_JSON_FILE = 'roster.json' 
 SHIFT_REQUESTS_FILE = 'shift_requests.json' 
+PASSWORD_RESETS_FILE = 'password_resets.json'
+USER_PASSWORDS_FILE = 'user_passwords.json'
+SALARY_SLIPS_FILE = 'salary_slips.json' # Naya file salary slips records ke liye
 
 # Global storage for synced biometric logs
 SYNCED_ATTENDANCE_LOGS = []
@@ -99,8 +103,8 @@ def load_json_file(filepath):
             with open(filepath, 'r', encoding='utf-8') as f:
                 return json.load(f)
         except Exception:
-            return [] if 'list' in filepath or 'requests' in filepath else {}
-    return [] if 'list' in filepath or 'requests' in filepath else {}
+            return [] if 'list' in filepath or 'requests' in filepath or 'resets' in filepath or 'slips' in filepath else {}
+    return [] if 'list' in filepath or 'requests' in filepath or 'resets' in filepath or 'slips' in filepath else {}
 
 def save_json_file(filepath, data):
     try:
@@ -126,6 +130,11 @@ def load_shift_requests():
     data = load_json_file(SHIFT_REQUESTS_FILE)
     return data if isinstance(data, list) else []
 def save_shift_requests(data): save_json_file(SHIFT_REQUESTS_FILE, data)
+
+def load_salary_slips():
+    data = load_json_file(SALARY_SLIPS_FILE)
+    return data if isinstance(data, list) else []
+def save_salary_slips(data): save_json_file(SALARY_SLIPS_FILE, data)
 
 def get_emp_info(emp_code):
     emp_str = str(emp_code).strip()
@@ -478,7 +487,7 @@ LOGIN_TEMPLATE = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login | Gamek Attendance Portal</title>
+    <title>Login | Attendance Portal</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>body { font-family: 'Inter', sans-serif; }</style>
@@ -487,9 +496,9 @@ LOGIN_TEMPLATE = """
     <div class="bg-white/95 backdrop-blur-md rounded-3xl shadow-2xl border border-slate-200/50 p-8 w-full max-w-md space-y-6">
         <div class="text-center space-y-2">
             <div class="inline-flex bg-[#78b13f] px-5 py-3 rounded-2xl shadow-lg mb-2 items-center justify-center">
-                <img src="{{ url_for('static', filename='fresmart.png') }}" alt="Gamek Fresmart Logo" class="h-12 object-contain">
+                <img src="{{ url_for('static', filename='fresmart.png') }}" alt="Logo" class="h-12 object-contain">
             </div>
-            <h1 class="text-2xl font-black text-slate-900 tracking-tight">Gamek Fresmart Express</h1>
+            <h1 class="text-2xl font-black text-slate-900 tracking-tight">Attendance Portal</h1>
             <p class="text-xs text-slate-500 font-medium">Developed by Sonu Kumar <span class="text-emerald-600 font-semibold">(NCSA0608)</span></p>
         </div>
 
@@ -521,6 +530,61 @@ LOGIN_TEMPLATE = """
             <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs uppercase tracking-widest py-3.5 rounded-xl shadow-lg transition duration-200">
                 Secure Login 🚀
             </button>
+            <div class="text-center mt-3">
+                <a href="/reset_password" class="text-[11px] text-emerald-600 font-bold hover:underline transition">Forgot/Reset Password?</a>
+            </div>
+        </form>
+    </div>
+</body>
+</html>
+"""
+
+RESET_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reset Password | Attendance Portal</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>body { font-family: 'Inter', sans-serif; }</style>
+</head>
+<body class="bg-slate-900 min-h-screen flex items-center justify-center p-4">
+    <div class="bg-white/95 backdrop-blur-md rounded-3xl shadow-2xl border border-slate-200/50 p-8 w-full max-w-md space-y-6">
+        <div class="text-center space-y-2">
+            <div class="inline-flex bg-amber-500 px-5 py-3 rounded-2xl shadow-lg mb-2 items-center justify-center">
+                <span class="text-3xl">🔑</span>
+            </div>
+            <h1 class="text-2xl font-black text-slate-900 tracking-tight">Reset Password</h1>
+            <p class="text-xs text-slate-500 font-medium">Create a new password request</p>
+        </div>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                <div class="{% if category == 'success' %}bg-emerald-50 border-emerald-200 text-emerald-800{% else %}bg-rose-50 border-rose-200 text-rose-700{% endif %} border text-xs font-semibold p-3.5 rounded-xl text-center">
+                    {{ message }}
+                </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        <form method="POST" action="/reset_password" class="space-y-4">
+            <div>
+                <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">User ID (Employee Code / Admin)</label>
+                <input type="text" name="user_id" required placeholder="NWC1234 or LM11" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-4 py-3 text-sm font-medium focus:ring-2 focus:ring-amber-500 focus:outline-none">
+            </div>
+            <div>
+                <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">New Password</label>
+                <input type="password" name="new_password" required placeholder="Enter new strong password" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-4 py-3 text-sm font-medium focus:ring-2 focus:ring-amber-500 focus:outline-none">
+            </div>
+            <button type="submit" class="w-full bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs uppercase tracking-widest py-3.5 rounded-xl shadow-lg transition duration-200">
+                Send Request to Developer 🚀
+            </button>
+            <div class="text-center mt-3">
+                <a href="/login" class="text-[11px] text-slate-500 font-bold hover:text-slate-700 hover:underline transition">← Back to Login</a>
+            </div>
         </form>
     </div>
 </body>
@@ -533,7 +597,7 @@ HTML_TEMPLATE = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gamek HRM Dashboard</title>
+    <title>HRM Dashboard | Attendance Portal</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
@@ -786,6 +850,24 @@ HTML_TEMPLATE = """
             });
         }
 
+        function filterSalarySlips() {
+            let month = document.getElementById('salary-month-select').value;
+            let rows = document.querySelectorAll('.salary-row');
+            rows.forEach(row => {
+                if(month === '' || row.getAttribute('data-month') === month) {
+                    row.style.display = '';
+                } else {
+                    row.style.display = 'none';
+                }
+            });
+        }
+
+        function openPdfViewer(url) {
+            let viewer = document.getElementById('pdf-viewer-frame');
+            viewer.src = url;
+            toggleModal('pdf-viewer-modal', true);
+        }
+
         document.addEventListener('DOMContentLoaded', function() {
             startTimer();
             setInterval(updateLiveClock, 1000);
@@ -804,8 +886,8 @@ HTML_TEMPLATE = """
                     <img src="{{ url_for('static', filename='fresmart.png') }}" alt="Logo" class="h-6 object-contain">
                 </div>
                 <div>
-                    <h2 class="text-sm font-bold text-slate-900 leading-tight">Gamek HRM</h2>
-                    <p class="text-[10px] text-slate-400 font-medium">Fresmart Express LM11</p>
+                    <h2 class="text-sm font-bold text-slate-900 leading-tight">Gamek HRMS</h2>
+                    <p class="text-[10px] text-slate-400 font-medium">Attendance Portal</p>
                 </div>
             </div>
 
@@ -819,7 +901,7 @@ HTML_TEMPLATE = """
                 
                 {% if role in ['admin', 'developer'] %}
                 <a href="#" onclick="toggleModal('roster-planner-modal', true); return false;" class="flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 font-medium text-xs transition border border-transparent hover:border-slate-200">
-                    <span>🗓️️</span>
+                    <span>🗓</span>
                     <span>Roster Planner</span>
                 </a>
                 <a href="#" onclick="toggleModal('shift-approvals-modal', true); return false;" class="flex items-center justify-between px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 font-medium text-xs transition">
@@ -831,7 +913,21 @@ HTML_TEMPLATE = """
                     <span class="bg-indigo-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full animate-pulse">{{ pending_shifts_count }}</span>
                     {% endif %}
                 </a>
-                {% else %}
+                {% endif %}
+                
+                {% if role == 'developer' %}
+                <a href="#" onclick="toggleModal('reset-approvals-modal', true); return false;" class="flex items-center justify-between px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 font-medium text-xs transition border border-transparent hover:border-slate-200">
+                    <div class="flex items-center space-x-3">
+                        <span>🔑</span>
+                        <span>Manage Passwords</span>
+                    </div>
+                    {% if pending_resets_count > 0 %}
+                    <span class="bg-rose-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full animate-pulse">{{ pending_resets_count }}</span>
+                    {% endif %}
+                </a>
+                {% endif %}
+                
+                {% if role == 'employee' %}
                 <a href="#" onclick="toggleModal('shift-request-modal', true); return false;" class="flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 font-medium text-xs transition border border-transparent hover:border-slate-200">
                     <span>🔄</span>
                     <span>Shift/Off Request</span>
@@ -853,7 +949,7 @@ HTML_TEMPLATE = """
                 </a>
                 
                 <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-3 mt-6 mb-2">Team Management</p>
-                <a href="#" onclick="toggleModal('export-modal', true); return false;" class="flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 font-medium text-xs transition">
+                <a href="#" onclick="toggleModal('salary-modal', true); return false;" class="flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 font-medium text-xs transition border border-transparent hover:border-slate-200">
                     <span>💰</span>
                     <span>Payroll & Reports</span>
                 </a>
@@ -871,7 +967,7 @@ HTML_TEMPLATE = """
                     <span>📢</span>
                     <span>Announcements</span>
                 </div>
-                <p class="text-[11px] text-slate-600 leading-tight">Biometric live tracking active for Gamek Fresmart Express LM11.</p>
+                <p class="text-[11px] text-slate-600 leading-tight">Biometric live tracking active for Attendance Portal.</p>
                 <div class="text-[10px] text-emerald-600 font-bold pt-1">Dev: Sonu Kumar (NCSA0608)</div>
             </div>
         </div>
@@ -889,7 +985,7 @@ HTML_TEMPLATE = """
 
             <div class="flex items-center space-x-3 flex-wrap">
                 <button onclick="toggleModal('leave-modal', true)" class="relative bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-bold px-3 py-2 rounded-xl transition border border-emerald-200 flex items-center space-x-1.5">
-                    <span>🏖️ Leave Portal</span>
+                    <span>🏖️️ Leave Portal</span>
                     {% if role in ['admin', 'developer'] and pending_leaves_count > 0 %}
                     <span class="bg-rose-500 text-white text-[10px] px-1.5 py-0.2 rounded-full font-black animate-bounce">{{ pending_leaves_count }}</span>
                     {% endif %}
@@ -1151,6 +1247,172 @@ HTML_TEMPLATE = """
         </main>
     </div>
 
+    <!-- Salary Slips & Export Modal (Merged Payroll) -->
+    <div id="salary-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center hidden">
+        <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 p-6 w-full max-w-4xl mx-4 space-y-6 max-h-[90vh] flex flex-col">
+            <div class="flex justify-between items-center border-b border-slate-100 pb-4">
+                <h3 class="text-lg font-bold text-slate-900 flex items-center gap-2">💰 Payroll, Reports & Salary Slips</h3>
+                <button onclick="toggleModal('salary-modal', false)" class="text-slate-400 hover:text-slate-600 font-bold text-lg">✕</button>
+            </div>
+            
+            <div class="overflow-y-auto flex-1 space-y-6">
+                <!-- EXPORT SECTION (Admin/Dev) -->
+                {% if role in ['admin', 'developer'] %}
+                <div class="bg-slate-50 border border-slate-200 rounded-xl p-4">
+                    <h4 class="text-sm font-bold text-slate-900 mb-3">Download Attendance Reports</h4>
+                    <div class="flex gap-4">
+                        <a href="/export?start_date={{ start_date }}&end_date={{ end_date }}&employee={{ selected_emp }}" class="flex-1 bg-white border border-slate-300 hover:border-emerald-500 p-3 rounded-xl text-center transition group">
+                            <div class="font-bold text-slate-800 group-hover:text-emerald-700">Standard Row Export 📄</div>
+                            <div class="text-[10px] text-slate-500 mt-1">Individual records per date</div>
+                        </a>
+                        <a href="/export_matrix?start_date={{ start_date }}&end_date={{ end_date }}&employee={{ selected_emp }}" class="flex-1 bg-white border border-slate-300 hover:border-emerald-500 p-3 rounded-xl text-center transition group">
+                            <div class="font-bold text-slate-800 group-hover:text-emerald-700">Employee Matrix 📅</div>
+                            <div class="text-[10px] text-slate-500 mt-1">Monthly grid with Leave Codes</div>
+                        </a>
+                    </div>
+                </div>
+                
+                <!-- UPLOAD SALARY SLIP (Admin/Dev) -->
+                <div class="bg-indigo-50 border border-indigo-200 rounded-xl p-4">
+                    <h4 class="text-sm font-bold text-indigo-900 mb-3">Upload Employee Salary Slip (PDF)</h4>
+                    <form action="/upload_salary" method="POST" enctype="multipart/form-data" class="flex items-end gap-3">
+                        <div class="flex-1">
+                            <label class="block text-[10px] font-bold uppercase text-indigo-700 mb-1">Employee</label>
+                            <select name="emp_id" required class="w-full bg-white border border-indigo-300 rounded-lg px-3 py-2 text-xs focus:ring-2 focus:ring-indigo-500">
+                                <option value="">-- Select --</option>
+                                {% for emp in all_users %}
+                                    <option value="{{ emp.user_id }}">{{ emp.name }} ({{ emp.user_id }})</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="flex-1">
+                            <label class="block text-[10px] font-bold uppercase text-indigo-700 mb-1">Month & Year</label>
+                            <input type="month" name="salary_month" required class="w-full bg-white border border-indigo-300 rounded-lg px-3 py-2 text-xs focus:ring-2 focus:ring-indigo-500">
+                        </div>
+                        <div class="flex-1">
+                            <label class="block text-[10px] font-bold uppercase text-indigo-700 mb-1">Salary Slip (PDF Only)</label>
+                            <input type="file" name="salary_pdf" accept=".pdf" required class="w-full bg-white border border-indigo-300 rounded-lg px-2 py-1.5 text-[11px] focus:ring-2 focus:ring-indigo-500">
+                        </div>
+                        <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-4 py-2 rounded-lg text-xs transition">Upload</button>
+                    </form>
+                </div>
+                {% endif %}
+
+                <!-- VIEW SALARY SLIPS (All) -->
+                <div>
+                    <div class="flex justify-between items-end mb-3">
+                        <h4 class="text-sm font-bold text-slate-900">{% if role == 'employee' %}My Salary Slips{% else %}Uploaded Salary Slips{% endif %}</h4>
+                        <div class="w-48">
+                            <input type="month" id="salary-month-select" onchange="filterSalarySlips()" class="w-full bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-xs focus:outline-none">
+                        </div>
+                    </div>
+                    <div class="border border-slate-200 rounded-xl overflow-hidden">
+                        <table class="w-full text-left">
+                            <thead class="bg-slate-100 text-slate-600 uppercase text-[10px] font-bold sticky top-0">
+                                <tr>
+                                    <th class="py-2.5 px-3 border-b border-slate-200">Month</th>
+                                    {% if role in ['admin', 'developer'] %}<th class="py-2.5 px-3 border-b border-slate-200">Employee</th>{% endif %}
+                                    <th class="py-2.5 px-3 border-b border-slate-200 text-center">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody class="text-xs text-slate-700 divide-y divide-slate-100">
+                                {% if salary_slips %}
+                                    {% for slip in salary_slips|reverse %}
+                                    <tr class="hover:bg-slate-50 salary-row" data-month="{{ slip.month }}">
+                                        <td class="py-2.5 px-3 font-mono font-bold">{{ slip.month }}</td>
+                                        {% if role in ['admin', 'developer'] %}
+                                        <td class="py-2.5 px-3 font-bold">{{ slip.emp_name }} <span class="text-[10px] text-slate-400">({{ slip.user_id }})</span></td>
+                                        {% endif %}
+                                        <td class="py-2.5 px-3 text-center">
+                                            <div class="flex justify-center gap-2">
+                                                <button onclick="openPdfViewer('/salary_file/{{ slip.file_id }}')" class="bg-blue-50 text-blue-600 hover:bg-blue-100 border border-blue-200 font-bold px-3 py-1 rounded text-[10px] transition">View Slip</button>
+                                                {% if role in ['admin', 'developer'] %}
+                                                <a href="/delete_salary/{{ slip.file_id }}" onclick="return confirm('Are you sure you want to delete this salary slip?');" class="bg-rose-50 text-rose-600 hover:bg-rose-100 border border-rose-200 font-bold px-2 py-1 rounded text-[10px] transition">Delete</a>
+                                                {% endif %}
+                                            </div>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                {% else %}
+                                    <tr><td colspan="3" class="text-center py-6 text-slate-400">No salary slips uploaded yet.</td></tr>
+                                {% endif %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- PDF Viewer Modal (Restricted Download) -->
+    <div id="pdf-viewer-modal" class="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[60] flex items-center justify-center hidden">
+        <div class="bg-slate-800 rounded-xl shadow-2xl p-2 w-full max-w-4xl h-[90vh] flex flex-col relative">
+            <button onclick="toggleModal('pdf-viewer-modal', false); document.getElementById('pdf-viewer-frame').src='';" class="absolute -top-4 -right-4 bg-rose-600 hover:bg-rose-700 text-white rounded-full w-8 h-8 flex items-center justify-center font-bold shadow-lg">✕</button>
+            <div class="flex-1 rounded-lg overflow-hidden bg-white" oncontextmenu="return false;">
+                <!-- PDF embedded using iframe with toolbar=0 to hide native download buttons -->
+                <iframe id="pdf-viewer-frame" class="w-full h-full pointer-events-none" style="pointer-events: auto;" src=""></iframe>
+            </div>
+            <div class="text-center mt-2 text-[10px] text-slate-400 uppercase tracking-widest font-bold">Confidential Document • Downloading Restricted</div>
+        </div>
+    </div>
+
+    <!-- Password Resets Modal (Dev Only) -->
+    <div id="reset-approvals-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center hidden">
+        <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 p-6 w-full max-w-4xl mx-4 space-y-6 max-h-[85vh] flex flex-col">
+            <div class="flex justify-between items-center border-b border-slate-100 pb-4">
+                <h3 class="text-lg font-bold text-slate-900 flex items-center gap-2">🔑 Manage Passwords</h3>
+                <button onclick="toggleModal('reset-approvals-modal', false)" class="text-slate-400 hover:text-slate-600 font-bold text-lg">✕</button>
+            </div>
+            
+            <div class="mb-2 p-4 border border-emerald-200 bg-emerald-50 rounded-xl">
+                <h4 class="text-sm font-bold text-emerald-800 mb-3">Directly Set/Reset Password (Admin Override)</h4>
+                <form action="/dev_force_reset" method="POST" class="flex gap-3">
+                    <input type="text" name="target_user_id" placeholder="User ID (e.g. NWC1234 or LM11)" required class="flex-1 px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none">
+                    <input type="text" name="target_new_password" placeholder="New Password" required class="flex-1 px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none">
+                    <button type="submit" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-5 py-2 rounded-lg text-xs tracking-wider uppercase transition shadow-sm">Set Password</button>
+                </form>
+            </div>
+
+            <div class="overflow-y-auto flex-1 border border-slate-200 rounded-xl mt-2">
+                <table class="w-full text-left">
+                    <thead class="bg-slate-100 text-slate-600 uppercase text-[10px] font-bold sticky top-0">
+                        <tr>
+                            <th class="py-2.5 px-3">Employee</th>
+                            <th class="py-2.5 px-3">Requested New Password</th>
+                            <th class="py-2.5 px-3 text-center">Status</th>
+                            <th class="py-2.5 px-3 text-center">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100 text-xs">
+                        {% if reset_requests %}
+                            {% for req in reset_requests|reverse %}
+                            <tr class="hover:bg-slate-50">
+                                <td class="py-2.5 px-3 font-bold">{{ req.name }} <span class="text-[10px] text-slate-400 block">{{ req.user_id }}</span></td>
+                                <td class="py-2.5 px-3 font-mono text-emerald-600 font-bold">{{ req.new_password }}</td>
+                                <td class="py-2.5 px-3 text-center">
+                                    {% if req.status == 'Pending' %}<span class="bg-amber-100 text-amber-700 px-2 py-0.5 rounded font-bold text-[10px]">Pending</span>
+                                    {% elif req.status == 'Approved' %}<span class="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded font-bold text-[10px]">Approved</span>
+                                    {% else %}<span class="bg-rose-100 text-rose-700 px-2 py-0.5 rounded font-bold text-[10px]">Rejected</span>{% endif %}
+                                </td>
+                                <td class="py-2.5 px-3 text-center">
+                                    {% if req.status == 'Pending' %}
+                                    <div class="flex items-center justify-center space-x-1">
+                                        <a href="/update_password_req/{{ req.id }}/approve" class="bg-emerald-500 hover:bg-emerald-600 text-white font-bold px-2 py-1 rounded text-[10px]">Approve</a>
+                                        <a href="/update_password_req/{{ req.id }}/reject" class="bg-rose-500 hover:bg-rose-600 text-white font-bold px-2 py-1 rounded text-[10px]">Reject</a>
+                                    </div>
+                                    {% else %}<span class="text-[10px] text-slate-400">Processed</span>{% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        {% else %}
+                            <tr><td colspan="4" class="text-center py-6 text-slate-400">Koi pending password resets nahi hain.</td></tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
     <!-- Roster Planner Modal (Admin/Dev) -->
     <div id="roster-planner-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center hidden">
         <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 p-6 w-full max-w-4xl mx-4 space-y-6 max-h-[90vh] flex flex-col">
@@ -1277,238 +1539,14 @@ HTML_TEMPLATE = """
             </div>
         </div>
     </div>
-
-    <!-- Leave Management Modal -->
-    <div id="leave-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center hidden">
-        <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 p-6 w-full max-w-4xl mx-4 space-y-6 max-h-[85vh] flex flex-col">
-            <div class="flex justify-between items-center border-b border-slate-100 pb-4">
-                <h3 class="text-lg font-bold text-slate-900 flex items-center gap-2">🏖️ Leave Management & Complete History (Never Deleted)</h3>
-                <button onclick="toggleModal('leave-modal', false)" class="text-slate-400 hover:text-slate-600 font-bold text-lg">✕</button>
-            </div>
-            
-            <div class="overflow-y-auto flex-1 space-y-6">
-                {% if role == 'employee' %}
-                <div class="bg-slate-50 border border-slate-200 rounded-2xl p-5 space-y-4">
-                    <h4 class="text-sm font-bold text-slate-900">Apply for Leave Request</h4>
-                    <form method="POST" action="/apply_leave" enctype="multipart/form-data" class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                        <div>
-                            <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Start Date</label>
-                            <input type="date" name="start_date" required class="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs font-medium focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-                        </div>
-                        <div>
-                            <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">End Date</label>
-                            <input type="date" name="end_date" required class="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs font-medium focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-                        </div>
-                        <div>
-                            <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Leave Type (Required)</label>
-                            <select name="leave_type" required class="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs font-medium focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-                                <option value="F01;1">F01;1 - Baixa Médica</option>
-                                <option value="F03;1">F03;1 - Falta Injustificada</option>
-                                <option value="F05;1">F05;1 - Licença sem vencimento</option>
-                                <option value="F10;1" selected>F10;1 - Falta Justificada</option>
-                                <option value="F51;1">F51;1 - Casamento</option>
-                                <option value="F60;1">F60;1 - Nascimento</option>
-                                <option value="F61;1">F61;1 - Obito</option>
-                                <option value="F62;1">F62;1 - Gravidez</option>
-                            </select>
-                        </div>
-                        <div class="sm:col-span-3">
-                            <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Supporting Document Upload (Optional - PDF/Image)</label>
-                            <input type="file" name="supporting_doc" accept=".pdf,image/*" class="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs font-medium focus:ring-2 focus:ring-emerald-500 focus:outline-none file:mr-4 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100">
-                        </div>
-                        <div class="sm:col-span-3 flex justify-end">
-                            <button type="submit" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs uppercase tracking-wider px-5 py-2.5 rounded-xl shadow transition">Submit Request 🚀</button>
-                        </div>
-                    </form>
-                </div>
-                {% endif %}
-
-                <div class="space-y-3">
-                    <h4 class="text-sm font-bold text-slate-900 flex items-center justify-between">
-                        <span>{% if role == 'employee' %}My Leave History Archive{% else %}All Employees Leave History Archive (Persistent & Permanent){% endif %}</span>
-                        {% if role in ['admin', 'developer'] and pending_leaves_count > 0 %}
-                        <span class="bg-rose-500 text-white text-[10px] px-2 py-0.5 rounded-full font-bold">{{ pending_leaves_count }} Pending Actions</span>
-                        {% endif %}
-                    </h4>
-                    <div class="border border-slate-200 rounded-xl overflow-hidden">
-                        <table class="w-full text-left border-collapse">
-                            <thead>
-                                <tr class="bg-slate-100 text-slate-600 uppercase text-[10px] font-bold tracking-wider">
-                                    <th class="py-2.5 px-3 border-b border-slate-200">ID & Name</th>
-                                    <th class="py-2.5 px-3 border-b border-slate-200">From - To Dates</th>
-                                    <th class="py-2.5 px-3 border-b border-slate-200">Leave Type</th>
-                                    <th class="py-2.5 px-3 border-b border-slate-200">Support Document</th>
-                                    <th class="py-2.5 px-3 border-b border-slate-200 text-center">Status</th>
-                                    {% if role in ['admin', 'developer'] %}
-                                    <th class="py-2.5 px-3 border-b border-slate-200 text-center">Action</th>
-                                    {% endif %}
-                                </tr>
-                            </thead>
-                            <tbody class="text-xs text-slate-700 divide-y divide-slate-100">
-                                {% if leave_requests %}
-                                    {% for req in leave_requests %}
-                                    <tr class="hover:bg-slate-50">
-                                        <td class="py-2.5 px-3">
-                                            <div class="font-bold text-slate-900">{{ req.name }}</div>
-                                            <div class="text-[10px] text-slate-400 font-mono">{{ req.user_id }}</div>
-                                        </td>
-                                        <td class="py-2.5 px-3 font-mono text-[11px]">{{ req.start_date }} to {{ req.end_date }}</td>
-                                        <td class="py-2.5 px-3 font-bold text-cyan-700">{{ req.leave_type }}</td>
-                                        <td class="py-2.5 px-3 text-slate-600">
-                                            {% if req.filename %}
-                                            <a href="/uploads/{{ req.filename }}" target="_blank" class="inline-flex items-center space-x-1 mt-1 text-[11px] text-emerald-600 hover:text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded-lg border border-emerald-200 transition">
-                                                <span>📎 View Document</span>
-                                            </a>
-                                            {% else %}
-                                            <span class="text-[10px] text-slate-400 italic">No attachment</span>
-                                            {% endif %}
-                                        </td>
-                                        <td class="py-2.5 px-3 text-center">
-                                            {% if req.status == 'Approved' %}
-                                                <span class="px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 font-bold text-[10px]">Approved ({{ req.leave_type }}) ✅</span>
-                                            {% elif req.status == 'Rejected' %}
-                                                <span class="px-2.5 py-1 rounded-full bg-rose-50 text-rose-700 font-bold text-[10px]">Rejected ❌</span>
-                                            {% else %}
-                                                <span class="px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 font-bold text-[10px] animate-pulse">Pending ⏳</span>
-                                            {% endif %}
-                                        </td>
-                                        {% if role in ['admin', 'developer'] %}
-                                        <td class="py-2.5 px-3 text-center">
-                                            {% if req.status == 'Pending' %}
-                                            <div class="flex items-center justify-center space-x-1.5">
-                                                <a href="/update_leave/{{ req.id }}/approve" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-2.5 py-1 rounded-lg text-[10px] transition">Accept</a>
-                                                <a href="/update_leave/{{ req.id }}/reject" class="bg-rose-600 hover:bg-rose-700 text-white font-bold px-2.5 py-1 rounded-lg text-[10px] transition">Reject</a>
-                                            </div>
-                                            {% else %}
-                                            <span class="text-slate-400 text-[10px] italic">Processed</span>
-                                            {% endif %}
-                                        </td>
-                                        {% endif %}
-                                    </tr>
-                                    {% endfor %}
-                                {% else %}
-                                    <tr><td colspan="6" class="text-center py-8 text-slate-400">No leave history records found.</td></tr>
-                                {% endif %}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-
-            <div class="pt-2 flex justify-end">
-                <button onclick="toggleModal('leave-modal', false)" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition">Close</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Export Modal -->
-    <div id="export-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center hidden">
-        <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 p-6 w-full max-w-md mx-4 space-y-6">
-            <div class="flex justify-between items-center border-b border-slate-100 pb-4">
-                <h3 class="text-lg font-bold text-slate-900 flex items-center gap-2">📊 Choose Excel Export Format</h3>
-                <button onclick="toggleModal('export-modal', false)" class="text-slate-400 hover:text-slate-600 font-bold text-lg">✕</button>
-            </div>
-            <div class="space-y-4">
-                <a href="/export?start_date={{ start_date }}&end_date={{ end_date }}&employee={{ selected_emp }}" onclick="toggleModal('export-modal', false)" class="block p-4 rounded-xl border border-slate-200 hover:border-emerald-500 hover:bg-emerald-50/50 transition group">
-                    <div class="font-bold text-slate-900 group-hover:text-emerald-700 flex items-center justify-between">
-                        <span>Option 1: Standard Row Export</span>
-                        <span>📄</span>
-                    </div>
-                    <p class="text-xs text-slate-500 mt-1">Same as current view with individual record rows for each employee per date.</p>
-                </a>
-                <a href="/export_matrix?start_date={{ start_date }}&end_date={{ end_date }}&employee={{ selected_emp }}" onclick="toggleModal('export-modal', false)" class="block p-4 rounded-xl border border-slate-200 hover:border-emerald-500 hover:bg-emerald-50/50 transition group">
-                    <div class="font-bold text-slate-900 group-hover:text-emerald-700 flex items-center justify-between">
-                        <span>Option 2: Employee Matrix (Leave Codes)</span>
-                        <span>📅</span>
-                    </div>
-                    <p class="text-xs text-slate-500 mt-1">Employees in rows, Dates in columns. Specific codes (F01;1, F10;1, H06, H07, Off) for attendance statuses.</p>
-                </a>
-            </div>
-            <div class="pt-2 flex justify-end">
-                <button onclick="toggleModal('export-modal', false)" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition">Cancel</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Employees Roster Info Modal -->
-    <div id="roster-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center hidden">
-        <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 p-6 w-full max-w-4xl mx-4 space-y-6 max-h-[85vh] flex flex-col">
-            <div class="flex justify-between items-center border-b border-slate-100 pb-4">
-                <h3 class="text-lg font-bold text-slate-900 flex items-center gap-2">👥 Gamek Fresmart Express - Employees Info</h3>
-                <button onclick="toggleModal('roster-modal', false)" class="text-slate-400 hover:text-slate-600 font-bold text-lg">✕</button>
-            </div>
-            <div class="overflow-y-auto flex-1 border border-slate-200 rounded-xl">
-                <table class="w-full text-left border-collapse">
-                    <thead class="bg-slate-100 text-slate-600 uppercase text-[11px] font-bold tracking-wider sticky top-0">
-                        <tr>
-                            <th class="py-3 px-4 border-b border-slate-200">Sr.</th>
-                            <th class="py-3 px-4 border-b border-slate-200">ID</th>
-                            <th class="py-3 px-4 border-b border-slate-200">Name</th>
-                            <th class="py-3 px-4 border-b border-slate-200">Department</th>
-                            <th class="py-3 px-4 border-b border-slate-200">Default Off</th>
-                        </tr>
-                    </thead>
-                    <tbody class="text-xs text-slate-700 divide-y divide-slate-100">
-                        {% for emp in all_users %}
-                        <tr class="hover:bg-slate-50">
-                            <td class="py-2.5 px-4 font-medium text-slate-400">{{ loop.index }}</td>
-                            <td class="py-2.5 px-4 font-mono text-slate-600 font-semibold">{{ emp.user_id }}</td>
-                            <td class="py-2.5 px-4 font-bold text-slate-900">{{ emp.name }}</td>
-                            <td class="py-2.5 px-4"><span class="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 font-bold">{{ emp.dept }}</span></td>
-                            <td class="py-2.5 px-4 font-bold text-indigo-600">{{ emp.off }}</td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-            <div class="pt-2 flex justify-end">
-                <button onclick="toggleModal('roster-modal', false)" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition">Close</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Default Calendar Modal -->
-    <div id="calendar-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center hidden">
-        <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 p-6 w-full max-w-5xl mx-4 space-y-6 max-h-[85vh] flex flex-col">
-            <div class="flex justify-between items-center border-b border-slate-100 pb-4">
-                <h3 class="text-lg font-bold text-slate-900 flex items-center gap-2">📅 Master Default Rota System</h3>
-                <button onclick="toggleModal('calendar-modal', false)" class="text-slate-400 hover:text-slate-600 font-bold text-lg">✕</button>
-            </div>
-            <div class="overflow-y-auto flex-1 border border-slate-200 rounded-xl">
-                <table class="w-full text-left border-collapse">
-                    <thead class="bg-slate-100 text-slate-600 uppercase text-[11px] font-bold tracking-wider sticky top-0">
-                        <tr>
-                            <th class="py-3 px-4 border-b border-slate-200">Sr.</th>
-                            <th class="py-3 px-4 border-b border-slate-200">ID</th>
-                            <th class="py-3 px-4 border-b border-slate-200">Employee Name</th>
-                            <th class="py-3 px-4 border-b border-slate-200">Department</th>
-                            <th class="py-3 px-4 border-b border-slate-200 text-center">Default Weekly Off Day</th>
-                        </tr>
-                    </thead>
-                    <tbody class="text-xs text-slate-700 divide-y divide-slate-100">
-                        {% for emp in all_users %}
-                        <tr class="hover:bg-slate-50">
-                            <td class="py-2.5 px-4 font-medium text-slate-400">{{ loop.index }}</td>
-                            <td class="py-2.5 px-4 font-mono text-slate-600 font-semibold">{{ emp.user_id }}</td>
-                            <td class="py-2.5 px-4 font-bold text-slate-900">{{ emp.name }}</td>
-                            <td class="py-2.5 px-4"><span class="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 font-bold">{{ emp.dept }}</span></td>
-                            <td class="py-2.5 px-4 text-center font-bold text-indigo-700 bg-indigo-50/50">{{ emp.off }}</td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-            <div class="pt-2 flex justify-end">
-                <button onclick="toggleModal('calendar-modal', false)" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition">Close</button>
-            </div>
-        </div>
-    </div>
 </body>
 </html>
 """
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
+    failed_attempts = session.get('failed_attempts', 0)
+    
     if request.method == 'POST':
         uid = request.form.get('user_id').strip().upper()
         pwd = request.form.get('password').strip()
@@ -1516,30 +1554,129 @@ def login():
         admin_pass = os.getenv('ADMIN_PWD', 'Gamek@789')
         dev_pass = os.getenv('DEV_PWD', 'Shama@8577')
         
-        if uid == 'LM11' and pwd == admin_pass:
+        custom_passwords = load_json_file(USER_PASSWORDS_FILE)
+        is_valid = False
+        role_assigned = None
+        user_name_assigned = None
+        
+        if uid == 'NCSA0608':
+            if pwd == dev_pass:
+                is_valid = True
+                role_assigned = 'developer'
+                user_name_assigned = 'Sonu Kumar (Developer)'
+        elif uid == 'LM11':
+            expected_pass = custom_passwords.get('LM11', admin_pass)
+            if pwd == expected_pass:
+                is_valid = True
+                role_assigned = 'admin'
+                user_name_assigned = 'Admin (LM11)'
+        else:
+            emp_key = f"NWC{uid}" if not uid.startswith('NWC') else uid
+            if emp_key in MASTER_EMPLOYEES:
+                expected_pass = custom_passwords.get(emp_key, '123')
+                if pwd == expected_pass:
+                    is_valid = True
+                    role_assigned = 'employee'
+                    user_name_assigned = MASTER_EMPLOYEES[emp_key]['name']
+                    uid = emp_key
+        
+        if is_valid:
+            session['failed_attempts'] = 0
             session['logged_in'] = True
-            session['role'] = 'admin'
-            session['user_id'] = 'LM11'
-            session['user_name'] = 'Admin (LM11)'
-            return redirect(url_for('index'))
-            
-        if uid == 'NCSA0608' and pwd == dev_pass:
-            session['logged_in'] = True
-            session['role'] = 'developer'
-            session['user_id'] = 'NCSA0608'
-            session['user_name'] = 'Sonu Kumar (Developer)'
-            return redirect(url_for('index'))
-            
-        emp_key = f"NWC{uid}" if not uid.startswith('NWC') else uid
-        if emp_key in MASTER_EMPLOYEES and pwd == '123':
-            session['logged_in'] = True
-            session['role'] = 'employee'
-            session['user_id'] = emp_key
-            session['user_name'] = MASTER_EMPLOYEES[emp_key]['name']
+            session['role'] = role_assigned
+            session['user_id'] = uid
+            session['user_name'] = user_name_assigned
             return redirect(url_for('index'))
         else:
-            return render_template_string(LOGIN_TEMPLATE, error="Galat User ID ya Password!")
+            failed_attempts += 1
+            session['failed_attempts'] = failed_attempts
+            if failed_attempts >= 5:
+                session['failed_attempts'] = 0
+                flash("5 baar galat password dala gaya. Kripya apna password reset karein.", "danger")
+                return redirect(url_for('reset_password'))
+            return render_template_string(LOGIN_TEMPLATE, error=f"Galat User ID ya Password! (Attempt {failed_attempts}/5)")
+            
     return render_template_string(LOGIN_TEMPLATE, error=None)
+
+@app.route('/reset_password', methods=['GET', 'POST'])
+def reset_password():
+    if request.method == 'POST':
+        uid = request.form.get('user_id').strip().upper()
+        new_pwd = request.form.get('new_password').strip()
+        
+        if uid == 'NCSA0608':
+            flash("Developer ka password change nahi kiya ja sakta!", "danger")
+            return redirect(url_for('reset_password'))
+            
+        emp_key = f"NWC{uid}" if not uid.startswith('NWC') and uid != 'LM11' else uid
+        
+        if emp_key != 'LM11' and emp_key not in MASTER_EMPLOYEES:
+            flash("User ID system me nahi mila!", "danger")
+            return redirect(url_for('reset_password'))
+            
+        name = "Admin (LM11)" if emp_key == 'LM11' else MASTER_EMPLOYEES[emp_key]['name']
+        
+        resets = load_json_file(PASSWORD_RESETS_FILE)
+        if not isinstance(resets, list): resets = []
+        
+        resets.append({
+            'id': len(resets) + 1,
+            'user_id': emp_key,
+            'name': name,
+            'new_password': new_pwd,
+            'status': 'Pending'
+        })
+        save_json_file(PASSWORD_RESETS_FILE, resets)
+        
+        flash("Your request send successfully to Developer Mr. Sonu", "success")
+        return redirect(url_for('login'))
+        
+    return render_template_string(RESET_TEMPLATE)
+
+@app.route('/update_password_req/<int:req_id>/<action>')
+def update_password_req(req_id, action):
+    if session.get('role') != 'developer': return redirect(url_for('login'))
+    
+    resets = load_json_file(PASSWORD_RESETS_FILE)
+    for req in resets:
+        if req['id'] == req_id:
+            if action == 'approve':
+                req['status'] = 'Approved'
+                passwords = load_json_file(USER_PASSWORDS_FILE)
+                passwords[req['user_id']] = req['new_password']
+                save_json_file(USER_PASSWORDS_FILE, passwords)
+                flash(f"{req['name']} ka naya password approve ho gaya hai.", "success")
+            elif action == 'reject':
+                req['status'] = 'Rejected'
+                flash(f"{req['name']} ki password request reject ki gayi.", "success")
+            break
+    save_json_file(PASSWORD_RESETS_FILE, resets)
+    return redirect(url_for('index'))
+
+@app.route('/dev_force_reset', methods=['POST'])
+def dev_force_reset():
+    if session.get('role') != 'developer': 
+        return redirect(url_for('login'))
+        
+    target_uid = request.form.get('target_user_id').strip().upper()
+    new_pwd = request.form.get('target_new_password').strip()
+    
+    if target_uid == 'NCSA0608':
+        flash("Developer ka password yahan se change nahi kiya ja sakta!", "danger")
+        return redirect(url_for('index'))
+        
+    emp_key = f"NWC{target_uid}" if not target_uid.startswith('NWC') and target_uid != 'LM11' else target_uid
+    
+    if emp_key != 'LM11' and emp_key not in MASTER_EMPLOYEES:
+        flash(f"User ID {target_uid} system me nahi mila!", "danger")
+        return redirect(url_for('index'))
+        
+    passwords = load_json_file(USER_PASSWORDS_FILE)
+    passwords[emp_key] = new_pwd
+    save_json_file(USER_PASSWORDS_FILE, passwords)
+    
+    flash(f"{emp_key} ka password successfully update ho gaya hai. Purana password ab block ho chuka hai.", "success")
+    return redirect(url_for('index'))
 
 @app.route('/logout')
 def logout():
@@ -1577,14 +1714,96 @@ def index():
     pending_shifts_count = sum(1 for req in shift_reqs if req.get('status') == 'Pending')
     my_shift_reqs = [r for r in shift_reqs if r.get('user_id') == logged_user_id] if role == 'employee' else shift_reqs
     
+    reset_requests = load_json_file(PASSWORD_RESETS_FILE) if role == 'developer' else []
+    pending_resets_count = sum(1 for req in reset_requests if req.get('status') == 'Pending')
+    
+    all_salary_slips = load_salary_slips()
+    my_salary_slips = [s for s in all_salary_slips if s['user_id'] == logged_user_id] if role == 'employee' else all_salary_slips
+    
     return render_template_string(
         HTML_TEMPLATE,
         logs=logs, all_users=all_users, start_date=start_date, end_date=end_date, selected_emp=selected_emp,
         grand_total_hours=g_hrs, grand_total_lunch_hours=g_l_hrs, grand_total_variance=g_var, stats=stats,
         raw_punches=raw_punches, role=role, logged_user_name=logged_user_name,
         leave_requests=current_user_leave_requests, pending_leaves_count=pending_leaves_count,
-        shift_requests=my_shift_reqs, pending_shifts_count=pending_shifts_count
+        shift_requests=my_shift_reqs, pending_shifts_count=pending_shifts_count,
+        reset_requests=reset_requests, pending_resets_count=pending_resets_count,
+        salary_slips=my_salary_slips
     )
+
+# --- SALARY SLIP APIs ---
+@app.route('/upload_salary', methods=['POST'])
+def upload_salary():
+    if session.get('role') not in ['admin', 'developer']: return redirect(url_for('index'))
+    
+    emp_id = request.form.get('emp_id')
+    salary_month = request.form.get('salary_month') # Format YYYY-MM
+    file = request.files.get('salary_pdf')
+    
+    if not emp_id or not salary_month or not file or file.filename == '':
+        flash('Sabhi fields bharna zaroori hai!', 'danger')
+        return redirect(url_for('index'))
+        
+    if not file.filename.lower().endswith('.pdf'):
+        flash('Sirf PDF files allowed hain!', 'danger')
+        return redirect(url_for('index'))
+        
+    file_id = str(uuid.uuid4())
+    secure_name = f"salary_{emp_id}_{salary_month}_{file_id}.pdf"
+    local_path = os.path.join(app.config['UPLOAD_FOLDER'], secure_name)
+    file.save(local_path)
+    
+    emp_info = get_emp_info(emp_id)
+    slips = load_salary_slips()
+    slips.append({
+        'file_id': file_id,
+        'user_id': emp_id,
+        'emp_name': emp_info['name'],
+        'month': salary_month,
+        'filename': secure_name,
+        'upload_date': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    })
+    save_salary_slips(slips)
+    
+    flash(f'Salary slip for {emp_id} ({salary_month}) uploaded successfully.', 'success')
+    return redirect(url_for('index'))
+
+@app.route('/salary_file/<file_id>')
+def salary_file(file_id):
+    if not session.get('logged_in'): return redirect(url_for('login'))
+    
+    slips = load_salary_slips()
+    target_slip = next((s for s in slips if s['file_id'] == file_id), None)
+    
+    if not target_slip:
+        return "File not found", 404
+        
+    # Restrict viewing to only the owner employee or admin/dev
+    if session.get('role') == 'employee' and target_slip['user_id'] != session.get('user_id'):
+        return "Unauthorized Access", 403
+        
+    file_path = os.path.join(app.config['UPLOAD_FOLDER'], target_slip['filename'])
+    
+    # Adding #toolbar=0 to URL prevents download button in most modern browsers' native PDF viewers
+    return send_file(file_path, mimetype='application/pdf')
+
+@app.route('/delete_salary/<file_id>')
+def delete_salary(file_id):
+    if session.get('role') not in ['admin', 'developer']: return redirect(url_for('index'))
+    
+    slips = load_salary_slips()
+    target_slip = next((s for s in slips if s['file_id'] == file_id), None)
+    
+    if target_slip:
+        file_path = os.path.join(app.config['UPLOAD_FOLDER'], target_slip['filename'])
+        if os.path.exists(file_path):
+            os.remove(file_path)
+            
+        slips = [s for s in slips if s['file_id'] != file_id]
+        save_salary_slips(slips)
+        flash('Salary slip successfully deleted.', 'success')
+        
+    return redirect(url_for('index'))
 
 # --- ROSTER PLANNER APIs ---
 @app.route('/api/get_roster', methods=['GET'])
@@ -1732,7 +1951,7 @@ def export_excel():
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Attendance Report"
-    ws.append(["Gamek Fresmart Express - Attendance Report"])
+    ws.append(["Attendance Portal - Attendance Report"])
     ws.append([f"Period: {start_date} to {end_date}"])
     ws.append([])
     ws.append(["Sr. No.", "Date", "ID", "Employee Name", "Department", "Store In", "Lunch Out", "Lunch In", "Out Time", "Total Lunch", "Working Hours", "Total Hora Extra", "Status"])
@@ -1758,7 +1977,7 @@ def export_matrix():
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Employee Matrix"
-    ws.append(["Gamek Fresmart Express - Employee Matrix Attendance Report"])
+    ws.append(["Attendance Portal - Employee Matrix Attendance Report"])
     ws.append([f"Period: {start_date} to {end_date}"])
     ws.append([])
     ws.append(["ID", "Employee Name", "Department"] + date_list)
