@@ -14,23 +14,16 @@ import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from werkzeug.utils import secure_filename
 from zk import ZK, const
-from pypdf import PdfReader, PdfWriter # Naya import for Bulk PDF splitting
+from pypdf import PdfReader, PdfWriter
 
 app = Flask(__name__)
-
-# Secret configurations using Environment Variables with fallbacks
 app.secret_key = os.getenv('SECRET_KEY', 'gamek_fresmart_secret_key_sonu')
 
 UPLOAD_FOLDER = os.getenv('UPLOAD_FOLDER', 'uploads')
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-
 ALLOWED_EXTENSIONS = {'pdf', 'png', 'jpg', 'jpeg', 'doc', 'docx'}
 
-MACHINE_IP = os.getenv('MACHINE_IP', '192.168.1.153')
-PORT = int(os.getenv('MACHINE_PORT', 4370))
-
-# GitHub Configurations via Environment Variables
 GITHUB_TOKEN = os.getenv('GITHUB_TOKEN', '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')
 GITHUB_REPO_NAME = os.getenv('GITHUB_REPO_NAME', 'devilsuza/Gamekfme')
 GITHUB_BRANCH = os.getenv('GITHUB_BRANCH', 'main')
@@ -43,49 +36,20 @@ MANUAL_PUNCHES_FILE = 'manual_punches.json'
 ROSTER_JSON_FILE = 'roster.json' 
 SHIFT_REQUESTS_FILE = 'shift_requests.json' 
 PASSWORD_RESETS_FILE = 'password_resets.json'
-USER_PASSWORDS_FILE = 'user_passwords.json'
+USERS_DB_FILE = 'users_db.json'
 SALARY_SLIPS_FILE = 'salary_slips.json'
+MACHINES_FILE = 'machines.json'
 
-# Global storage for synced biometric logs
 SYNCED_ATTENDANCE_LOGS = []
 LAST_DEVICE_SYNC_TIME = None
 
+# Master Employees (Fallback / Default Setup)
 MASTER_EMPLOYEES = {
     'NWC2981': {'name': 'ANTONIO JOSE BANDOLA', 'off': 'SUNDAY', 'dept': 'ADMIN - MANAGER', 'shift': 'morning'},
     'NWC3127': {'name': 'MATEUS ANTONIO DA COSTA BALMIRO', 'off': 'FRIDAY', 'dept': 'ADMIN - MANAGER', 'shift': 'morning'},
     'NWC1525': {'name': 'ETY JOSÉ BANDUA MONTEIRO', 'off': 'MONDAY', 'dept': 'ADMIN - MANAGER', 'shift': 'morning'},
     'NWC8328': {'name': 'JOAO MATIAS DOMINGOS', 'off': 'SATURDAY', 'dept': 'ADMIN - CCTV', 'shift': 'morning'},
-    'NWC6661': {'name': 'FRANCISCO MUNDELE CHIVELA', 'off': 'WEDNESDAY', 'dept': 'ADMIN - CCTV', 'shift': 'morning'},
-    'NWC1553': {'name': 'TIAGO SANDALA CHISSANHA', 'off': 'SUNDAY', 'dept': 'ADMIN - AUDITOR', 'shift': 'morning'},
-    'NWC8350': {'name': 'LOLIVALDO ALBERTO MADEIRA', 'off': 'SUNDAY', 'dept': 'ADMIN - EDP', 'shift': 'morning'},
-    'NWC5187': {'name': 'VICTOR NSOSI JOAO', 'off': 'MONDAY', 'dept': 'CASH - HEAD', 'shift': 'morning'},
-    'NWC1168': {'name': 'ADELIA MBALOMBO CHIPEPI', 'off': 'SUNDAY', 'dept': 'CASH - HEAD', 'shift': 'morning'},
-    'NWC2652': {'name': 'DULCE DOROTEIA GARCIA LUSITANO', 'off': 'MONDAY', 'dept': 'CASH - HEAD', 'shift': 'morning'},
-    'NWC3381': {'name': 'ANDRE DE JESUS NGOLA JOSE', 'off': 'TUESDAY', 'dept': 'CASH', 'shift': 'morning'},
-    'NWC1983': {'name': 'PATRICIA SOLANGE FRANCISCO', 'off': 'THURSDAY', 'dept': 'CASH', 'shift': 'second'},
-    'NWC8364': {'name': 'DIELUMBAKA AUGUSTO', 'off': 'WEDNESDAY', 'dept': 'CASH', 'shift': 'second'},
-    'NWC2788': {'name': 'INES NACHINGOLO FELICIANO NAMBELO', 'off': 'TUESDAY', 'dept': 'CASH', 'shift': 'morning'},
-    'NWC1010': {'name': 'TERESA PEDRO LEAO', 'off': 'FRIDAY', 'dept': 'CASH', 'shift': 'morning'},
-    'NWC6638': {'name': 'CLAUDIO JANUARIO MANUEL AVELINO', 'off': 'SUNDAY', 'dept': 'TALHO', 'shift': 'morning'},
-    'NWC5830': {'name': 'REGINA DE FATIMA VIDAL', 'off': 'MONDAY', 'dept': 'TALHO', 'shift': 'morning'},
-    'NWC5529': {'name': 'ALEXANDRE LUIS CORREIA', 'off': 'FRIDAY', 'dept': 'TALHO', 'shift': 'morning'},
-    'NWC5713': {'name': 'ROSA GARNEIRA BUMBA', 'off': 'WEDNESDAY', 'dept': 'TALHO', 'shift': 'morning'},
-    'NWC5396': {'name': 'COSTA BEBIANO HEBO', 'off': 'THURSDAY', 'dept': 'TALHO', 'shift': 'morning'},
-    'NWC8361': {'name': 'AGOSTINHO JOAQUIM KUANGO DA COSTA', 'off': 'SUNDAY', 'dept': 'SECU', 'shift': 'morning'},
-    'NWC2300': {'name': 'JOANA CARDOSO JOAQUIM AFONSO', 'off': 'MONDAY', 'dept': 'SECU', 'shift': 'morning'},
-    'NWC5168': {'name': 'JOAO NVUNDA DALA', 'off': 'THURSDAY', 'dept': 'F & V', 'shift': 'morning'},
-    'NWC3711': {'name': 'ANGELA MARIA BUMBA', 'off': 'FRIDAY', 'dept': 'F & V', 'shift': 'morning'},
-    'NWC5186': {'name': 'HELIA DOMINGOS DE CARVALHO', 'off': 'WEDNESDAY', 'dept': 'SECU', 'shift': 'morning'},
-    'NWC6702': {'name': 'DOMINGOS GAMA PEREIRA', 'off': 'FRIDAY', 'dept': 'SECU', 'shift': 'morning'},
-    'NWC3596': {'name': 'ALDAIR FERNANDES FERREIRA', 'off': 'TUESDAY', 'dept': 'SECU', 'shift': 'morning'},
-    'NWC2757': {'name': 'JOSEFA KUELUNGA MUASSOKA', 'off': 'THURSDAY', 'dept': 'SECU', 'shift': 'morning'},
-    'NWC4554': {'name': 'DOMINGOS ANTONIO FERNANDO', 'off': 'THURSDAY', 'dept': 'CASH', 'shift': 'morning'},
-    'NWC2624': {'name': 'CECILIA JORGE FAMOSO', 'off': 'FRIDAY', 'dept': 'CASH', 'shift': 'morning'},
-    'NWC3318': {'name': 'JOSE MANUEL KAZOLA', 'off': 'SUNDAY', 'dept': 'FRESCO', 'shift': 'morning'},
-    'NWC7347': {'name': 'ARMANDO CHICOVO SAMBA', 'off': 'TUESDAY', 'dept': 'FRESCO', 'shift': 'morning'},
-    'NWC8362': {'name': 'ARAUJO PAULOMENDES', 'off': 'FRIDAY', 'dept': 'STOCK', 'shift': 'morning'},
-    'NWC6715': {'name': 'RIBEIRO ANTONIO FRANCISCO', 'off': 'THURSDAY', 'dept': 'STOCK', 'shift': 'morning'},
-    'NWC6444': {'name': 'HENRIQUES BRANDAO', 'off': 'WEDNESDAY', 'dept': 'STOCK', 'shift': 'morning'}
+    'NWC6661': {'name': 'FRANCISCO MUNDELE CHIVELA', 'off': 'WEDNESDAY', 'dept': 'ADMIN - CCTV', 'shift': 'morning'}
 }
 
 EMPLOYEE_OVERRIDES = {
@@ -95,233 +59,143 @@ EMPLOYEE_OVERRIDES = {
     '6661': {'code': 'NWC6661', 'name': 'FRANCISCO MUNDELE CHIVELA'}
 }
 
-# Helper function to check allowed file extensions
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-# Persistent JSON storage helpers
 def load_json_file(filepath):
     if os.path.exists(filepath):
         try:
-            with open(filepath, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except Exception:
-            return [] if 'list' in filepath or 'requests' in filepath or 'resets' in filepath or 'slips' in filepath else {}
+            with open(filepath, 'r', encoding='utf-8') as f: return json.load(f)
+        except Exception: pass
     return [] if 'list' in filepath or 'requests' in filepath or 'resets' in filepath or 'slips' in filepath else {}
 
 def save_json_file(filepath, data):
     try:
-        with open(filepath, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=4, ensure_ascii=False)
-    except Exception as e:
-        print(f"Error saving {filepath}: {e}")
+        with open(filepath, 'w', encoding='utf-8') as f: json.dump(data, f, indent=4, ensure_ascii=False)
+    except Exception as e: print(f"Error saving {filepath}: {e}")
+
+def load_machines():
+    machines = load_json_file(MACHINES_FILE)
+    if not machines:
+        machines = {
+            'LM11': {'ip': os.getenv('MACHINE_IP', '192.168.1.153'), 'port': int(os.getenv('MACHINE_PORT', 4370)), 'name': 'Gamek HRMS', 'admin': 'NWC1234'},
+            'LF07': {'ip': '192.168.88.16', 'port': 4370, 'name': 'Benfica LF07 HRMS', 'admin': 'LF07_ADMIN'},
+            'DEV': {'ip': '127.0.0.1', 'port': 4370, 'name': 'Fresmart', 'admin': 'NCSA0608'}
+        }
+        save_json_file(MACHINES_FILE, machines)
+    return machines
+
+# Database initialization
+def load_users_db():
+    db = load_json_file(USERS_DB_FILE)
+    if not db:
+        db = {}
+        for k, v in MASTER_EMPLOYEES.items():
+            db[k] = {'name': v['name'], 'password': '123', 'allowed_stores': ['LM11'], 'status': 'active', 'role': 'employee', 'designation': v.get('dept', 'General'), 'off': v.get('off', 'SUNDAY'), 'dept': v.get('dept', 'General'), 'shift': v.get('shift', 'morning'), 'allowed_features': ['calendar', 'leave', 'shift', 'salary'], 'profile_pic': ''}
+        db['LM11'] = {'name': 'Admin (LM11)', 'password': os.getenv('ADMIN_PWD', 'Gamek@789'), 'allowed_stores': ['LM11'], 'status': 'active', 'role': 'admin', 'designation': 'Store Admin', 'off': 'SUNDAY', 'dept': 'Admin', 'shift': 'morning', 'allowed_features': ['roster_planner', 'shift_approvals', 'password_resets', 'calendar', 'leave', 'salary', 'roster'], 'profile_pic': ''}
+        save_json_file(USERS_DB_FILE, db)
+    
+    # Migration for legacy DB to new features format
+    modified = False
+    for k, v in db.items():
+        if 'allowed_stores' not in v:
+            v['allowed_stores'] = [v.get('store', 'LM11')]
+            modified = True
+        if 'allowed_features' not in v:
+            if v.get('role') == 'admin':
+                v['allowed_features'] = ['roster_planner', 'shift_approvals', 'password_resets', 'calendar', 'leave', 'salary', 'roster']
+            else:
+                v['allowed_features'] = ['calendar', 'leave', 'shift', 'salary']
+            modified = True
+        if 'designation' not in v:
+            v['designation'] = v.get('dept', 'Employee')
+            modified = True
+        if 'profile_pic' not in v:
+            v['profile_pic'] = ''
+            modified = True
+    if modified:
+        save_json_file(USERS_DB_FILE, db)
+
+    return db
 
 LEAVE_REQUESTS = load_json_file(LEAVE_JSON_FILE)
-
 def load_overrides(): return load_json_file(ATTENDANCE_OVERRIDES_FILE)
 def save_overrides(data): save_json_file(ATTENDANCE_OVERRIDES_FILE, data)
-
-def load_manual_punches():
-    data = load_json_file(MANUAL_PUNCHES_FILE)
-    return data if isinstance(data, list) else []
-def save_manual_punches(data): save_json_file(MANUAL_PUNCHES_FILE, data)
-
+def load_manual_punches(): return load_json_file(MANUAL_PUNCHES_FILE) if isinstance(load_json_file(MANUAL_PUNCHES_FILE), list) else []
 def load_roster(): return load_json_file(ROSTER_JSON_FILE)
 def save_roster(data): save_json_file(ROSTER_JSON_FILE, data)
-
-def load_shift_requests():
-    data = load_json_file(SHIFT_REQUESTS_FILE)
-    return data if isinstance(data, list) else []
+def load_shift_requests(): return load_json_file(SHIFT_REQUESTS_FILE) if isinstance(load_json_file(SHIFT_REQUESTS_FILE), list) else []
 def save_shift_requests(data): save_json_file(SHIFT_REQUESTS_FILE, data)
-
-def load_salary_slips():
-    data = load_json_file(SALARY_SLIPS_FILE)
-    return data if isinstance(data, list) else []
+def load_salary_slips(): return load_json_file(SALARY_SLIPS_FILE) if isinstance(load_json_file(SALARY_SLIPS_FILE), list) else []
 def save_salary_slips(data): save_json_file(SALARY_SLIPS_FILE, data)
-
-
-def _normalize_salary_text(value):
-    value = value or ''
-    value = unicodedata.normalize('NFKD', value)
-    value = ''.join(ch for ch in value if not unicodedata.combining(ch))
-    value = value.upper()
-    value = re.sub(r'[^A-Z0-9]+', ' ', value)
-    return re.sub(r'\s+', ' ', value).strip()
-
-def _salary_employee_candidates(page_text):
-    text = _normalize_salary_text(page_text)
-    if not text:
-        return []
-    candidates = []
-    for emp_code, emp_info in MASTER_EMPLOYEES.items():
-        clean_code = emp_code.upper().replace('NWC', '')
-        if (re.search(r'\bNWC\s*' + re.escape(clean_code) + r'\b', text)
-                or re.search(r'\b' + re.escape(clean_code) + r'\b', text)):
-            candidates.append(emp_code)
-    if candidates:
-        return list(dict.fromkeys(candidates))
-    for emp_code, emp_info in MASTER_EMPLOYEES.items():
-        normalized_name = _normalize_salary_text(emp_info.get('name', ''))
-        if normalized_name and normalized_name in text:
-            candidates.append(emp_code)
-    return list(dict.fromkeys(candidates))
-
-def _build_salary_pdf_groups(reader):
-    employee_order = sorted(MASTER_EMPLOYEES.keys(), key=lambda x: get_emp_info(x)['name'])
-    groups = {code: [] for code in employee_order}
-    unmatched_pages = []
-    current_emp = None
-
-    for page_index, page in enumerate(reader.pages):
-        try:
-            page_text = page.extract_text() or ''
-        except Exception:
-            page_text = ''
-        candidates = _salary_employee_candidates(page_text)
-        if candidates:
-            emp_code = current_emp if current_emp in candidates else candidates[0]
-            groups[emp_code].append(page_index)
-            current_emp = emp_code
-        else:
-            unmatched_pages.append(page_index)
-
-    if unmatched_pages and current_emp:
-        assigned = {code for code, pages in groups.items() if pages}
-        missing = [code for code in employee_order if code not in assigned]
-        reserve = min(len(unmatched_pages), len(missing))
-        continuation_pages = unmatched_pages[reserve:]
-        groups[current_emp].extend(continuation_pages)
-        unmatched_pages = unmatched_pages[:reserve]
-
-    missing = [code for code in employee_order if not groups[code]]
-    for page_index, emp_code in zip(unmatched_pages, missing):
-        groups[emp_code].append(page_index)
-
-    consumed = min(len(unmatched_pages), len(missing))
-    leftover_pages = unmatched_pages[consumed:]
-    if leftover_pages:
-        fallback_emp = current_emp or (missing[-1] if missing else employee_order[-1])
-        groups[fallback_emp].extend(leftover_pages)
-
-    return {code: pages for code, pages in groups.items() if pages}
 
 def get_emp_info(emp_code):
     emp_str = str(emp_code).strip()
-    if not emp_str.startswith('NWC') and f"NWC{emp_str}" in MASTER_EMPLOYEES:
-        emp_str = f"NWC{emp_str}"
+    if not emp_str.startswith('NWC') and f"NWC{emp_str}" in load_users_db(): emp_str = f"NWC{emp_str}"
     
-    val = MASTER_EMPLOYEES.get(emp_str, {'name': f'Employee {emp_code}', 'off': 'SUNDAY', 'dept': 'General', 'shift': 'morning'})
-    if isinstance(val, str):
-        return {'name': val, 'off': 'SUNDAY', 'dept': 'General', 'shift': 'morning'}
-    return val
+    db = load_users_db()
+    if emp_str in db: return db[emp_str]
+    return {'name': f'Employee {emp_code}', 'off': 'SUNDAY', 'dept': 'General', 'shift': 'morning'}
 
-def upload_file_to_github(file_path, github_destination_path):
-    if not GITHUB_TOKEN or GITHUB_TOKEN == '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':
-        return False
+def check_device_connectivity(store_code):
+    machines = load_machines()
+    machine = machines.get(store_code, machines.get('LM11', {'ip': '127.0.0.1', 'port': 4370}))
     try:
-        g = Github(GITHUB_TOKEN)
-        repo = g.get_repo(GITHUB_REPO_NAME)
-        with open(file_path, "rb") as f:
-            content = f.read()
-        try:
-            file = repo.get_contents(github_destination_path, ref=GITHUB_BRANCH)
-            repo.update_file(path=github_destination_path, message=f"Update doc: {github_destination_path}", content=content, sha=file.sha, branch=GITHUB_BRANCH)
-        except Exception:
-            repo.create_file(path=github_destination_path, message=f"Upload doc: {github_destination_path}", content=content, branch=GITHUB_BRANCH)
-        return True
-    except Exception:
-        return False
-
-def save_leave_to_excel(emp_code, emp_name, start_date, end_date, leave_type, doc_filename):
-    if os.path.exists(LEAVE_EXCEL_FILE):
-        wb = openpyxl.load_workbook(LEAVE_EXCEL_FILE)
-        ws = wb.active
-    else:
-        wb = openpyxl.Workbook()
-        ws = wb.active
-        ws.title = "Leave Records"
-        ws.append(["Employee Code", "Employee Name", "Start Date", "End Date", "Leave Type", "Document Name"])
-        
-    ws.append([emp_code, emp_name, start_date, end_date, leave_type, doc_filename])
-    wb.save(LEAVE_EXCEL_FILE)
-
-def check_device_connectivity():
-    try:
-        zk = ZK(MACHINE_IP, port=PORT, timeout=2, password=0, force_udp=False, ommit_ping=False)
+        zk = ZK(machine['ip'], port=machine['port'], timeout=2, password=0, force_udp=False, ommit_ping=False)
         conn = zk.connect()
         if conn:
             conn.disconnect()
             return True
-    except Exception:
-        pass
-    
-    if LAST_DEVICE_SYNC_TIME:
-        time_diff = (datetime.now() - LAST_DEVICE_SYNC_TIME).total_seconds()
-        if time_diff < 300: return True
+    except Exception: pass
+    if LAST_DEVICE_SYNC_TIME and (datetime.now() - LAST_DEVICE_SYNC_TIME).total_seconds() < 300: return True
     return False
 
-def fetch_attendance_data(start_date_str, end_date_str, filter_user_id):
-    device_online = check_device_connectivity()
+def fetch_attendance_data(start_date_str, end_date_str, filter_user_id, store_code):
+    machines = load_machines()
+    machine = machines.get(store_code, machines.get('LM11', {'ip': '127.0.0.1', 'port': 4370}))
+    device_online = check_device_connectivity(store_code)
     period_data = {}
     raw_punches_list = []
-    users_map_temp = {}
     
-    for k, v in MASTER_EMPLOYEES.items():
-        info = get_emp_info(k)
-        code_formatted = f"NWC{k}" if not k.startswith('NWC') else k
-        users_map_temp[str(k)] = {'code': code_formatted, 'name': info['name']}
+    db = load_users_db()
+    users_map_temp = {k: {'code': k, 'name': v['name']} for k, v in db.items() if v.get('role') == 'employee'}
         
     for uid_override, over_data in EMPLOYEE_OVERRIDES.items():
         users_map_temp[str(uid_override)] = {'code': over_data['code'], 'name': over_data['name']}
 
     attendance_records = []
-    
     try:
-        zk = ZK(MACHINE_IP, port=PORT, timeout=2, password=0, force_udp=False, ommit_ping=False)
+        zk = ZK(machine['ip'], port=machine['port'], timeout=2, password=0, force_udp=False, ommit_ping=False)
         conn = zk.connect()
         if conn:
             users = conn.get_users()
             for user in users:
                 uid_str = str(user.user_id)
-                if uid_str in EMPLOYEE_OVERRIDES:
-                    emp_name = EMPLOYEE_OVERRIDES[uid_str]['name']
-                    emp_code = EMPLOYEE_OVERRIDES[uid_str]['code']
-                else:
-                    info = get_emp_info(uid_str)
-                    emp_name = user.name if user.name else info['name']
-                    emp_code = f"NWC{uid_str}" if not uid_str.startswith('NWC') else uid_str
+                emp_code = f"NWC{uid_str}" if not uid_str.startswith('NWC') else uid_str
+                emp_name = user.name if user.name else get_emp_info(emp_code)['name']
                 users_map_temp[uid_str] = {'code': emp_code, 'name': emp_name}
                 
             attendance = conn.get_attendance()
             for att in attendance:
                 attendance_records.append({'user_id': str(att.user_id), 'timestamp': att.timestamp})
             conn.disconnect()
-    except Exception:
-        pass
+    except Exception: pass
 
     if SYNCED_ATTENDANCE_LOGS:
         for log in SYNCED_ATTENDANCE_LOGS:
             ts = log['timestamp']
             if isinstance(ts, str):
                 try: ts = datetime.strptime(ts, '%Y-%m-%d %H:%M:%S')
-                except ValueError:
+                except ValueError: 
                     try: ts = datetime.fromisoformat(ts)
                     except Exception: continue
             attendance_records.append({'user_id': str(log['user_id']), 'timestamp': ts})
-
-    manual_punches = load_manual_punches()
-    for mp in manual_punches:
-        try:
-            ts = datetime.strptime(mp['timestamp'], '%Y-%m-%d %H:%M:%S')
-            attendance_records.append({'user_id': str(mp['user_id']), 'timestamp': ts})
-        except Exception: continue
 
     for att in attendance_records:
         att_ts = att['timestamp']
         att_date_str = att_ts.strftime('%Y-%m-%d')
         if start_date_str <= att_date_str <= end_date_str:
             raw_uid = str(att['user_id'])
-            
             if raw_uid in EMPLOYEE_OVERRIDES:
                 emp_code = EMPLOYEE_OVERRIDES[raw_uid]['code']
                 emp_name = EMPLOYEE_OVERRIDES[raw_uid]['name']
@@ -330,35 +204,35 @@ def fetch_attendance_data(start_date_str, end_date_str, filter_user_id):
                 emp_name = users_map_temp[raw_uid]['name']
             else:
                 clean_uid = raw_uid.replace('NWC', '')
-                info = get_emp_info(clean_uid)
-                emp_name = info['name']
                 emp_code = f"NWC{clean_uid}" if not clean_uid.startswith('NWC') else clean_uid
+                emp_name = get_emp_info(emp_code)['name']
                 
+            if store_code != 'DEV' and store_code not in db.get(emp_code, {}).get('allowed_stores', []):
+                continue
+
             if filter_user_id and filter_user_id != 'ALL' and emp_code != filter_user_id and raw_uid != filter_user_id:
                 continue
             
             raw_punches_list.append({'date': att_date_str, 'time': att_ts.strftime('%H:%M:%S'), 'user_id': emp_code, 'name': emp_name, 'timestamp': att_ts})
-            
             if att_date_str not in period_data: period_data[att_date_str] = {}
             if emp_code not in period_data[att_date_str]: period_data[att_date_str][emp_code] = {'name': emp_name, 'timestamps': []}
             period_data[att_date_str][emp_code]['timestamps'].append(att_ts)
             
     users_list = []
-    for k, v in sorted(MASTER_EMPLOYEES.items(), key=lambda x: get_emp_info(x[0])['name']):
-        info = get_emp_info(k)
-        code_formatted = f"NWC{k}" if not k.startswith('NWC') else k
-        users_list.append({'user_id': code_formatted, 'name': info['name'], 'dept': info['dept'], 'off': info['off']})
+    for k, v in db.items():
+        if store_code == 'DEV' or store_code in v.get('allowed_stores', []):
+            users_list.append({'user_id': k, 'name': v['name'], 'dept': v.get('dept', ''), 'off': v.get('off', '')})
+    users_list = sorted(users_list, key=lambda x: x['name'])
 
     final_data = []
-    total_duration_seconds = 0
-    total_lunch_seconds = 0
-    total_net_variance_seconds = 0
-    present_count, absent_count, off_count, mis_punch_count, late_arrival_count, ml_count = 0, 0, 0, 0, 0, 0
-    shift_a_count, shift_b_count = 0, 0
+    total_duration_seconds, total_lunch_seconds, total_net_variance_seconds = 0, 0, 0
+    present_count, absent_count, off_count, mis_punch_count, late_arrival_count, ml_count, shift_a_count, shift_b_count = 0, 0, 0, 0, 0, 0, 0, 0
     
-    dates_to_process = sorted(period_data.keys(), reverse=True)
-    if not dates_to_process and start_date_str == end_date_str:
-        dates_to_process = [start_date_str]
+    start_dt = datetime.strptime(start_date_str, '%Y-%m-%d')
+    end_dt = datetime.strptime(end_date_str, '%Y-%m-%d')
+    delta = end_dt - start_dt
+    dates_to_process = [(start_dt + timedelta(days=i)).strftime('%Y-%m-%d') for i in range(delta.days + 1)]
+    dates_to_process.sort(reverse=True)
 
     overrides = load_overrides()
     global_roster = load_roster()
@@ -367,28 +241,24 @@ def fetch_attendance_data(start_date_str, end_date_str, filter_user_id):
         day_users_dict = period_data.get(date_str, {})
         current_dt = datetime.strptime(date_str, '%Y-%m-%d')
         current_day_name = current_dt.strftime('%A').upper()
-        # Define weekend as Saturday (5) or Sunday (6)
         is_weekend = current_dt.weekday() >= 5
 
         present_records, absent_records, off_records, mispunch_records, ml_records = [], [], [], [], []
 
-        for emp_code, emp_data_val in MASTER_EMPLOYEES.items():
-            final_emp_code = f"NWC{emp_code}" if not emp_code.startswith('NWC') else emp_code
-            emp_info = get_emp_info(emp_code)
-            emp_name, emp_dept = emp_info['name'], emp_info['dept']
+        for emp_code, emp_info in db.items():
+            if store_code != 'DEV' and store_code not in emp_info.get('allowed_stores', []): continue
             
-            emp_off = emp_info['off'].upper()
-            emp_shift = emp_info['shift']
+            final_emp_code = emp_code
+            emp_name, emp_dept, emp_off, emp_shift = emp_info['name'], emp_info.get('dept', ''), emp_info.get('off', '').upper(), emp_info.get('shift', 'morning')
 
             roster_val = global_roster.get(final_emp_code, {}).get(date_str)
             if roster_val:
-                if roster_val == 'Weekly Off':
-                    emp_off = current_day_name
+                if roster_val == 'Weekly Off': emp_off = current_day_name
                 elif roster_val in ['Shift A', 'Shift B']:
                     emp_off = 'NONE' 
                     emp_shift = 'morning' if roster_val == 'Shift A' else 'second'
 
-            if filter_user_id and filter_user_id != 'ALL' and final_emp_code != filter_user_id and emp_code != filter_user_id:
+            if filter_user_id and filter_user_id != 'ALL' and final_emp_code != filter_user_id:
                 continue
 
             approved_leave_obj = next((l for l in LEAVE_REQUESTS if l['user_id'] == final_emp_code and l['status'] == 'Approved' and l['start_date'] <= date_str <= l['end_date']), None)
@@ -404,7 +274,7 @@ def fetch_attendance_data(start_date_str, end_date_str, filter_user_id):
                 })
                 continue
 
-            matched_key = emp_code if emp_code in day_users_dict else (final_emp_code if final_emp_code in day_users_dict else None)
+            matched_key = final_emp_code if final_emp_code in day_users_dict else None
             day_ovr = overrides.get(date_str, {}).get(final_emp_code, {})
             has_override = len(day_ovr) > 0
 
@@ -432,20 +302,16 @@ def fetch_attendance_data(start_date_str, end_date_str, filter_user_id):
                     except: return None
 
                 s_in, l_o, l_i, s_out = get_sec(store_in), get_sec(lunch_out), get_sec(lunch_in), get_sec(out_time)
-
                 shift_type, is_late = '-', False
                 if s_in is not None:
                     if s_in <= 10 * 3600:
-                        shift_type = 'Shift A'
-                        shift_a_count += 1
+                        shift_type, shift_a_count = 'Shift A', shift_a_count + 1
                     else:
-                        shift_type = 'Shift B'
-                        shift_b_count += 1
+                        shift_type, shift_b_count = 'Shift B', shift_b_count + 1
                     
                     limit_sec = (13 * 3600 + 10 * 60) if emp_shift == 'second' else (7 * 3600)
                     if s_in > limit_sec:
-                        late_arrival_count += 1
-                        is_late = True
+                        late_arrival_count += 1; is_late = True
 
                 lunch_seconds = 0
                 has_lunch_punches = False
@@ -458,14 +324,10 @@ def fetch_attendance_data(start_date_str, end_date_str, filter_user_id):
                     total_lunch_seconds += lunch_seconds
                     l_hrs = divmod(lunch_seconds, 3600)
                     total_lunch_str = f"{l_hrs[0]}h {l_hrs[1]//60}m"
-                else:
-                    total_lunch_str = "-"
+                else: total_lunch_str = "-"
                 
-                net_duration_seconds = 0
-                if s_in is not None and s_out is not None and s_out > s_in:
-                    net_duration_seconds = max(0, (s_out - s_in) - lunch_seconds)
+                net_duration_seconds = max(0, (s_out - s_in) - lunch_seconds) if (s_in is not None and s_out is not None and s_out > s_in) else 0
                 total_duration_seconds += net_duration_seconds
-                
                 total_hours_str = f"{divmod(net_duration_seconds, 3600)[0]}h {divmod(net_duration_seconds, 3600)[1]//60}m" if s_in is not None and s_out is not None else "-"
                 
                 net_variance_str, variance_type = "-", "neutral"
@@ -473,25 +335,19 @@ def fetch_attendance_data(start_date_str, end_date_str, filter_user_id):
                     target_seconds = (8 * 3600) if has_lunch_punches else (7 * 3600)
                     diff = net_duration_seconds - target_seconds
                     total_net_variance_seconds += diff
-
                     if diff > (45 * 60):
-                        extra_hours_val = math.floor(diff / 3600)
-                        if extra_hours_val == 0:
-                            extra_hours_val = 1
+                        extra_hours_val = math.floor(diff / 3600) or 1
                         code_prefix = 'H07' if is_weekend else 'H06'
                         net_variance_str, variance_type = f"{code_prefix};{extra_hours_val}", 'positive'
                     elif diff < 0:
                         s_hrs = divmod(abs(diff), 3600)
                         net_variance_str, variance_type = f"-{s_hrs[0]}h {s_hrs[1]//60}m", 'negative'
-                    else:
-                        net_variance_str, variance_type = "0h 0m", 'neutral'
+                    else: net_variance_str, variance_type = "0h 0m", 'neutral'
                 
                 if s_in is not None and s_out is None:
-                    status = 'Mis Punch'
-                    mis_punch_count += 1
+                    status, mis_punch_count = 'Mis Punch', mis_punch_count + 1
                 elif s_in is None and s_out is None: status = 'Absent'
                 else: status = 'Present'
-
                 if current_day_name == emp_off: status = 'Weekly Off'
 
                 record = {
@@ -501,7 +357,6 @@ def fetch_attendance_data(start_date_str, end_date_str, filter_user_id):
                     'total_hours': total_hours_str, 'net_variance': net_variance_str, 'variance_type': variance_type,
                     'status': status, 'is_late': 'Yes' if is_late else 'No', 'shift_type': shift_type
                 }
-                
                 if status == 'Weekly Off': off_records.append(record)
                 elif status == 'Mis Punch': mispunch_records.append(record)
                 else: present_records.append(record)
@@ -522,7 +377,6 @@ def fetch_attendance_data(start_date_str, end_date_str, filter_user_id):
                         'lunch_seconds': 0, 'net_duration_seconds': 0, 'total_hours': '-', 'net_variance': '-', 
                         'variance_type': 'neutral', 'status': 'Absent', 'is_late': 'No', 'shift_type': '-'
                     })
-        
         final_data.extend(present_records + mispunch_records + off_records + absent_records + ml_records)
             
     tot_hrs = divmod(total_duration_seconds, 3600)
@@ -531,12 +385,8 @@ def fetch_attendance_data(start_date_str, end_date_str, filter_user_id):
     grand_total_lunch_hours = f"{tot_l_hrs[0]}h {tot_l_hrs[1]//60}m"
 
     v_sec = total_net_variance_seconds
-    if v_sec >= 0:
-        v_hrs = divmod(v_sec, 3600)
-        grand_total_variance, grand_variance_type = f"+{v_hrs[0]}h {v_hrs[1]//60}m", 'positive'
-    else:
-        v_hrs = divmod(abs(v_sec), 3600)
-        grand_total_variance, grand_variance_type = f"-{v_hrs[0]}h {v_hrs[1]//60}m", 'negative'
+    if v_sec >= 0: grand_total_variance, grand_variance_type = f"+{divmod(v_sec, 3600)[0]}h {divmod(v_sec, 3600)[1]//60}m", 'positive'
+    else: grand_total_variance, grand_variance_type = f"-{divmod(abs(v_sec), 3600)[0]}h {divmod(abs(v_sec), 3600)[1]//60}m", 'negative'
     
     stats_summary = {
         'present': present_count, 'absent': absent_count, 'off': off_count, 'mispunch': mis_punch_count,
@@ -544,7 +394,6 @@ def fetch_attendance_data(start_date_str, end_date_str, filter_user_id):
         'total_hrs': grand_total_hours, 'total_lunch_hrs': grand_total_lunch_hours,
         'total_variance': grand_total_variance, 'variance_type': grand_variance_type, 'device_online': device_online
     }
-    
     raw_punches_list = sorted(raw_punches_list, key=lambda x: x['timestamp'], reverse=True)
     return final_data, users_list, grand_total_hours, grand_total_lunch_hours, grand_total_variance, raw_punches_list, stats_summary
 
@@ -556,103 +405,19 @@ LOGIN_TEMPLATE = """
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login | Attendance Portal</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <style>body { font-family: 'Inter', sans-serif; }</style>
 </head>
 <body class="bg-slate-900 min-h-screen flex items-center justify-center p-4">
-    <div class="bg-white/95 backdrop-blur-md rounded-3xl shadow-2xl border border-slate-200/50 p-8 w-full max-w-md space-y-6">
-        <div class="text-center space-y-2">
-            <div class="inline-flex bg-[#78b13f] px-5 py-3 rounded-2xl shadow-lg mb-2 items-center justify-center">
-                <img src="{{ url_for('static', filename='fresmart.png') }}" alt="Logo" class="h-12 object-contain" onerror="this.style.display='none'">
-                <span class="text-white font-bold text-xl ml-2">Gamek HRM</span>
-            </div>
-            <h1 class="text-2xl font-black text-slate-900 tracking-tight">Attendance Portal</h1>
-            <p class="text-xs text-slate-500 font-medium">Developed by Sonu Kumar <span class="text-emerald-600 font-semibold">(NCSA0608)</span></p>
-        </div>
-
+    <div class="bg-white/95 rounded-3xl shadow-2xl p-8 w-full max-w-md space-y-6">
+        <h1 class="text-2xl font-black text-center text-slate-900">Attendance Portal</h1>
         {% with messages = get_flashed_messages(with_categories=true) %}
-            {% if messages %}
-                {% for category, message in messages %}
-                <div class="{% if category == 'success' %}bg-emerald-50 border-emerald-200 text-emerald-800{% else %}bg-rose-50 border-rose-200 text-rose-700{% endif %} border text-xs font-semibold p-3.5 rounded-xl text-center">
-                    {{ message }}
-                </div>
-                {% endfor %}
-            {% endif %}
+            {% if messages %}{% for category, message in messages %}<div class="bg-blue-50 text-blue-800 border p-3 rounded-xl text-center">{{ message }}</div>{% endfor %}{% endif %}
         {% endwith %}
-
-        {% if error %}
-        <div class="bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold p-3.5 rounded-xl text-center">
-            {{ error }}
-        </div>
-        {% endif %}
-
+        {% if error %}<div class="bg-rose-50 text-rose-700 p-3 rounded-xl text-center">{{ error }}</div>{% endif %}
         <form method="POST" action="/login" class="space-y-4">
-            <div>
-                <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Store/Employee Code</label>
-                <input type="text" name="user_id" required value="" placeholder="NWC1234" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-4 py-3 text-sm font-medium focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-            </div>
-            <div>
-                <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Password</label>
-                <input type="password" name="password" required placeholder="Enter Password" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-4 py-3 text-sm font-medium focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-            </div>
-            <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs uppercase tracking-widest py-3.5 rounded-xl shadow-lg transition duration-200">
-                Secure Login 🚀
-            </button>
-            <div class="text-center mt-3">
-                <a href="/reset_password" class="text-[11px] text-emerald-600 font-bold hover:underline transition">Forgot/Reset Password?</a>
-            </div>
-        </form>
-    </div>
-</body>
-</html>
-"""
-
-RESET_TEMPLATE = """
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Reset Password | Attendance Portal</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <style>body { font-family: 'Inter', sans-serif; }</style>
-</head>
-<body class="bg-slate-900 min-h-screen flex items-center justify-center p-4">
-    <div class="bg-white/95 backdrop-blur-md rounded-3xl shadow-2xl border border-slate-200/50 p-8 w-full max-w-md space-y-6">
-        <div class="text-center space-y-2">
-            <div class="inline-flex bg-amber-500 px-5 py-3 rounded-2xl shadow-lg mb-2 items-center justify-center">
-                <span class="text-3xl">🔑</span>
-            </div>
-            <h1 class="text-2xl font-black text-slate-900 tracking-tight">Reset Password</h1>
-            <p class="text-xs text-slate-500 font-medium">Create a new password request</p>
-        </div>
-
-        {% with messages = get_flashed_messages(with_categories=true) %}
-            {% if messages %}
-                {% for category, message in messages %}
-                <div class="{% if category == 'success' %}bg-emerald-50 border-emerald-200 text-emerald-800{% else %}bg-rose-50 border-rose-200 text-rose-700{% endif %} border text-xs font-semibold p-3.5 rounded-xl text-center">
-                    {{ message }}
-                </div>
-                {% endfor %}
-            {% endif %}
-        {% endwith %}
-
-        <form method="POST" action="/reset_password" class="space-y-4">
-            <div>
-                <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">User ID (Employee Code / Admin)</label>
-                <input type="text" name="user_id" required placeholder="NWC1234 or LM11" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-4 py-3 text-sm font-medium focus:ring-2 focus:ring-amber-500 focus:outline-none">
-            </div>
-            <div>
-                <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">New Password</label>
-                <input type="password" name="new_password" required placeholder="Enter new strong password" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-4 py-3 text-sm font-medium focus:ring-2 focus:ring-amber-500 focus:outline-none">
-            </div>
-            <button type="submit" class="w-full bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs uppercase tracking-widest py-3.5 rounded-xl shadow-lg transition duration-200">
-                Send Request to Developer 🚀
-            </button>
-            <div class="text-center mt-3">
-                <a href="/login" class="text-[11px] text-slate-500 font-bold hover:text-slate-700 hover:underline transition">← Back to Login</a>
-            </div>
+            <input type="text" name="user_id" required placeholder="User ID / Store Code" class="w-full bg-slate-50 border rounded-xl px-4 py-3">
+            <input type="password" name="password" required placeholder="Password" class="w-full bg-slate-50 border rounded-xl px-4 py-3">
+            <button type="submit" class="w-full bg-emerald-600 text-white font-bold py-3 rounded-xl">Login 🚀</button>
+            <div class="text-center mt-3"><a href="/reset_password" class="text-xs text-emerald-600">Forgot Password?</a></div>
         </form>
     </div>
 </body>
@@ -665,1516 +430,343 @@ HTML_TEMPLATE = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>HRM Dashboard | Attendance Portal</title>
+    <title>{{ portal_name }} | Portal</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <style>
-        body { font-family: 'Inter', sans-serif; }
-        td.nowrap-cell { white-space: nowrap; }
-        .excel-table th, .excel-table td { border: 1px solid #e2e8f0 !important; white-space: nowrap; }
-        th.sortable { cursor: pointer; user-select: none; transition: background-color 0.15s ease; }
-        th.sortable:hover { background-color: #cbd5e1; }
-        .stat-card { cursor: pointer; transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1); position: relative; overflow: hidden; }
-        .stat-card:hover { transform: translateY(-2px); box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05); }
-        
-        /* Custom scrollbar for better mobile view */
-        ::-webkit-scrollbar { width: 6px; height: 6px; }
-        ::-webkit-scrollbar-track { background: #f1f5f9; rounded-full }
-        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
-        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-    </style>
     <script>
-        let inactivityTimer;
-        const INACTIVITY_LIMIT = 10 * 60 * 1000;
-
-        function resetInactivityTimer() {
-            clearTimeout(inactivityTimer);
-            inactivityTimer = setTimeout(() => {
-                alert("Session timeout ho gaya hai. Dobara login karein.");
-                window.location.href = "/logout";
-            }, INACTIVITY_LIMIT);
-        }
-
-        window.onload = function() {
-            const events = ['mousemove', 'keypress', 'click', 'scroll', 'touchstart'];
-            events.forEach(eventName => {
-                document.addEventListener(eventName, resetInactivityTimer, true);
-            });
-            resetInactivityTimer();
-        };
-
-        function updateLiveClock() {
-            const now = new Date();
-            const options = { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' };
-            const dateStr = now.toLocaleDateString('en-US', options);
-            let hours = String(now.getHours()).padStart(2, '0');
-            let minutes = String(now.getMinutes()).padStart(2, '0');
-            let seconds = String(now.getSeconds()).padStart(2, '0');
-            const clockEl = document.getElementById('live-digital-clock');
-            if (clockEl) clockEl.innerText = dateStr + ' | ' + hours + ':' + minutes + ':' + seconds;
-        }
-        
-        // --- MOBILE SIDEBAR TOGGLE ---
-        function toggleMobileMenu(show) {
-            const sidebar = document.getElementById('sidebar');
-            const overlay = document.getElementById('sidebar-overlay');
-            if (show) {
-                sidebar.classList.remove('-translate-x-full');
-                overlay.classList.remove('hidden');
-            } else {
-                sidebar.classList.add('-translate-x-full');
-                overlay.classList.add('hidden');
-            }
-        }
-
-        let sortDirections = {};
-        function sortTable(columnIndex, isNumeric = false) {
-            const table = document.getElementById("attendance-table");
-            if (!table) return;
-            const tbody = table.tBodies[0];
-            const rows = Array.from(tbody.querySelectorAll("tr"));
-            if (rows.length <= 1 && rows[0].cells.length <= 1) return;
-
-            let dir = sortDirections[columnIndex] || 'asc';
-            sortDirections[columnIndex] = (dir === 'asc') ? 'desc' : 'asc';
-
-            rows.sort((rowA, rowB) => {
-                let cellA = rowA.cells[columnIndex].innerText.trim();
-                let cellB = rowB.cells[columnIndex].innerText.trim();
-                if (isNumeric) {
-                    let valA = parseFloat(cellA.replace(/[^0-9.-]+/g,"")) || 0;
-                    let valB = parseFloat(cellB.replace(/[^0-9.-]+/g,"")) || 0;
-                    return (dir === 'asc') ? valA - valB : valB - valA;
-                } else {
-                    return (dir === 'asc') ? cellA.localeCompare(cellB) : cellB.localeCompare(cellA);
-                }
-            });
-
-            tbody.innerHTML = "";
-            rows.forEach((row, index) => {
-                if (row.cells[0]) row.cells[0].innerText = index + 1;
-                tbody.appendChild(row);
-            });
-        }
-
-        function filterByStatus(statusVal) {
-            let table = document.getElementById('attendance-table');
-            if (!table) return;
-            let trs = table.tBodies[0].getElementsByTagName('tr');
-            for (let i = 0; i < trs.length; i++) {
-                if (statusVal === 'ALL') {
-                    trs[i].style.display = "";
-                } else if (statusVal === 'Late Arrival') {
-                    trs[i].style.display = (trs[i].getAttribute('data-late') === 'Yes') ? "" : "none";
-                } else if (statusVal === 'Shift A' || statusVal === 'Shift B') {
-                    trs[i].style.display = (trs[i].getAttribute('data-shift') === statusVal) ? "" : "none";
-                } else if (statusVal === 'ML') {
-                    let statusCell = trs[i].getElementsByTagName('td')[12];
-                    if (statusCell) {
-                        let text = statusCell.textContent || statusCell.innerText;
-                        trs[i].style.display = (text.includes('F01;1') || text.includes('F05;1') || text.includes('F10;1') || text.includes('F51;1') || text.includes('F60;1') || text.includes('F61;1') || text.includes('F62;1') || text.includes('Leave')) ? "" : "none";
-                    }
-                } else {
-                    let statusCell = trs[i].getElementsByTagName('td')[12];
-                    if (statusCell) {
-                        trs[i].style.display = (statusCell.textContent || statusCell.innerText).includes(statusVal) ? "" : "none";
-                    }
-                }
-            }
-        }
-
-        function filterTableSearch() {
-            let input = document.getElementById('table-search-input').value.toLowerCase();
-            let table = document.getElementById('attendance-table');
-            if (!table) return;
-            let trs = table.tBodies[0].getElementsByTagName('tr');
-            for (let i = 0; i < trs.length; i++) {
-                let idCell = trs[i].getElementsByTagName('td')[2];
-                let nameCell = trs[i].getElementsByTagName('td')[3];
-                let deptCell = trs[i].getElementsByTagName('td')[4];
-                if (idCell && nameCell && deptCell) {
-                    let text = (idCell.textContent + ' ' + nameCell.textContent + ' ' + deptCell.textContent).toLowerCase();
-                    trs[i].style.display = (text.indexOf(input) > -1) ? "" : "none";
-                }
-            }
-        }
-
-        let timeLeft = 180;
-        let timerInterval;
-        function startTimer() {
-            clearInterval(timerInterval);
-            timeLeft = 180;
-            timerInterval = setInterval(function() {
-                if (timeLeft <= 0) { window.location.reload(); } else {
-                    let m = Math.floor(timeLeft / 60);
-                    let s = timeLeft % 60;
-                    let timerEl = document.getElementById('countdown-timer');
-                    if (timerEl) { timerEl.innerText = m + ':' + (s < 10 ? '0' : '') + s; }
-                    timeLeft -= 1;
-                }
-            }, 1000);
-        }
-
-        function setQuickDate(type) {
-            let today = new Date();
-            let startInput = document.querySelector('input[name="start_date"]');
-            let endInput = document.querySelector('input[name="end_date"]');
-            let formatDate = (d) => {
-                let month = '' + (d.getMonth() + 1), day = '' + d.getDate(), year = d.getFullYear();
-                if (month.length < 2) month = '0' + month;
-                if (day.length < 2) day = '0' + day;
-                return [year, month, day].join('-');
-            };
-
-            if (type === 'today') { startInput.value = formatDate(today); endInput.value = formatDate(today); }
-            else if (type === 'yesterday') { let yest = new Date(); yest.setDate(today.getDate() - 1); startInput.value = formatDate(yest); endInput.value = formatDate(yest); }
-            else if (type === 'week') { let firstDay = new Date(today.setDate(today.getDate() - today.getDay())); startInput.value = formatDate(firstDay); endInput.value = formatDate(new Date()); }
-            else if (type === 'month') { let firstDay = new Date(today.getFullYear(), today.getMonth(), 1); startInput.value = formatDate(firstDay); endInput.value = formatDate(new Date()); }
-            else if (type === 'last_month') { let firstDay = new Date(today.getFullYear(), today.getMonth() - 1, 1); let lastDay = new Date(today.getFullYear(), today.getMonth(), 0); startInput.value = formatDate(firstDay); endInput.value = formatDate(lastDay); }
-            
-            document.getElementById('filter-form').submit();
-        }
-
         function toggleModal(id, show) {
             let el = document.getElementById(id);
             if(el) { show ? el.classList.remove('hidden') : el.classList.add('hidden'); }
-            // If opening a modal on mobile, close sidebar just in case
-            if (show) toggleMobileMenu(false);
         }
-
-        function inlineEdit(date, empId, field, currVal) {
-            let title = field.replace('_', ' ').toUpperCase();
-            let promptVal = currVal !== '-' ? currVal : '';
-            let newVal = prompt(`Direct Editing: ${empId} | ${date}\\n\\nEnter new time for ${title} (HH:MM:SS) or leave blank to clear the overridden value:`, promptVal);
-            if (newVal !== null) {
-                window.location.href = `/quick_edit?date=${date}&emp_id=${empId}&field=${field}&time=${encodeURIComponent(newVal)}`;
-            }
-        }
-
-        function secureShutdown() {
-            let pwd = prompt("Server band karne ke liye password enter karein:");
-            if (pwd) window.location.href = "/shutdown?pwd=" + encodeURIComponent(pwd);
-        }
-
-        function loadRosterPlanner() {
-            let empId = document.getElementById('rp-emp').value;
-            let monthStr = document.getElementById('rp-month').value;
-            let tbody = document.getElementById('roster-planner-tbody');
-            if(!empId || !monthStr) {
-                tbody.innerHTML = '<tr><td colspan="2" class="text-center py-8 text-slate-400">Employee & Month select karein</td></tr>';
-                return;
-            }
-            
-            tbody.innerHTML = '<tr><td colspan="2" class="text-center py-8 text-slate-500">Loading roster...</td></tr>';
-            
-            fetch(`/api/get_roster?emp_id=${empId}`)
-            .then(r => r.json())
-            .then(data => {
-                let parts = monthStr.split('-');
-                let year = parseInt(parts[0]);
-                let month = parseInt(parts[1]);
-                let daysInMonth = new Date(year, month, 0).getDate();
-                
-                tbody.innerHTML = '';
-                for(let i=1; i<=daysInMonth; i++) {
-                    let dateStr = `${year}-${String(month).padStart(2,'0')}-${String(i).padStart(2,'0')}`;
-                    let dateObj = new Date(year, month-1, i);
-                    let dayName = dateObj.toLocaleDateString('en-US', {weekday:'long'});
-                    let val = data[dateStr] || '';
-
-                    let tr = document.createElement('tr');
-                    tr.className = "hover:bg-slate-50";
-                    tr.innerHTML = `
-                        <td class="py-2.5 px-3 border-b border-slate-200 font-mono text-xs text-slate-600">${dateStr} <strong class="ml-2 text-indigo-500">${dayName}</strong></td>
-                        <td class="py-2.5 px-3 border-b border-slate-200">
-                            <select class="roster-select w-full bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-xs font-bold focus:ring-2 focus:ring-indigo-500" data-date="${dateStr}" data-day="${dayName}" onchange="checkAutoReflect(this)">
-                                <option value="" class="text-slate-400">-- Default --</option>
-                                <option value="Shift A" ${val=='Shift A'?'selected':''} class="text-blue-600">Shift A (06:00)</option>
-                                <option value="Shift B" ${val=='Shift B'?'selected':''} class="text-indigo-600">Shift B (10:00+)</option>
-                                <option value="Weekly Off" ${val=='Weekly Off'?'selected':''} class="text-rose-600">Weekly Off</option>
-                            </select>
-                        </td>
-                    `;
-                    tbody.appendChild(tr);
-                }
-                document.getElementById('save-roster-btn').classList.remove('hidden');
-            });
-        }
-
-        function checkAutoReflect(selectEl) {
-            let val = selectEl.value;
-            let dayName = selectEl.getAttribute('data-day');
-            let dateStr = selectEl.getAttribute('data-date');
-            if(val === 'Weekly Off') {
-                if(confirm(`Kya aap iske aage ke sabhi "${dayName}" ko Weekly Off set karna chahte hain?`)) {
-                    let selects = document.querySelectorAll('.roster-select');
-                    selects.forEach(sel => {
-                        let selDate = sel.getAttribute('data-date');
-                        let selDay = sel.getAttribute('data-day');
-                        if(selDay === dayName && selDate > dateStr) {
-                            sel.value = 'Weekly Off';
-                        }
-                    });
-                }
-            }
-        }
-
-        function saveRoster() {
-            let empId = document.getElementById('rp-emp').value;
-            let selects = document.querySelectorAll('.roster-select');
-            let payload = {emp_id: empId, updates: {}};
-            selects.forEach(sel => {
-                if(sel.value !== '') {
-                    payload.updates[sel.getAttribute('data-date')] = sel.value;
-                }
-            });
-            fetch('/api/save_roster', {
-                method: 'POST', headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify(payload)
-            }).then(r=>r.json()).then(res=>{
-                alert('Roster (Weekly Off & Shifts) successfully save ho gaya hai!');
-                toggleModal('roster-planner-modal', false);
-                window.location.reload();
-            });
-        }
-
-        function filterSalarySlips() {
-            let month = document.getElementById('salary-month-select').value;
-            let rows = document.querySelectorAll('.salary-row');
-            rows.forEach(row => {
-                if(month === '' || row.getAttribute('data-month') === month) {
-                    row.style.display = '';
-                } else {
-                    row.style.display = 'none';
-                }
-            });
-        }
-
-        function openPdfViewer(url) {
-            let viewer = document.getElementById('pdf-viewer-frame');
-            viewer.src = url;
-            toggleModal('pdf-viewer-modal', true);
-        }
-
-        function uploadLoading() {
-            document.getElementById('upload-btn-text').innerText = 'Splitting... Please wait...';
-            document.getElementById('upload-btn').disabled = true;
-            document.getElementById('upload-btn').classList.add('opacity-75', 'cursor-wait');
-        }
-
-        document.addEventListener('DOMContentLoaded', function() {
-            startTimer();
-            setInterval(updateLiveClock, 1000);
-            updateLiveClock();
-        });
     </script>
 </head>
-<body class="bg-slate-50 text-slate-800 antialiased flex h-screen overflow-hidden">
-    
-    <!-- Mobile Sidebar Overlay -->
-    <div id="sidebar-overlay" onclick="toggleMobileMenu(false)" class="fixed inset-0 bg-slate-900/50 z-40 hidden lg:hidden backdrop-blur-sm transition-opacity"></div>
-
+<body class="bg-slate-50 text-slate-800 flex h-screen overflow-hidden">
     <!-- Sidebar Navigation -->
-    <aside id="sidebar" class="w-64 bg-white border-r border-slate-200 flex flex-col justify-between fixed inset-y-0 left-0 transform -translate-x-full lg:relative lg:translate-x-0 transition duration-200 ease-in-out z-50 h-screen">
-        <div class="overflow-y-auto">
-            <!-- Logo Header -->
-            <div class="p-5 flex items-center justify-between border-b border-slate-100">
-                <div class="flex items-center space-x-3">
-                    <div class="bg-[#78b13f] p-2 rounded-xl shadow-sm">
-                        <img src="{{ url_for('static', filename='fresmart.png') }}" alt="Logo" class="h-6 object-contain" onerror="this.style.display='none'">
-                    </div>
-                    <div>
-                        <h2 class="text-sm font-bold text-slate-900 leading-tight">Gamek HRM</h2>
-                        <p class="text-[10px] text-slate-400 font-medium">Attendance Portal</p>
-                    </div>
-                </div>
-                <!-- Close Button (Mobile Only) -->
-                <button onclick="toggleMobileMenu(false)" class="lg:hidden p-2 text-slate-400 hover:text-slate-600 rounded-lg">✕</button>
-            </div>
-
-            <!-- Menu Links -->
-            <div class="p-4 space-y-1">
-                <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-3 mb-2">Main Menu</p>
-                <a href="/" class="flex items-center space-x-3 px-3 py-2.5 rounded-xl bg-slate-900 text-white font-semibold text-xs shadow-sm">
-                    <span>📊</span>
-                    <span>Dashboard</span>
-                </a>
-                
-                {% if role in ['admin', 'developer'] %}
-                <a href="#" onclick="toggleModal('roster-planner-modal', true); return false;" class="flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 font-medium text-xs transition border border-transparent hover:border-slate-200">
-                    <span>🗓</span>
-                    <span>Roster Planner</span>
-                </a>
-                <a href="#" onclick="toggleModal('shift-approvals-modal', true); return false;" class="flex items-center justify-between px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 font-medium text-xs transition">
-                    <div class="flex items-center space-x-3">
-                        <span>🔔</span>
-                        <span>Shift Approvals</span>
-                    </div>
-                    {% if pending_shifts_count > 0 %}
-                    <span class="bg-indigo-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full animate-pulse">{{ pending_shifts_count }}</span>
-                    {% endif %}
-                </a>
-                {% endif %}
-                
-                {% if role == 'developer' %}
-                <a href="#" onclick="toggleModal('reset-approvals-modal', true); return false;" class="flex items-center justify-between px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 font-medium text-xs transition border border-transparent hover:border-slate-200">
-                    <div class="flex items-center space-x-3">
-                        <span>🔑</span>
-                        <span>Manage Passwords</span>
-                    </div>
-                    {% if pending_resets_count > 0 %}
-                    <span class="bg-rose-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full animate-pulse">{{ pending_resets_count }}</span>
-                    {% endif %}
-                </a>
-                {% endif %}
-                
-                {% if role == 'employee' %}
-                <a href="#" onclick="toggleModal('shift-request-modal', true); return false;" class="flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 font-medium text-xs transition border border-transparent hover:border-slate-200">
-                    <span>🔄</span>
-                    <span>Shift/Off Request</span>
-                </a>
-                {% endif %}
-
-                <a href="#" onclick="toggleModal('calendar-modal', true); return false;" class="flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 font-medium text-xs transition">
-                    <span>📅</span>
-                    <span>Calendar & Rota</span>
-                </a>
-                <a href="#" onclick="toggleModal('leave-modal', true); return false;" class="flex items-center justify-between px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 font-medium text-xs transition">
-                    <div class="flex items-center space-x-3">
-                        <span>🏖️</span>
-                        <span>Leave Management</span>
-                    </div>
-                    {% if role in ['admin', 'developer'] and pending_leaves_count > 0 %}
-                    <span class="bg-rose-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full animate-pulse">{{ pending_leaves_count }}</span>
-                    {% endif %}
-                </a>
-                
-                <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-3 mt-6 mb-2">Team Management</p>
-                <a href="#" onclick="toggleModal('salary-modal', true); return false;" class="flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 font-medium text-xs transition border border-transparent hover:border-slate-200">
-                    <span>💰</span>
-                    <span>Payroll & Reports</span>
-                </a>
-                <a href="#" onclick="toggleModal('roster-modal', true); return false;" class="flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 font-medium text-xs transition">
-                    <span>👥</span>
-                    <span>Employees Info</span>
-                </a>
-            </div>
-        </div>
-
-        <!-- Sidebar Footer -->
-        <div class="p-4 border-t border-slate-100">
-            <div class="bg-emerald-50 border border-emerald-100 rounded-2xl p-3.5 space-y-2">
-                <div class="flex items-center space-x-2 text-emerald-800 font-bold text-xs">
-                    <span>📢</span>
-                    <span>Announcements</span>
-                </div>
-                <p class="text-[11px] text-slate-600 leading-tight">Biometric live tracking active for Attendance Portal.</p>
-                <div class="text-[10px] text-emerald-600 font-bold pt-1">Dev: Sonu Kumar (NCSA0608)</div>
-            </div>
+    <aside id="sidebar" class="w-64 bg-white border-r border-slate-200 flex flex-col justify-between p-4 space-y-2">
+        <div>
+            <h2 class="text-sm font-bold text-slate-900 mb-4">{{ portal_name }}</h2>
+            <a href="/" class="block px-3 py-2 rounded bg-slate-900 text-white text-xs">Dashboard</a>
+            
+            {% if 'roster_planner' in user_features %}
+            <a href="#" onclick="toggleModal('roster-planner-modal', true)" class="block px-3 py-2 rounded text-slate-600 hover:bg-slate-100 text-xs">Roster Planner</a>
+            {% endif %}
+            
+            {% if 'shift_approvals' in user_features or role == 'developer' %}
+            <a href="#" onclick="toggleModal('shift-approvals-modal', true)" class="block px-3 py-2 rounded text-slate-600 hover:bg-slate-100 text-xs">Shift Approvals</a>
+            {% endif %}
+            
+            {% if role == 'developer' %}
+            <a href="#" onclick="toggleModal('machine-mgmt-modal', true)" class="block px-3 py-2 rounded text-slate-600 hover:bg-slate-100 text-xs">Machine Management</a>
+            <a href="#" onclick="toggleModal('user-mgmt-modal', true)" class="block px-3 py-2 rounded text-slate-600 hover:bg-slate-100 text-xs">User Management</a>
+            {% endif %}
+            
+            {% if 'leave' in user_features %}
+            <a href="#" onclick="toggleModal('leave-modal', true)" class="block px-3 py-2 rounded text-slate-600 hover:bg-slate-100 text-xs">Leave Management</a>
+            {% endif %}
         </div>
     </aside>
 
-    <!-- Main Wrapper -->
     <div class="flex-1 flex flex-col h-screen overflow-hidden">
-        
-        <!-- Top Navbar (Responsive) -->
-        <header class="bg-white border-b border-slate-200 px-4 sm:px-6 py-3.5 flex justify-between items-center z-10">
-            <div class="flex items-center flex-1">
-                <!-- Mobile Menu Button -->
-                <button onclick="toggleMobileMenu(true)" class="lg:hidden mr-3 p-2 rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200 transition">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
-                </button>
-                <div class="flex flex-col sm:flex-row sm:items-center sm:space-x-3">
-                    <h1 class="text-sm sm:text-base font-black text-slate-900 tracking-tight">Dashboard</h1>
-                    <span class="hidden sm:inline-block text-xs text-slate-400 font-medium">| Good day, {{ logged_user_name }}</span>
-                </div>
-            </div>
-
-            <div class="flex items-center gap-2 flex-wrap justify-end">
-                <button onclick="toggleModal('leave-modal', true)" class="relative bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-bold px-2 py-1.5 sm:px-3 sm:py-2 rounded-xl transition border border-emerald-200 flex items-center space-x-1.5">
-                    <span class="hidden sm:inline">🏖 Leave Portal</span>
-                    <span class="sm:hidden">🏖 Leaves</span>
-                    {% if role in ['admin', 'developer'] and pending_leaves_count > 0 %}
-                    <span class="bg-rose-500 text-white text-[10px] px-1.5 py-0.2 rounded-full font-black animate-bounce">{{ pending_leaves_count }}</span>
+        <!-- Top Navbar -->
+        <header class="bg-white border-b px-6 py-3 flex justify-between items-center z-10">
+            <h1 class="text-base font-black text-slate-900">Dashboard</h1>
+            <div class="flex items-center gap-3">
+                <form action="/switch_store" method="GET" class="flex items-center gap-2">
+                    <select name="store_code" onchange="this.form.submit()" class="text-xs border rounded p-1">
+                        {% for st in allowed_stores %}
+                        <option value="{{ st }}" {% if current_store == st %}selected{% endif %}>{{ st }}</option>
+                        {% endfor %}
+                    </select>
+                </form>
+                
+                <div class="flex items-center space-x-2 bg-slate-100 px-3 py-1.5 rounded-xl cursor-pointer" onclick="toggleModal('profile-modal', true)">
+                    {% if profile_pic %}
+                    <img src="/uploads/{{ profile_pic }}" class="w-6 h-6 rounded-full object-cover">
+                    {% else %}
+                    <span class="w-6 h-6 rounded-full bg-emerald-500 text-white flex items-center justify-center text-xs">👤</span>
                     {% endif %}
-                </button>
-
-                <!-- Clock and Status (Hidden on very small screens to save space) -->
-                <div class="hidden md:flex text-xs bg-slate-50 px-3 py-2 rounded-xl border border-slate-200 items-center space-x-2">
-                    <span class="h-2 w-2 {% if stats.device_online %}bg-emerald-500{% else %}bg-red-500{% endif %} rounded-full animate-pulse"></span>
-                    <span class="text-slate-600 font-medium">Device: <strong class="{% if stats.device_online %}text-emerald-600{% else %}text-red-600{% endif %}">{% if stats.device_online %}Online{% else %}Offline{% endif %}</strong></span>
-                    <span class="text-slate-300">|</span>
-                    <span id="live-digital-clock" class="text-slate-700 font-semibold"></span>
-                    <span class="text-slate-300">|</span>
-                    <span class="text-slate-500">Sync: <strong id="countdown-timer" class="text-emerald-600 font-mono">03:00</strong></span>
+                    <span class="text-xs font-bold">{{ logged_user_name }} ({{ user_designation }})</span>
                 </div>
-
-                <div class="flex items-center space-x-2 bg-slate-100 border border-slate-200 px-2.5 py-1.5 sm:px-3 sm:py-1.5 rounded-xl text-xs font-bold text-slate-700">
-                    <span class="hidden sm:inline">👤 {{ logged_user_name }}</span>
-                    <a href="/logout" class="text-rose-600 hover:text-rose-700 sm:ml-2 font-semibold">Logout 🔒</a>
-                </div>
-
-                {% if role == 'admin' or role == 'developer' %}
-                <button onclick="secureShutdown()" class="bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl transition border border-rose-200">
-                    <span class="hidden sm:inline">🛑 Shutdown</span>
-                    <span class="sm:hidden">🛑</span>
-                </button>
-                {% endif %}
+                <a href="/logout" class="text-rose-600 text-xs font-bold">Logout 🔒</a>
             </div>
         </header>
 
-        <!-- Main Content Area -->
-        <main class="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
-            
+        <main class="flex-1 overflow-y-auto p-6 space-y-6">
             {% with messages = get_flashed_messages(with_categories=true) %}
                 {% if messages %}
                     {% for category, message in messages %}
-                    <div class="{% if category == 'success' %}bg-emerald-50 border-emerald-200 text-emerald-800{% else %}bg-rose-50 border-rose-200 text-rose-700{% endif %} border text-xs font-bold p-4 rounded-2xl shadow-sm flex items-center justify-between">
-                        <span>{{ message }}</span>
-                        <span class="cursor-pointer text-lg px-2" onclick="this.parentElement.style.display='none'">✕</span>
-                    </div>
+                    <div class="bg-emerald-50 text-emerald-800 border p-4 rounded text-xs font-bold">{{ message }}</div>
                     {% endfor %}
                 {% endif %}
             {% endwith %}
 
-            <!-- Quick Top Cards / Stat Overview -->
-            <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-9 gap-3">
-                <div onclick="filterByStatus('Present')" class="stat-card bg-white p-3.5 rounded-2xl shadow-sm border border-slate-200 flex items-center justify-between border-l-4 border-l-emerald-500">
-                    <div>
-                        <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Present</p>
-                        <h3 class="text-xl font-black text-emerald-600 mt-0.5">{{ stats.present }}</h3>
-                    </div>
-                </div>
-                <div onclick="filterByStatus('Absent')" class="stat-card bg-white p-3.5 rounded-2xl shadow-sm border border-slate-200 flex items-center justify-between border-l-4 border-l-rose-500">
-                    <div>
-                        <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Absent</p>
-                        <h3 class="text-xl font-black text-rose-600 mt-0.5">{{ stats.absent }}</h3>
-                    </div>
-                </div>
-                <div onclick="filterByStatus('ML')" class="stat-card bg-white p-3.5 rounded-2xl shadow-sm border border-slate-200 flex items-center justify-between border-l-4 border-l-cyan-500">
-                    <div>
-                        <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Med/Leave</p>
-                        <h3 class="text-xl font-black text-cyan-600 mt-0.5">{{ stats.ml }}</h3>
-                    </div>
-                </div>
-                <div onclick="filterByStatus('Weekly Off')" class="stat-card bg-white p-3.5 rounded-2xl shadow-sm border border-slate-200 flex items-center justify-between border-l-4 border-l-slate-400">
-                    <div>
-                        <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Week Off</p>
-                        <h3 class="text-xl font-black text-slate-700 mt-0.5">{{ stats.off }}</h3>
-                    </div>
-                </div>
-                <div onclick="filterByStatus('Late Arrival')" class="stat-card bg-white p-3.5 rounded-2xl shadow-sm border border-slate-200 flex items-center justify-between border-l-4 border-l-amber-500">
-                    <div>
-                        <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Late Arr.</p>
-                        <h3 class="text-xl font-black text-amber-600 mt-0.5">{{ stats.late_arrival }}</h3>
-                    </div>
-                </div>
-                <div onclick="filterByStatus('Mis Punch')" class="stat-card bg-white p-3.5 rounded-2xl shadow-sm border border-slate-200 flex items-center justify-between border-l-4 border-l-orange-500">
-                    <div>
-                        <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Mis-Punch</p>
-                        <h3 class="text-xl font-black text-orange-600 mt-0.5">{{ stats.mispunch }}</h3>
-                    </div>
-                </div>
-                <div onclick="filterByStatus('Shift A')" class="stat-card bg-white p-3.5 rounded-2xl shadow-sm border border-slate-200 flex items-center justify-between border-l-4 border-l-blue-500">
-                    <div>
-                        <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Shift A</p>
-                        <h3 class="text-xl font-black text-blue-600 mt-0.5">{{ stats.shift_a }}</h3>
-                    </div>
-                </div>
-                <div onclick="filterByStatus('Shift B')" class="stat-card bg-white p-3.5 rounded-2xl shadow-sm border border-slate-200 flex items-center justify-between border-l-4 border-l-indigo-500">
-                    <div>
-                        <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Shift B</p>
-                        <h3 class="text-xl font-black text-indigo-600 mt-0.5">{{ stats.shift_b }}</h3>
-                    </div>
-                </div>
-                <div onclick="filterByStatus('ALL')" class="stat-card bg-white p-3.5 rounded-2xl shadow-sm border border-slate-200 flex items-center justify-between border-l-4 border-l-emerald-600 col-span-2 lg:col-span-1">
-                    <div>
-                        <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Tot Hrs</p>
-                        <h3 class="text-xl font-black text-emerald-600 mt-0.5">{{ stats.total_hrs }}</h3>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Filter Controls Bar -->
-            <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 sm:p-5">
-                <form id="filter-form" method="GET" action="/" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 items-end">
-                    <div>
-                        <label class="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">Start Date</label>
-                        <input type="date" name="start_date" value="{{ start_date }}" onchange="this.form.submit()" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm font-medium focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-                    </div>
-                    <div>
-                        <label class="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">End Date</label>
-                        <input type="date" name="end_date" value="{{ end_date }}" onchange="this.form.submit()" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm font-medium focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-                    </div>
-                    {% if role == 'admin' or role == 'developer' %}
-                    <div>
-                        <label class="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">Employee Filter</label>
-                        <select name="employee" onchange="this.form.submit()" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm font-medium focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-                            <option value="ALL">-- All Personnel --</option>
-                            {% for emp in all_users %}
-                                <option value="{{ emp.user_id }}" {% if selected_emp == emp.user_id %}selected{% endif %}>{{ emp.name }} ({{ emp.user_id }})</option>
-                            {% endfor %}
-                        </select>
-                    </div>
-                    {% else %}
-                    <div>
-                        <label class="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">Logged In As</label>
-                        <input type="hidden" name="employee" value="{{ selected_emp }}">
-                        <input type="text" disabled value="{{ selected_emp }}" class="w-full bg-slate-100 border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm font-bold text-emerald-700 cursor-not-allowed">
-                    </div>
-                    {% endif %}
-                    <div class="flex space-x-2">
-                        {% if role == 'admin' or role == 'developer' %}
-                        <button type="button" onclick="toggleModal('export-modal', true)" class="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs uppercase tracking-wider py-3 px-3 rounded-xl text-center shadow-md transition">Export 📥</button>
-                        {% endif %}
-                        <button type="button" onclick="toggleModal('calendar-modal', true)" class="flex-1 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs uppercase tracking-wider py-3 px-3 rounded-xl text-center shadow-md transition">📅 Rota</button>
-                    </div>
+            <div class="bg-white rounded-2xl shadow-sm border p-5">
+                <form method="GET" action="/" class="flex gap-4 items-end">
+                    <input type="date" name="start_date" value="{{ start_date }}" class="border rounded px-3 py-2 text-sm">
+                    <input type="date" name="end_date" value="{{ end_date }}" class="border rounded px-3 py-2 text-sm">
+                    <select name="employee" class="border rounded px-3 py-2 text-sm">
+                        <option value="ALL">-- All --</option>
+                        {% for emp in all_users %}
+                            <option value="{{ emp.user_id }}" {% if selected_emp == emp.user_id %}selected{% endif %}>{{ emp.name }}</option>
+                        {% endfor %}
+                    </select>
+                    <button type="submit" class="bg-slate-900 text-white px-4 py-2 rounded text-sm">Filter</button>
                 </form>
-                
-                <div class="flex items-center space-x-2 mt-4 pt-4 border-t border-slate-100 text-[11px] flex-wrap gap-y-2">
-                    <span class="text-slate-400 font-bold uppercase tracking-wide mr-1">Quick Range:</span>
-                    <button type="button" onclick="setQuickDate('today')" class="px-3 py-1.5 bg-slate-100 hover:bg-emerald-50 hover:text-emerald-700 text-slate-700 rounded-lg font-semibold transition">Today</button>
-                    <button type="button" onclick="setQuickDate('yesterday')" class="px-3 py-1.5 bg-slate-100 hover:bg-emerald-50 hover:text-emerald-700 text-slate-700 rounded-lg font-semibold transition">Yesterday</button>
-                    <button type="button" onclick="setQuickDate('week')" class="px-3 py-1.5 bg-slate-100 hover:bg-emerald-50 hover:text-emerald-700 text-slate-700 rounded-lg font-semibold transition">This Week</button>
-                    <button type="button" onclick="setQuickDate('month')" class="px-3 py-1.5 bg-slate-100 hover:bg-emerald-50 hover:text-emerald-700 text-slate-700 rounded-lg font-semibold transition">This Month</button>
-                    <button type="button" onclick="setQuickDate('last_month')" class="px-3 py-1.5 bg-slate-100 hover:bg-emerald-50 hover:text-emerald-700 text-slate-700 rounded-lg font-semibold transition">Last Month</button>
-                </div>
             </div>
-
-            <!-- Attendance Data Table -->
-            <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-                <div class="p-4 bg-slate-50 border-b border-slate-200 flex flex-col sm:flex-row justify-between items-center gap-3">
-                    <div class="text-[10px] sm:text-xs text-slate-500 font-semibold w-full sm:w-auto text-center sm:text-left">
-                        💡 Shift A = 06:00-10:00 | Shift B = >10:00 AM
-                    </div>
-                    <div class="w-full sm:w-auto">
-                        <input type="text" id="table-search-input" onkeyup="filterTableSearch()" placeholder="🔍 Search Name, ID..." class="w-full sm:w-64 bg-white border border-slate-300 rounded-xl px-3.5 py-2 text-xs shadow-sm focus:outline-none focus:border-emerald-500 font-medium">
-                    </div>
-                </div>
-                <!-- Overflow-x-auto ensures horizontal scrolling on mobile -->
-                <div class="overflow-x-auto w-full block">
-                    <table id="attendance-table" class="w-full text-left border-collapse excel-table min-w-[800px]">
-                        <thead>
-                            <tr class="bg-slate-100 text-slate-600 uppercase text-[11px] font-bold tracking-wider">
-                                <th class="py-3 px-4">Sr.</th>
-                                <th class="py-3 px-4 sortable" onclick="sortTable(1)">Date ↕</th>
-                                <th class="py-3 px-4 sortable" onclick="sortTable(2)">ID ↕</th>
-                                <th class="py-3 px-4 sortable" onclick="sortTable(3)">Employee Name ↕</th>
-                                <th class="py-3 px-4 sortable" onclick="sortTable(4)">Dept ↕</th>
-                                <th class="py-3 px-4 sortable" onclick="sortTable(5)">Store In ↕</th>
-                                <th class="py-3 px-4">Lunch Out</th>
-                                <th class="py-3 px-4">Lunch In</th>
-                                <th class="py-3 px-4 sortable" onclick="sortTable(8)">Out Time ↕</th>
-                                <th class="py-3 px-4 sortable" onclick="sortTable(9)">Total Lunch ↕</th>
-                                <th class="py-3 px-4 sortable" onclick="sortTable(10)">Working Hrs ↕</th>
-                                <th class="py-3 px-4 sortable" onclick="sortTable(11)">Hora Extra ↕</th>
-                                <th class="py-3 px-4 text-center sortable" onclick="sortTable(12)">Status ↕</th>
-                            </tr>
-                        </thead>
-                        <tbody class="text-sm text-slate-700 divide-y divide-slate-100">
-                            {% if logs %}
-                                {% for log in logs %}
-                                <tr class="hover:bg-slate-50 transition-colors" data-late="{{ log.is_late }}" data-shift="{{ log.shift_type }}">
-                                    <td class="py-3 px-4 nowrap-cell font-medium text-slate-400">{{ loop.index }}</td>
-                                    <td class="py-3 px-4 nowrap-cell font-medium">{{ log.date }}</td>
-                                    <td class="py-3 px-4 nowrap-cell text-slate-500 font-mono text-xs">{{ log.user_id }}</td>
-                                    <td class="py-3 px-4 font-bold text-slate-900 nowrap-cell">{{ log.name }}</td>
-                                    <td class="py-3 px-4 nowrap-cell"><span class="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 text-[11px] font-bold">{{ log.dept }}</span></td>
-                                    
-                                    <td class="py-3 px-4 nowrap-cell font-mono text-xs group relative">
-                                        {{ log.store_in }}
-                                        {% if role == 'developer' %}
-                                        <span onclick="inlineEdit('{{ log.date }}', '{{ log.user_id }}', 'store_in', '{{ log.store_in }}')" class="cursor-pointer ml-1 text-amber-400 hover:text-amber-600 sm:opacity-0 group-hover:opacity-100 transition-opacity" title="Edit Store In">✎</span>
-                                        {% endif %}
-                                        {% if log.shift_type == 'Shift A' %}
-                                            <span class="text-[9px] bg-blue-100 text-blue-700 px-1 py-0.5 rounded font-sans font-bold ml-1 absolute top-1/2 -translate-y-1/2 right-2">A</span>
-                                        {% elif log.shift_type == 'Shift B' %}
-                                            <span class="text-[9px] bg-indigo-100 text-indigo-700 px-1 py-0.5 rounded font-sans font-bold ml-1 absolute top-1/2 -translate-y-1/2 right-2">B</span>
-                                        {% endif %}
-                                    </td>
-                                    <td class="py-3 px-4 nowrap-cell font-mono text-xs text-slate-500 group">
-                                        {{ log.lunch_out }}
-                                        {% if role == 'developer' %}
-                                        <span onclick="inlineEdit('{{ log.date }}', '{{ log.user_id }}', 'lunch_out', '{{ log.lunch_out }}')" class="cursor-pointer ml-1 text-amber-400 hover:text-amber-600 sm:opacity-0 group-hover:opacity-100 transition-opacity" title="Edit Lunch Out">✎</span>
-                                        {% endif %}
-                                    </td>
-                                    <td class="py-3 px-4 nowrap-cell font-mono text-xs text-slate-500 group">
-                                        {{ log.lunch_in }}
-                                        {% if role == 'developer' %}
-                                        <span onclick="inlineEdit('{{ log.date }}', '{{ log.user_id }}', 'lunch_in', '{{ log.lunch_in }}')" class="cursor-pointer ml-1 text-amber-400 hover:text-amber-600 sm:opacity-0 group-hover:opacity-100 transition-opacity" title="Edit Lunch In">✎</span>
-                                        {% endif %}
-                                    </td>
-                                    <td class="py-3 px-4 nowrap-cell font-mono text-xs group">
-                                        {{ log.out_time }}
-                                        {% if role == 'developer' %}
-                                        <span onclick="inlineEdit('{{ log.date }}', '{{ log.user_id }}', 'out_time', '{{ log.out_time }}')" class="cursor-pointer ml-1 text-amber-400 hover:text-amber-600 sm:opacity-0 group-hover:opacity-100 transition-opacity" title="Edit Out Time">✎</span>
-                                        {% endif %}
-                                    </td>
-                                    
-                                    <td class="py-3 px-4 font-bold nowrap-cell font-mono text-xs {% if log.lunch_seconds > 3600 %}text-rose-600 bg-rose-50/50{% else %}text-slate-700{% endif %}">{{ log.total_lunch }}</td>
-                                    <td class="py-3 px-4 font-bold text-slate-900 nowrap-cell font-mono text-xs">{{ log.total_hours }}</td>
-                                    <td class="py-3 px-4 font-bold nowrap-cell font-mono text-xs {% if log.variance_type == 'positive' %}text-emerald-600{% elif log.variance_type == 'negative' %}text-rose-600{% else %}text-slate-600{% endif %}">{{ log.net_variance }}</td>
-                                    <td class="py-3 px-4 text-center nowrap-cell">
-                                        {% if log.status == 'Weekly Off' %}
-                                            <span class="px-2 py-1 rounded-full text-[10px] sm:text-xs font-bold bg-slate-100 text-slate-600 border border-slate-200">Weekly Off</span>
-                                        {% elif log.status == 'Absent' %}
-                                            <span class="px-2 py-1 rounded-full text-[10px] sm:text-xs font-bold bg-rose-50 text-rose-600 border border-rose-200">Absent</span>
-                                        {% elif 'F01;1' in log.status or 'F05;1' in log.status or 'F10;1' in log.status or 'F51;1' in log.status or 'F60;1' in log.status or 'F61;1' in log.status or 'F62;1' in log.status %}
-                                            <span class="px-2 py-1 rounded-full text-[10px] sm:text-xs font-bold bg-cyan-50 text-cyan-700 border border-cyan-200">{{ log.status }}</span>
-                                        {% elif log.status == 'ML' %}
-                                            <span class="px-2 py-1 rounded-full text-[10px] sm:text-xs font-bold bg-cyan-50 text-cyan-700 border border-cyan-200">Medical/Leave</span>
-                                        {% elif log.status == 'Present' %}
-                                            <span class="px-2 py-1 rounded-full text-[10px] sm:text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">Present</span>
-                                        {% elif log.status == 'Mis Punch' %}
-                                            <span class="px-2 py-1 rounded-full text-[10px] sm:text-xs font-bold bg-orange-50 text-orange-700 border border-orange-200">Mis Punch</span>
-                                        {% endif %}
-                                    </td>
-                                </tr>
-                                {% endfor %}
-                            {% else %}
-                                <tr><td colspan="13" class="text-center py-16 text-slate-400 font-medium">No attendance records found for this selection.</td></tr>
-                            {% endif %}
-                        </tbody>
-                        <tfoot class="bg-slate-100 font-bold text-slate-900 text-sm border-t border-slate-200">
-                            <tr>
-                                <td colspan="9" class="py-4 px-4 text-right uppercase text-[10px] sm:text-xs tracking-wider text-slate-500">Total Summary:</td>
-                                <td class="py-4 px-4 text-emerald-700 font-mono text-xs sm:text-sm">{{ grand_total_lunch_hours }}</td>
-                                <td class="py-4 px-4 text-slate-900 font-mono text-xs sm:text-sm">{{ grand_total_hours }}</td>
-                                <td class="py-4 px-4 font-mono text-xs sm:text-sm {% if stats.variance_type == 'positive' %}text-emerald-700{% else %}text-rose-700{% endif %}" colspan="2">{{ grand_total_variance }}</td>
-                            </tr>
-                        </tfoot>
-                    </table>
-                </div>
+            
+            <div class="bg-white rounded-2xl shadow border overflow-x-auto">
+                <table class="w-full text-left text-xs">
+                    <thead class="bg-slate-100 text-slate-600 uppercase font-bold">
+                        <tr>
+                            <th class="py-3 px-4">Date</th>
+                            <th class="py-3 px-4">ID</th>
+                            <th class="py-3 px-4">Name</th>
+                            <th class="py-3 px-4">Store In</th>
+                            <th class="py-3 px-4">Out Time</th>
+                            <th class="py-3 px-4">Total Hrs</th>
+                            <th class="py-3 px-4">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for log in logs %}
+                        <tr class="border-b">
+                            <td class="py-2 px-4">{{ log.date }}</td>
+                            <td class="py-2 px-4">{{ log.user_id }}</td>
+                            <td class="py-2 px-4">{{ log.name }}</td>
+                            <td class="py-2 px-4">{{ log.store_in }}</td>
+                            <td class="py-2 px-4">{{ log.out_time }}</td>
+                            <td class="py-2 px-4">{{ log.total_hours }}</td>
+                            <td class="py-2 px-4">{{ log.status }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
             </div>
         </main>
     </div>
 
-    <!-- Salary Slips & Export Modal (Merged Payroll) -->
-    <div id="salary-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[60] flex items-center justify-center hidden">
-        <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 p-4 sm:p-6 w-full max-w-4xl mx-4 space-y-6 max-h-[90vh] flex flex-col">
-            <div class="flex justify-between items-center border-b border-slate-100 pb-4">
-                <h3 class="text-sm sm:text-lg font-bold text-slate-900 flex items-center gap-2">💰 Payroll & Reports</h3>
-                <button onclick="toggleModal('salary-modal', false)" class="text-slate-400 hover:text-slate-600 font-bold text-lg">✕</button>
-            </div>
-            
-            <div class="overflow-y-auto flex-1 space-y-6">
-                <!-- EXPORT SECTION (Admin/Dev) -->
-                {% if role in ['admin', 'developer'] %}
-                <div class="bg-slate-50 border border-slate-200 rounded-xl p-4">
-                    <h4 class="text-xs sm:text-sm font-bold text-slate-900 mb-3">Download Attendance Reports</h4>
-                    <div class="flex flex-col sm:flex-row gap-4">
-                        <a href="/export?start_date={{ start_date }}&end_date={{ end_date }}&employee={{ selected_emp }}" class="flex-1 bg-white border border-slate-300 hover:border-emerald-500 p-3 rounded-xl text-center transition group">
-                            <div class="font-bold text-slate-800 text-sm group-hover:text-emerald-700">Standard Row Export 📄</div>
-                            <div class="text-[10px] text-slate-500 mt-1">Individual records per date</div>
-                        </a>
-                        <a href="/export_matrix?start_date={{ start_date }}&end_date={{ end_date }}&employee={{ selected_emp }}" class="flex-1 bg-white border border-slate-300 hover:border-emerald-500 p-3 rounded-xl text-center transition group">
-                            <div class="font-bold text-slate-800 text-sm group-hover:text-emerald-700">Employee Matrix 📅</div>
-                            <div class="text-[10px] text-slate-500 mt-1">Monthly grid with Leave Codes</div>
-                        </a>
-                    </div>
+    <!-- Profile Modal -->
+    <div id="profile-modal" class="fixed inset-0 bg-slate-900/60 flex items-center justify-center hidden z-50">
+        <div class="bg-white p-5 rounded-2xl w-96 space-y-4">
+            <h3 class="font-bold text-lg">My Profile</h3>
+            <form action="/upload_profile_pic" method="POST" enctype="multipart/form-data" class="space-y-3">
+                <input type="file" name="profile_pic" accept="image/*" class="w-full text-sm">
+                <div class="flex gap-2">
+                    <button type="submit" class="bg-emerald-600 text-white px-3 py-1.5 rounded text-xs">Upload Photo</button>
+                    <button type="button" onclick="toggleModal('profile-modal', false)" class="bg-slate-200 px-3 py-1.5 rounded text-xs">Close</button>
                 </div>
-                
-                <!-- UPLOAD BULK SALARY SLIP (Admin/Dev) -->
-                <div class="bg-indigo-50 border border-indigo-200 rounded-xl p-4">
-                    <h4 class="text-xs sm:text-sm font-bold text-indigo-900 mb-3">Bulk Upload (Merged PDF)</h4>
-                    <form action="/upload_bulk_salary" method="POST" enctype="multipart/form-data" class="flex flex-col sm:flex-row items-end gap-3" onsubmit="uploadLoading()">
-                        <div class="w-full sm:flex-1">
-                            <label class="block text-[10px] font-bold uppercase text-indigo-700 mb-1">Month & Year</label>
-                            <input type="month" name="salary_month" required class="w-full bg-white border border-indigo-300 rounded-lg px-3 py-2 text-xs focus:ring-2 focus:ring-indigo-500">
-                        </div>
-                        <div class="w-full sm:flex-1">
-                            <label class="block text-[10px] font-bold uppercase text-indigo-700 mb-1">Master PDF</label>
-                            <input type="file" name="salary_pdf" accept=".pdf" required class="w-full bg-white border border-indigo-300 rounded-lg px-2 py-1.5 text-[11px] focus:ring-2 focus:ring-indigo-500">
-                        </div>
-                        <button id="upload-btn" type="submit" class="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-4 py-2 rounded-lg text-xs transition">
-                            <span id="upload-btn-text">Split & Upload</span>
-                        </button>
-                    </form>
-                </div>
-                {% endif %}
-
-                <!-- VIEW SALARY SLIPS (All) -->
-                <div>
-                    <div class="flex justify-between items-end mb-3">
-                        <h4 class="text-xs sm:text-sm font-bold text-slate-900">{% if role == 'employee' %}My Salary Slips{% else %}Uploaded Salary Slips{% endif %}</h4>
-                        <div class="w-32 sm:w-48">
-                            <input type="month" id="salary-month-select" onchange="filterSalarySlips()" class="w-full bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-xs focus:outline-none">
-                        </div>
-                    </div>
-                    <div class="border border-slate-200 rounded-xl overflow-x-auto">
-                        <table class="w-full text-left min-w-[300px]">
-                            <thead class="bg-slate-100 text-slate-600 uppercase text-[10px] font-bold sticky top-0">
-                                <tr>
-                                    <th class="py-2 px-3 border-b border-slate-200">Month</th>
-                                    {% if role in ['admin', 'developer'] %}<th class="py-2 px-3 border-b border-slate-200">Employee</th>{% endif %}
-                                    <th class="py-2 px-3 border-b border-slate-200 text-center">Action</th>
-                                </tr>
-                            </thead>
-                            <tbody class="text-[11px] sm:text-xs text-slate-700 divide-y divide-slate-100">
-                                {% if salary_slips %}
-                                    {% for slip in salary_slips|reverse %}
-                                    <tr class="hover:bg-slate-50 salary-row" data-month="{{ slip.month }}">
-                                        <td class="py-2 px-3 font-mono font-bold">{{ slip.month }}</td>
-                                        {% if role in ['admin', 'developer'] %}
-                                        <td class="py-2 px-3 font-bold">{{ slip.emp_name }} <span class="text-[9px] text-slate-400">({{ slip.user_id }})</span></td>
-                                        {% endif %}
-                                        <td class="py-2 px-3 text-center">
-                                            <div class="flex justify-center gap-2">
-                                                <button onclick="openPdfViewer('/salary_file/{{ slip.file_id }}')" class="bg-blue-50 text-blue-600 hover:bg-blue-100 border border-blue-200 font-bold px-2 py-1 rounded text-[10px] transition">View</button>
-                                                {% if role in ['admin', 'developer'] %}
-                                                <a href="/delete_salary/{{ slip.file_id }}" onclick="return confirm('Are you sure you want to delete this salary slip?');" class="bg-rose-50 text-rose-600 hover:bg-rose-100 border border-rose-200 font-bold px-2 py-1 rounded text-[10px] transition">Del</a>
-                                                {% endif %}
-                                            </div>
-                                        </td>
-                                    </tr>
-                                    {% endfor %}
-                                {% else %}
-                                    <tr><td colspan="3" class="text-center py-6 text-slate-400">No salary slips uploaded yet.</td></tr>
-                                {% endif %}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- PDF Viewer Modal (Restricted Download) -->
-    <div id="pdf-viewer-modal" class="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[70] flex items-center justify-center hidden p-2 sm:p-4">
-        <div class="bg-slate-800 rounded-xl shadow-2xl p-2 w-full max-w-4xl h-full sm:h-[90vh] flex flex-col relative">
-            <button onclick="toggleModal('pdf-viewer-modal', false); document.getElementById('pdf-viewer-frame').src='';" class="absolute -top-2 -right-2 sm:-top-4 sm:-right-4 bg-rose-600 hover:bg-rose-700 text-white rounded-full w-8 h-8 flex items-center justify-center font-bold shadow-lg z-10">✕</button>
-            <div class="flex-1 rounded-lg overflow-hidden bg-white" oncontextmenu="return false;">
-                <!-- PDF embedded using iframe -->
-                <iframe id="pdf-viewer-frame" class="w-full h-full pointer-events-none" style="pointer-events: auto;" src=""></iframe>
-            </div>
-            <div class="text-center mt-2 text-[10px] text-slate-400 uppercase tracking-widest font-bold">Confidential Document</div>
-        </div>
-    </div>
-
-    <!-- Password Resets Modal (Dev Only) -->
-    <div id="reset-approvals-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[60] flex items-center justify-center hidden p-2">
-        <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 p-4 w-full max-w-4xl mx-auto space-y-4 max-h-[85vh] flex flex-col">
-            <div class="flex justify-between items-center border-b border-slate-100 pb-2">
-                <h3 class="text-sm sm:text-lg font-bold text-slate-900">🔑 Manage Passwords</h3>
-                <button onclick="toggleModal('reset-approvals-modal', false)" class="text-slate-400 hover:text-slate-600 font-bold text-lg">✕</button>
-            </div>
-            
-            <div class="p-3 border border-emerald-200 bg-emerald-50 rounded-xl">
-                <h4 class="text-xs font-bold text-emerald-800 mb-2">Direct Reset (Admin Override)</h4>
-                <form action="/dev_force_reset" method="POST" class="flex flex-col sm:flex-row gap-2">
-                    <input type="text" name="target_user_id" placeholder="User ID (e.g. NWC1234)" required class="flex-1 px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none">
-                    <input type="text" name="target_new_password" placeholder="New Password" required class="flex-1 px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none">
-                    <button type="submit" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2 rounded-lg text-xs uppercase transition">Set</button>
-                </form>
-            </div>
-
-            <div class="overflow-auto flex-1 border border-slate-200 rounded-xl">
-                <table class="w-full text-left min-w-[400px]">
-                    <thead class="bg-slate-100 text-slate-600 uppercase text-[9px] font-bold sticky top-0">
-                        <tr>
-                            <th class="py-2 px-2">Emp</th>
-                            <th class="py-2 px-2">Requested Pwd</th>
-                            <th class="py-2 px-2 text-center">Status</th>
-                            <th class="py-2 px-2 text-center">Action</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-slate-100 text-[10px] sm:text-xs">
-                        {% if reset_requests %}
-                            {% for req in reset_requests|reverse %}
-                            <tr class="hover:bg-slate-50">
-                                <td class="py-2 px-2 font-bold">{{ req.name }} <br><span class="text-[9px] text-slate-400">{{ req.user_id }}</span></td>
-                                <td class="py-2 px-2 font-mono text-emerald-600">{{ req.new_password }}</td>
-                                <td class="py-2 px-2 text-center">
-                                    {% if req.status == 'Pending' %}<span class="bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">Pending</span>
-                                    {% elif req.status == 'Approved' %}<span class="bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded">Approved</span>
-                                    {% else %}<span class="bg-rose-100 text-rose-700 px-1.5 py-0.5 rounded">Rejected</span>{% endif %}
-                                </td>
-                                <td class="py-2 px-2 text-center">
-                                    {% if req.status == 'Pending' %}
-                                    <div class="flex flex-col sm:flex-row justify-center gap-1">
-                                        <a href="/update_password_req/{{ req.id }}/approve" class="bg-emerald-500 text-white px-2 py-1 rounded">Approve</a>
-                                        <a href="/update_password_req/{{ req.id }}/reject" class="bg-rose-500 text-white px-2 py-1 rounded">Reject</a>
-                                    </div>
-                                    {% else %}<span class="text-slate-400">Processed</span>{% endif %}
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        {% else %}
-                            <tr><td colspan="4" class="text-center py-4 text-slate-400">No requests</td></tr>
-                        {% endif %}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    </div>
-
-    <!-- Roster Planner Modal (Admin/Dev) -->
-    <div id="roster-planner-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[60] flex items-center justify-center hidden p-2">
-        <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 p-4 w-full max-w-4xl mx-auto space-y-4 max-h-[90vh] flex flex-col">
-            <div class="flex justify-between items-center border-b border-slate-100 pb-2">
-                <h3 class="text-sm sm:text-lg font-bold text-slate-900">🗓️ Roster Planner</h3>
-                <button onclick="toggleModal('roster-planner-modal', false)" class="text-slate-400 hover:text-slate-600 font-bold text-lg">✕</button>
-            </div>
-            <div class="flex flex-col sm:flex-row gap-2 items-end">
-                <div class="w-full sm:flex-1">
-                    <label class="block text-[10px] font-bold uppercase text-slate-500 mb-1">Employee</label>
-                    <select id="rp-emp" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-2 py-1.5 text-xs">
-                        <option value="">-- Choose --</option>
-                        {% for emp in all_users %}
-                            <option value="{{ emp.user_id }}">{{ emp.name }} ({{ emp.user_id }})</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <div class="w-full sm:flex-1">
-                    <label class="block text-[10px] font-bold uppercase text-slate-500 mb-1">Month</label>
-                    <input type="month" id="rp-month" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-2 py-1.5 text-xs">
-                </div>
-                <button onclick="loadRosterPlanner()" class="w-full sm:w-auto bg-indigo-600 text-white font-bold text-[10px] sm:text-xs uppercase px-4 py-2 rounded-xl">Load</button>
-            </div>
-            
-            <div class="overflow-y-auto flex-1 border border-slate-200 rounded-xl">
-                <table class="w-full text-left">
-                    <thead class="bg-slate-100 text-slate-600 uppercase text-[9px] sm:text-[10px] font-bold sticky top-0">
-                        <tr>
-                            <th class="py-2 px-3">Date & Day</th>
-                            <th class="py-2 px-3">Shift Allocation</th>
-                        </tr>
-                    </thead>
-                    <tbody id="roster-planner-tbody" class="divide-y divide-slate-100">
-                        <tr><td colspan="2" class="text-center py-6 text-slate-400 text-xs">Select Employee & Month</td></tr>
-                    </tbody>
-                </table>
-            </div>
-            <div class="pt-2 flex justify-end gap-2">
-                <button id="save-roster-btn" onclick="saveRoster()" class="w-full sm:w-auto px-5 py-2 bg-emerald-600 text-white text-xs font-bold uppercase rounded-xl hidden">Save</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Employee Shift/Off Request Modal -->
-    <div id="shift-request-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[60] flex items-center justify-center hidden p-4">
-        <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 p-5 w-full max-w-md mx-auto space-y-4">
-            <div class="flex justify-between items-center border-b border-slate-100 pb-2">
-                <h3 class="text-sm sm:text-base font-bold text-slate-900">🔄 Request Shift Change</h3>
-                <button onclick="toggleModal('shift-request-modal', false)" class="text-slate-400 hover:text-slate-600 font-bold text-lg">✕</button>
-            </div>
-            <form action="/request_shift" method="POST" class="space-y-3">
-                <div>
-                    <label class="block text-xs font-bold text-slate-500 mb-1">Date</label>
-                    <input type="date" name="req_date" required class="w-full border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                </div>
-                <div>
-                    <label class="block text-xs font-bold text-slate-500 mb-1">Requested Action</label>
-                    <select name="req_status" required class="w-full border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                        <option value="Shift A">Change to Shift A (06:00)</option>
-                        <option value="Shift B">Change to Shift B (10:00+)</option>
-                        <option value="Weekly Off">Set as Weekly Off</option>
-                    </select>
-                </div>
-                <div>
-                    <label class="block text-xs font-bold text-slate-500 mb-1">Reason</label>
-                    <input type="text" name="req_reason" placeholder="Reason..." required class="w-full border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                </div>
-                <button type="submit" class="w-full bg-indigo-600 text-white font-bold text-xs uppercase py-2.5 rounded-xl">Submit</button>
             </form>
         </div>
     </div>
 
-    <!-- Admin Shift Approvals Modal -->
-    <div id="shift-approvals-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[60] flex items-center justify-center hidden p-2">
-        <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 p-4 w-full max-w-4xl mx-auto space-y-4 max-h-[85vh] flex flex-col">
-            <div class="flex justify-between items-center border-b border-slate-100 pb-2">
-                <h3 class="text-sm sm:text-lg font-bold text-slate-900">🔔 Shift & Off Requests</h3>
-                <button onclick="toggleModal('shift-approvals-modal', false)" class="text-slate-400 hover:text-slate-600 font-bold text-lg">✕</button>
+    <!-- Machine Management Modal (Dev) -->
+    <div id="machine-mgmt-modal" class="fixed inset-0 bg-slate-900/60 flex items-center justify-center hidden z-50">
+        <div class="bg-white p-5 rounded-2xl w-full max-w-2xl space-y-4">
+            <div class="flex justify-between items-center border-b pb-2">
+                <h3 class="font-bold text-lg">⚙️ Machine Management</h3>
+                <button onclick="toggleModal('machine-mgmt-modal', false)" class="text-slate-400 font-bold">✕</button>
             </div>
-            <div class="overflow-auto flex-1 border border-slate-200 rounded-xl">
-                <table class="w-full text-left min-w-[500px]">
-                    <thead class="bg-slate-100 text-slate-600 uppercase text-[9px] sm:text-[10px] font-bold">
-                        <tr>
-                            <th class="py-2 px-2">Emp</th>
-                            <th class="py-2 px-2">Date</th>
-                            <th class="py-2 px-2">Request</th>
-                            <th class="py-2 px-2">Reason</th>
-                            <th class="py-2 px-2 text-center">Status</th>
-                            <th class="py-2 px-2 text-center">Action</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-slate-100 text-[10px] sm:text-xs">
-                        {% if shift_requests %}
-                            {% for req in shift_requests|reverse %}
-                            <tr class="hover:bg-slate-50">
-                                <td class="py-2 px-2 font-bold">{{ req.name }} <br><span class="text-[9px] text-slate-400">{{ req.user_id }}</span></td>
-                                <td class="py-2 px-2 font-mono">{{ req.date }}</td>
-                                <td class="py-2 px-2 font-bold text-indigo-700">{{ req.requested }}</td>
-                                <td class="py-2 px-2 text-slate-500 italic">{{ req.reason }}</td>
-                                <td class="py-2 px-2 text-center">
-                                    {% if req.status == 'Pending' %}<span class="bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">Pending</span>
-                                    {% elif req.status == 'Approved' %}<span class="bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded">Approved</span>
-                                    {% else %}<span class="bg-rose-100 text-rose-700 px-1.5 py-0.5 rounded">Rejected</span>{% endif %}
-                                </td>
-                                <td class="py-2 px-2 text-center">
-                                    {% if req.status == 'Pending' %}
-                                    <div class="flex gap-1 justify-center">
-                                        <a href="/update_shift_req/{{ req.id }}/approve" class="bg-emerald-500 text-white px-2 py-1 rounded">Ok</a>
-                                        <a href="/update_shift_req/{{ req.id }}/reject" class="bg-rose-500 text-white px-2 py-1 rounded">No</a>
-                                    </div>
-                                    {% else %}<span class="text-slate-400">Done</span>{% endif %}
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        {% else %}
-                            <tr><td colspan="6" class="text-center py-4 text-slate-400">No requests</td></tr>
-                        {% endif %}
+            <form action="/manage_machine" method="POST" class="flex gap-2 items-end bg-slate-50 p-3 rounded">
+                <input type="text" name="store_code" placeholder="Store Code (e.g. LM11)" required class="border p-1.5 text-xs w-24">
+                <input type="text" name="name" placeholder="Name" required class="border p-1.5 text-xs w-32">
+                <input type="text" name="ip" placeholder="IP Address" required class="border p-1.5 text-xs w-32">
+                <input type="number" name="port" value="4370" required class="border p-1.5 text-xs w-20">
+                <input type="text" name="admin" placeholder="Admin ID" required class="border p-1.5 text-xs w-24">
+                <button type="submit" class="bg-emerald-600 text-white px-3 py-1.5 rounded text-xs font-bold">Add/Update</button>
+            </form>
+            <div class="overflow-auto h-64 border rounded">
+                <table class="w-full text-xs text-left">
+                    <thead class="bg-slate-100 font-bold"><tr><th class="p-2">Store Code</th><th class="p-2">Name</th><th class="p-2">IP</th><th class="p-2">Port</th><th class="p-2">Admin ID</th></tr></thead>
+                    <tbody>
+                        {% for mcode, mdata in all_machines.items() %}
+                        <tr class="border-b"><td class="p-2 font-bold">{{ mcode }}</td><td class="p-2">{{ mdata.name }}</td><td class="p-2">{{ mdata.ip }}</td><td class="p-2">{{ mdata.port }}</td><td class="p-2">{{ mdata.admin }}</td></tr>
+                        {% endfor %}
                     </tbody>
                 </table>
             </div>
         </div>
     </div>
+
+    <!-- User Management Modal (Dev) -->
+    <div id="user-mgmt-modal" class="fixed inset-0 bg-slate-900/60 flex items-center justify-center hidden z-50 p-4">
+        <div class="bg-white p-5 rounded-2xl w-full max-w-4xl space-y-4 max-h-[90vh] flex flex-col">
+            <div class="flex justify-between items-center border-b pb-2">
+                <h3 class="font-bold text-lg">🪪 User Management</h3>
+                <button onclick="toggleModal('user-mgmt-modal', false)" class="text-slate-400 font-bold">✕</button>
+            </div>
+            <form action="/manage_user" method="POST" class="bg-slate-50 p-4 rounded space-y-3">
+                <input type="hidden" name="action" value="create">
+                <div class="flex gap-2">
+                    <input type="text" name="uid" placeholder="ID (NWC...)" required class="border p-2 text-xs flex-1">
+                    <input type="text" name="name" placeholder="Full Name" required class="border p-2 text-xs flex-1">
+                    <input type="text" name="password" value="123" required class="border p-2 text-xs flex-1">
+                    <input type="text" name="designation" placeholder="Designation" class="border p-2 text-xs flex-1">
+                    <select name="role" class="border p-2 text-xs flex-1">
+                        <option value="employee">Employee</option>
+                        <option value="admin">Admin</option>
+                    </select>
+                </div>
+                <div class="flex flex-col gap-1">
+                    <label class="text-[10px] font-bold text-slate-500">Allowed Stores (Ctrl+Click for multiple)</label>
+                    <select name="allowed_stores" multiple class="border p-2 text-xs h-20">
+                        {% for mcode in all_machines.keys() %}<option value="{{ mcode }}">{{ mcode }}</option>{% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="bg-emerald-600 text-white px-4 py-2 rounded text-xs font-bold w-full">Add / Update User</button>
+            </form>
+            <div class="overflow-y-auto border rounded flex-1">
+                <table class="w-full text-xs text-left">
+                    <thead class="bg-slate-100 font-bold"><tr><th class="p-2">ID</th><th class="p-2">Name</th><th class="p-2">Role/Desig</th><th class="p-2">Stores</th><th class="p-2">Action</th></tr></thead>
+                    <tbody>
+                        {% for u_id, u_info in users_db.items() %}
+                        <tr class="border-b">
+                            <td class="p-2 font-bold">{{ u_id }}</td><td class="p-2">{{ u_info.name }}</td><td class="p-2">{{ u_info.role }} / {{ u_info.designation }}</td>
+                            <td class="p-2">{{ u_info.allowed_stores|join(', ') }}</td>
+                            <td class="p-2">
+                                <form action="/manage_user" method="POST" class="inline"><input type="hidden" name="uid" value="{{ u_id }}"><input type="hidden" name="action" value="toggle_status"><button class="bg-amber-100 text-amber-700 px-2 py-1 rounded text-[10px]">Toggle</button></form>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
 </body>
 </html>
 """
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
-    failed_attempts = session.get('failed_attempts', 0)
-    
     if request.method == 'POST':
         uid = request.form.get('user_id').strip().upper()
         pwd = request.form.get('password').strip()
         
-        admin_pass = os.getenv('ADMIN_PWD', 'Gamek@789')
         dev_pass = os.getenv('DEV_PWD', 'Shama@8577')
-        
-        custom_passwords = load_json_file(USER_PASSWORDS_FILE)
-        is_valid = False
-        role_assigned = None
-        user_name_assigned = None
-        
-        if uid == 'NCSA0608':
-            if pwd == dev_pass:
-                is_valid = True
-                role_assigned = 'developer'
-                user_name_assigned = 'Sonu Kumar (Developer)'
-        elif uid == 'LM11':
-            expected_pass = custom_passwords.get('LM11', admin_pass)
-            if pwd == expected_pass:
-                is_valid = True
-                role_assigned = 'admin'
-                user_name_assigned = 'Admin (LM11)'
-        else:
-            emp_key = f"NWC{uid}" if not uid.startswith('NWC') else uid
-            if emp_key in MASTER_EMPLOYEES:
-                expected_pass = custom_passwords.get(emp_key, '123')
-                if pwd == expected_pass:
-                    is_valid = True
-                    role_assigned = 'employee'
-                    user_name_assigned = MASTER_EMPLOYEES[emp_key]['name']
-                    uid = emp_key
-        
-        if is_valid:
-            session['failed_attempts'] = 0
-            session['logged_in'] = True
-            session['role'] = role_assigned
-            session['user_id'] = uid
-            session['user_name'] = user_name_assigned
+        if uid == 'NCSA0608' and pwd == dev_pass:
+            session.update({'logged_in': True, 'role': 'developer', 'user_id': uid, 'user_name': 'Sonu Kumar', 'current_store': 'DEV'})
             return redirect(url_for('index'))
-        else:
-            failed_attempts += 1
-            session['failed_attempts'] = failed_attempts
-            if failed_attempts >= 5:
-                session['failed_attempts'] = 0
-                flash("5 baar galat password dala gaya. Kripya apna password reset karein.", "danger")
-                return redirect(url_for('reset_password'))
-            return render_template_string(LOGIN_TEMPLATE, error=f"Galat User ID ya Password! (Attempt {failed_attempts}/5)")
             
-    return render_template_string(LOGIN_TEMPLATE, error=None)
-
-@app.route('/reset_password', methods=['GET', 'POST'])
-def reset_password():
-    if request.method == 'POST':
-        uid = request.form.get('user_id').strip().upper()
-        new_pwd = request.form.get('new_password').strip()
+        db = load_users_db()
+        emp_key = f"NWC{uid}" if not uid.startswith('NWC') and uid not in ['LM11', 'LF07'] else uid
         
-        if uid == 'NCSA0608':
-            flash("Developer ka password change nahi kiya ja sakta!", "danger")
-            return redirect(url_for('reset_password'))
-            
-        emp_key = f"NWC{uid}" if not uid.startswith('NWC') and uid != 'LM11' else uid
-        
-        if emp_key != 'LM11' and emp_key not in MASTER_EMPLOYEES:
-            flash("User ID system me nahi mila!", "danger")
-            return redirect(url_for('reset_password'))
-            
-        name = "Admin (LM11)" if emp_key == 'LM11' else MASTER_EMPLOYEES[emp_key]['name']
-        
-        resets = load_json_file(PASSWORD_RESETS_FILE)
-        if not isinstance(resets, list): resets = []
-        
-        resets.append({
-            'id': len(resets) + 1,
-            'user_id': emp_key,
-            'name': name,
-            'new_password': new_pwd,
-            'status': 'Pending'
-        })
-        save_json_file(PASSWORD_RESETS_FILE, resets)
-        
-        flash("Your request send successfully to Developer Mr. Sonu", "success")
-        return redirect(url_for('login'))
-        
-    return render_template_string(RESET_TEMPLATE)
-
-@app.route('/update_password_req/<int:req_id>/<action>')
-def update_password_req(req_id, action):
-    if session.get('role') != 'developer': return redirect(url_for('login'))
-    
-    resets = load_json_file(PASSWORD_RESETS_FILE)
-    for req in resets:
-        if req['id'] == req_id:
-            if action == 'approve':
-                req['status'] = 'Approved'
-                passwords = load_json_file(USER_PASSWORDS_FILE)
-                passwords[req['user_id']] = req['new_password']
-                save_json_file(USER_PASSWORDS_FILE, passwords)
-                flash(f"{req['name']} ka naya password approve ho gaya hai.", "success")
-            elif action == 'reject':
-                req['status'] = 'Rejected'
-                flash(f"{req['name']} ki password request reject ki gayi.", "success")
-            break
-    save_json_file(PASSWORD_RESETS_FILE, resets)
-    return redirect(url_for('index'))
-
-@app.route('/dev_force_reset', methods=['POST'])
-def dev_force_reset():
-    if session.get('role') != 'developer': 
-        return redirect(url_for('login'))
-        
-    target_uid = request.form.get('target_user_id').strip().upper()
-    new_pwd = request.form.get('target_new_password').strip()
-    
-    if target_uid == 'NCSA0608':
-        flash("Developer ka password yahan se change nahi kiya ja sakta!", "danger")
-        return redirect(url_for('index'))
-        
-    emp_key = f"NWC{target_uid}" if not target_uid.startswith('NWC') and target_uid != 'LM11' else target_uid
-    
-    if emp_key != 'LM11' and emp_key not in MASTER_EMPLOYEES:
-        flash(f"User ID {target_uid} system me nahi mila!", "danger")
-        return redirect(url_for('index'))
-        
-    passwords = load_json_file(USER_PASSWORDS_FILE)
-    passwords[emp_key] = new_pwd
-    save_json_file(USER_PASSWORDS_FILE, passwords)
-    
-    flash(f"{emp_key} ka password successfully update ho gaya hai. Purana password ab block ho chuka hai.", "success")
-    return redirect(url_for('index'))
+        if emp_key in db and pwd == db[emp_key].get('password'):
+            user_data = db[emp_key]
+            if user_data.get('status') == 'blocked': return render_template_string(LOGIN_TEMPLATE, error="Blocked!")
+            session.update({
+                'logged_in': True, 'role': user_data['role'], 'user_id': emp_key, 
+                'user_name': user_data['name'], 'current_store': user_data.get('allowed_stores', ['LM11'])[0]
+            })
+            return redirect(url_for('index'))
+        return render_template_string(LOGIN_TEMPLATE, error="Invalid Credentials!")
+    return render_template_string(LOGIN_TEMPLATE)
 
 @app.route('/logout')
 def logout():
-    role = session.get('role')
-    user_name = session.get('user_name', '')
-    msg_text = "Thank you admin" if role == 'admin' else f"Thank you {user_name}"
     session.clear()
-    flash(msg_text, 'success')
     return redirect(url_for('login'))
+
+@app.route('/switch_store')
+def switch_store():
+    store = request.args.get('store_code')
+    db = load_users_db()
+    uid = session.get('user_id')
+    
+    if session.get('role') == 'developer' or store in db.get(uid, {}).get('allowed_stores', []):
+        session['current_store'] = store
+    return redirect(url_for('index'))
 
 @app.route('/')
 def index():
-    if not session.get('logged_in'):
-        return redirect(url_for('login'))
+    if not session.get('logged_in'): return redirect(url_for('login'))
         
     role = session.get('role')
-    logged_user_id = session.get('user_id')
-    logged_user_name = session.get('user_name')
+    uid = session.get('user_id')
+    current_store = session.get('current_store', 'LM11')
     
-    if role == 'employee':
-        selected_emp = logged_user_id
-    else:
-        selected_emp = request.args.get('employee', 'ALL')
-        
-    today_str = datetime.now().strftime('%Y-%m-%d')
-    start_date = request.args.get('start_date', today_str)
-    end_date = request.args.get('end_date', today_str)
+    db = load_users_db()
+    user_data = db.get(uid, {})
     
-    logs, all_users, g_hrs, g_l_hrs, g_var, raw_punches, stats = fetch_attendance_data(start_date, end_date, selected_emp)
+    allowed_stores = user_data.get('allowed_stores', ['LM11']) if role != 'developer' else list(load_machines().keys())
+    user_features = user_data.get('allowed_features', []) if role != 'developer' else ['roster_planner', 'shift_approvals', 'password_resets', 'calendar', 'leave', 'salary', 'roster']
+    profile_pic = user_data.get('profile_pic', '')
+    user_designation = user_data.get('designation', 'Developer' if role == 'developer' else 'Employee')
+
+    start_date = request.args.get('start_date', datetime.now().strftime('%Y-%m-%d'))
+    end_date = request.args.get('end_date', datetime.now().strftime('%Y-%m-%d'))
+    selected_emp = request.args.get('employee', 'ALL') if role != 'employee' else uid
     
-    pending_leaves_count = sum(1 for req in LEAVE_REQUESTS if req['status'] == 'Pending')
-    current_user_leave_requests = [req for req in LEAVE_REQUESTS if req['user_id'] == logged_user_id] if role == 'employee' else LEAVE_REQUESTS
-        
-    shift_reqs = load_shift_requests()
-    pending_shifts_count = sum(1 for req in shift_reqs if req.get('status') == 'Pending')
-    my_shift_reqs = [r for r in shift_reqs if r.get('user_id') == logged_user_id] if role == 'employee' else shift_reqs
+    machines = load_machines()
+    portal_name = machines.get(current_store, {}).get('name', 'HRMS Portal')
     
-    reset_requests = load_json_file(PASSWORD_RESETS_FILE) if role == 'developer' else []
-    pending_resets_count = sum(1 for req in reset_requests if req.get('status') == 'Pending')
-    
-    all_salary_slips = load_salary_slips()
-    my_salary_slips = [s for s in all_salary_slips if s['user_id'] == logged_user_id] if role == 'employee' else all_salary_slips
+    logs, all_users, g_hrs, g_l_hrs, g_var, raw_punches, stats = fetch_attendance_data(start_date, end_date, selected_emp, current_store)
     
     return render_template_string(
-        HTML_TEMPLATE,
-        logs=logs, all_users=all_users, start_date=start_date, end_date=end_date, selected_emp=selected_emp,
-        grand_total_hours=g_hrs, grand_total_lunch_hours=g_l_hrs, grand_total_variance=g_var, stats=stats,
-        raw_punches=raw_punches, role=role, logged_user_name=logged_user_name,
-        leave_requests=current_user_leave_requests, pending_leaves_count=pending_leaves_count,
-        shift_requests=my_shift_reqs, pending_shifts_count=pending_shifts_count,
-        reset_requests=reset_requests, pending_resets_count=pending_resets_count,
-        salary_slips=my_salary_slips
+        HTML_TEMPLATE, logs=logs, all_users=all_users, start_date=start_date, end_date=end_date, 
+        selected_emp=selected_emp, role=role, logged_user_name=session.get('user_name'), portal_name=portal_name,
+        current_store=current_store, allowed_stores=allowed_stores, user_features=user_features,
+        users_db=db, all_machines=machines, profile_pic=profile_pic, user_designation=user_designation
     )
 
-# --- BULK SALARY SLIP APIs ---
-@app.route('/upload_bulk_salary', methods=['POST'])
-def upload_bulk_salary():
-    if session.get('role') not in ['admin', 'developer']:
-        return redirect(url_for('index'))
-
-    salary_month = (request.form.get('salary_month') or '').strip()
-    file = request.files.get('salary_pdf')
-    if not salary_month or not file or file.filename == '':
-        flash('Sabhi fields bharna zaroori hai!', 'danger')
-        return redirect(url_for('index'))
-    if not file.filename.lower().endswith('.pdf'):
-        flash('Sirf PDF files allowed hain!', 'danger')
-        return redirect(url_for('index'))
-
-    try:
-        reader = PdfReader(file)
-        total_pages = len(reader.pages)
-        if total_pages == 0:
-            flash('Uploaded PDF mein koi page nahi hai!', 'danger')
-            return redirect(url_for('index'))
-
-        page_groups = _build_salary_pdf_groups(reader)
-        slips = load_salary_slips()
-
-        uploaded_employee_codes = set(page_groups.keys())
-        kept_slips = []
-        for old in slips:
-            if old.get('month') == salary_month and old.get('user_id') in uploaded_employee_codes:
-                old_path = os.path.join(app.config['UPLOAD_FOLDER'], old.get('filename', ''))
-                if os.path.isfile(old_path):
-                    try:
-                        os.remove(old_path)
-                    except OSError:
-                        pass
-            else:
-                kept_slips.append(old)
-        slips = kept_slips
-
-        pages_processed = 0
-        employees_processed = 0
-        for emp_code, page_indexes in page_groups.items():
-            final_emp_code = emp_code if emp_code.startswith('NWC') else f'NWC{emp_code}'
-            emp_info = get_emp_info(emp_code)
-            writer = PdfWriter()
-            for page_index in sorted(page_indexes):
-                writer.add_page(reader.pages[page_index])
-                pages_processed += 1
-
-            file_id = str(uuid.uuid4())
-            secure_name = f'salary_{final_emp_code}_{salary_month}_{file_id}.pdf'
-            local_path = os.path.join(app.config['UPLOAD_FOLDER'], secure_name)
-            with open(local_path, 'wb') as output_pdf:
-                writer.write(output_pdf)
-
-            slips.append({
-                'file_id': file_id,
-                'user_id': final_emp_code,
-                'emp_name': emp_info['name'],
-                'month': salary_month,
-                'filename': secure_name,
-                'page_count': len(page_indexes),
-                'upload_date': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            })
-            employees_processed += 1
-
-        save_salary_slips(slips)
-        missing_employees = [
-            get_emp_info(code)['name'] for code in MASTER_EMPLOYEES
-            if code not in page_groups
-        ]
-
-        if missing_employees:
-            preview = ', '.join(missing_employees[:5])
-            suffix = ' ...' if len(missing_employees) > 5 else ''
-            flash(
-                f'Success! {pages_processed}/{total_pages} pages save hue aur {employees_processed} employees ki slips bani. '
-                f'{len(missing_employees)} employees ke liye PDF mein identifiable page nahi mila: {preview}{suffix}',
-                'danger'
-            )
-        else:
-            flash(
-                f'Success! Merged PDF ke saare {total_pages} pages save ho gaye aur {employees_processed} employees ke salary slips ban gaye. '
-                f'Multi-page slips ke saare pages ek hi employee slip mein rakhe gaye.',
-                'success'
-            )
-    except Exception as e:
-        flash(f'PDF Split Error: {str(e)}', 'danger')
-    return redirect(url_for('index'))
-
-@app.route('/salary_file/<file_id>')
-def salary_file(file_id):
-    if not session.get('logged_in'):
-        return redirect(url_for('login'))
-    slips = load_salary_slips()
-    target_slip = next((s for s in slips if s.get('file_id') == file_id), None)
-    if not target_slip:
-        return 'File not found', 404
-
-    if session.get('role') == 'employee':
-        if target_slip.get('user_id') != session.get('user_id'):
-            return 'Unauthorized Access', 403
-    elif session.get('role') not in ['admin', 'developer']:
-        return 'Unauthorized Access', 403
-
-    file_path = os.path.join(app.config['UPLOAD_FOLDER'], target_slip.get('filename', ''))
-    if not os.path.isfile(file_path):
-        return 'Salary slip file missing on server', 404
-    return send_file(file_path, mimetype='application/pdf')
-
-@app.route('/delete_salary/<file_id>')
-def delete_salary(file_id):
-    if session.get('role') not in ['admin', 'developer']:
-        return redirect(url_for('index'))
-    slips = load_salary_slips()
-    target_slip = next((s for s in slips if s.get('file_id') == file_id), None)
-    if target_slip:
-        file_path = os.path.join(app.config['UPLOAD_FOLDER'], target_slip.get('filename', ''))
-        if os.path.exists(file_path):
-            os.remove(file_path)
-        slips = [s for s in slips if s.get('file_id') != file_id]
-        save_salary_slips(slips)
-        flash('Salary slip successfully deleted.', 'success')
-    return redirect(url_for('index'))
-
-# --- ROSTER PLANNER APIs ---
-@app.route('/api/get_roster', methods=['GET'])
-def api_get_roster():
-    if session.get('role') not in ['admin', 'developer']: return {}, 403
-    emp_id = request.args.get('emp_id')
-    roster = load_roster()
-    return roster.get(emp_id, {})
-
-@app.route('/api/save_roster', methods=['POST'])
-def api_save_roster():
-    if session.get('role') not in ['admin', 'developer']: return {}, 403
-    data = request.get_json()
-    emp_id = data.get('emp_id')
-    updates = data.get('updates', {})
-    
-    roster = load_roster()
-    if emp_id not in roster: roster[emp_id] = {}
-    
-    for dt, val in updates.items():
-        roster[emp_id][dt] = val
-        
-    save_roster(roster)
-    return {'status': 'success'}
-
-# --- EMPLOYEE SHIFT REQUEST APIs ---
-@app.route('/request_shift', methods=['POST'])
-def request_shift():
-    if session.get('role') != 'employee': return redirect(url_for('index'))
-    req_date = request.form.get('req_date')
-    req_status = request.form.get('req_status')
-    req_reason = request.form.get('req_reason')
-    
-    reqs = load_shift_requests()
-    req_id = len(reqs) + 1
-    reqs.append({
-        'id': req_id, 'user_id': session.get('user_id'), 'name': session.get('user_name'),
-        'date': req_date, 'requested': req_status, 'reason': req_reason, 'status': 'Pending'
-    })
-    save_shift_requests(reqs)
-    flash("Shift/Off request submit ho gayi hai! Admin approval ka wait karein.", "success")
-    return redirect(url_for('index'))
-
-@app.route('/update_shift_req/<int:req_id>/<action>')
-def update_shift_req(req_id, action):
-    if session.get('role') not in ['admin', 'developer']: return redirect(url_for('login'))
-    reqs = load_shift_requests()
-    for req in reqs:
-        if req['id'] == req_id:
-            if action == 'approve':
-                req['status'] = 'Approved'
-                # Update main roster
-                roster = load_roster()
-                emp = req['user_id']
-                if emp not in roster: roster[emp] = {}
-                roster[emp][req['date']] = req['requested']
-                save_roster(roster)
-                flash(f"{req['name']} ki shift request approve kar di gayi hai.", "success")
-            elif action == 'reject':
-                req['status'] = 'Rejected'
-                flash(f"{req['name']} ki shift request reject ki gayi.", "success")
-            break
-    save_shift_requests(reqs)
-    return redirect(url_for('index'))
-
-# --- QUICK EDIT API ---
-@app.route('/quick_edit')
-def quick_edit():
+@app.route('/manage_machine', methods=['POST'])
+def manage_machine():
     if session.get('role') != 'developer': return redirect(url_for('index'))
-    date_str = request.args.get('date')
-    emp_id = request.args.get('emp_id')
-    field = request.args.get('field')
-    new_time = request.args.get('time', '').strip()
-
-    overrides = load_overrides()
-    if date_str not in overrides: overrides[date_str] = {}
-    if emp_id not in overrides[date_str]: overrides[date_str][emp_id] = {}
-
-    if new_time == '' or new_time == '-':
-        if field in overrides[date_str][emp_id]: del overrides[date_str][emp_id][field]
-    else:
-        if len(new_time.split(':')) == 2: new_time += ":00"
-        overrides[date_str][emp_id][field] = new_time
-
-    save_overrides(overrides)
-    flash(f"Time successfully updated for {emp_id}!", "success")
-    ref = request.referrer
-    return redirect(ref) if ref else redirect(url_for('index'))
-
-# --- LEAVE APIs ---
-@app.route('/apply_leave', methods=['POST'])
-def apply_leave():
-    if not session.get('logged_in') or session.get('role') != 'employee': return redirect(url_for('login'))
-    user_id = session.get('user_id')
-    name = session.get('user_name')
-    start_date = request.form.get('start_date')
-    end_date = request.form.get('end_date')
-    leave_type = request.form.get('leave_type', 'F10;1')
-    filename = None
-    file = request.files.get('supporting_doc')
-    if file and file.filename != '':
-        if not allowed_file(file.filename):
-            flash('Invalid file format! Sirf PDF, JPG, PNG ya DOC files allowed hain.', 'danger')
-            return redirect(url_for('index'))
-        filename = secure_filename(file.filename)
-        local_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        file.save(local_path)
-        upload_file_to_github(local_path, f"leave_documents/{user_id}_{filename}")
-    save_leave_to_excel(user_id, name, start_date, end_date, leave_type, filename if filename else "No Document")
-    LEAVE_REQUESTS.append({
-        'id': len(LEAVE_REQUESTS) + 1, 'user_id': user_id, 'name': name, 'start_date': start_date,
-        'end_date': end_date, 'leave_type': leave_type, 'filename': filename, 'status': 'Pending'
-    })
-    save_leave_requests(LEAVE_REQUESTS)
-    flash('Aapki leave request successfully submit ho gayi hai!', 'success')
+    machines = load_machines()
+    m_code = request.form.get('store_code').strip().upper()
+    machines[m_code] = {
+        'name': request.form.get('name').strip(),
+        'ip': request.form.get('ip').strip(),
+        'port': int(request.form.get('port')),
+        'admin': request.form.get('admin').strip().upper()
+    }
+    save_json_file(MACHINES_FILE, machines)
+    flash(f"Machine {m_code} added/updated successfully.", "success")
     return redirect(url_for('index'))
 
-@app.route('/update_leave/<int:req_id>/<action>')
-def update_leave(req_id, action):
-    if session.get('role') not in ['admin', 'developer']: return redirect(url_for('login'))
-    for req in LEAVE_REQUESTS:
-        if req['id'] == req_id:
-            if action == 'approve':
-                req['status'] = 'Approved'
-                flash(f"Leave request for {req['name']} approved successfully!", 'success')
-            elif action == 'reject':
-                req['status'] = 'Rejected'
-                flash(f"Leave request for {req['name']} rejected.", 'success')
-            break
-    save_leave_requests(LEAVE_REQUESTS)
+@app.route('/manage_user', methods=['POST'])
+def manage_user():
+    if session.get('role') != 'developer': return redirect(url_for('index'))
+    db = load_users_db()
+    action = request.form.get('action')
+    uid = request.form.get('uid').strip().upper()
+    uid = f"NWC{uid}" if not uid.startswith('NWC') and uid not in load_machines().keys() else uid
+    
+    if action == 'create':
+        db[uid] = {
+            'name': request.form.get('name').strip(),
+            'password': request.form.get('password').strip(),
+            'role': request.form.get('role'),
+            'designation': request.form.get('designation').strip(),
+            'allowed_stores': request.form.getlist('allowed_stores'),
+            'status': 'active', 'off': 'SUNDAY', 'shift': 'morning', 'profile_pic': '',
+            'allowed_features': ['calendar', 'leave', 'shift', 'salary'] if request.form.get('role') == 'employee' else ['roster_planner', 'shift_approvals', 'password_resets', 'calendar', 'leave', 'salary', 'roster']
+        }
+        flash(f"User {uid} created/updated successfully.", "success")
+    elif action == 'toggle_status' and uid in db:
+        db[uid]['status'] = 'blocked' if db[uid].get('status') == 'active' else 'active'
+        flash(f"User {uid} status changed.", "success")
+        
+    save_json_file(USERS_DB_FILE, db)
+    return redirect(url_for('index'))
+
+@app.route('/upload_profile_pic', methods=['POST'])
+def upload_profile_pic():
+    uid = session.get('user_id')
+    file = request.files.get('profile_pic')
+    if file and file.filename != '' and allowed_file(file.filename):
+        filename = f"profile_{uid}_{secure_filename(file.filename)}"
+        file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+        
+        db = load_users_db()
+        if uid in db:
+            db[uid]['profile_pic'] = filename
+            save_json_file(USERS_DB_FILE, db)
+            flash("Profile picture updated!", "success")
     return redirect(url_for('index'))
 
 @app.route('/uploads/<filename>')
 def uploaded_file(filename):
-    if not session.get('logged_in'): return redirect(url_for('login'))
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
-
-@app.route('/export')
-def export_excel():
-    if session.get('role') not in ['admin', 'developer']: return redirect(url_for('login'))
-    start_date = request.args.get('start_date', datetime.now().strftime('%Y-%m-%d'))
-    end_date = request.args.get('end_date', datetime.now().strftime('%Y-%m-%d'))
-    selected_emp = request.args.get('employee', 'ALL')
-    logs, _, g_hrs, g_l_hrs, g_var, _, _ = fetch_attendance_data(start_date, end_date, selected_emp)
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = "Attendance Report"
-    ws.append(["Attendance Portal - Attendance Report"])
-    ws.append([f"Period: {start_date} to {end_date}"])
-    ws.append([])
-    ws.append(["Sr. No.", "Date", "ID", "Employee Name", "Department", "Store In", "Lunch Out", "Lunch In", "Out Time", "Total Lunch", "Working Hours", "Total Hora Extra", "Status"])
-    for idx, log in enumerate(logs, 1):
-        ws.append([idx, log['date'], log['user_id'], log['name'], log['dept'], log['store_in'], log['lunch_out'], log['lunch_in'], log['out_time'], log['total_lunch'], log['total_hours'], log['net_variance'], log['status']])
-    ws.append([])
-    ws.append(["", "", "", "", "", "", "", "", "Total Summary:", g_l_hrs, g_hrs, g_var])
-    excel_io = io.BytesIO()
-    wb.save(excel_io)
-    excel_io.seek(0)
-    return send_file(excel_io, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', as_attachment=True, download_name=f"Attendance_Report_{start_date}_to_{end_date}.xlsx")
-
-@app.route('/export_matrix')
-def export_matrix():
-    if session.get('role') not in ['admin', 'developer']: return redirect(url_for('login'))
-    start_date = request.args.get('start_date', datetime.now().strftime('%Y-%m-%d'))
-    end_date = request.args.get('end_date', datetime.now().strftime('%Y-%m-%d'))
-    start_dt, end_dt = datetime.strptime(start_date, '%Y-%m-%d'), datetime.strptime(end_date, '%Y-%m-%d')
-    date_list = []
-    while start_dt <= end_dt:
-        date_list.append(start_dt.strftime('%Y-%m-%d'))
-        start_dt += timedelta(days=1)
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = "Employee Matrix"
-    ws.append(["Attendance Portal - Employee Matrix Attendance Report"])
-    ws.append([f"Period: {start_date} to {end_date}"])
-    ws.append([])
-    ws.append(["ID", "Employee Name", "Department"] + date_list)
-    for emp_code, emp_data in sorted(MASTER_EMPLOYEES.items(), key=lambda x: get_emp_info(x[0])['name']):
-        final_code = f"NWC{emp_code}" if not emp_code.startswith('NWC') else emp_code
-        emp_info = get_emp_info(emp_code)
-        row = [final_code, emp_info['name'], emp_info['dept']]
-        for d_str in date_list:
-            logs_d, _, _, _, _, _, _ = fetch_attendance_data(d_str, d_str, final_code)
-            if logs_d:
-                st = logs_d[0]
-                status = st['status']
-                if any(code in status for code in ['F01;1', 'F03;1', 'F05;1', 'F10;1', 'F51;1', 'F60;1', 'F61;1', 'F62;1']):
-                    row.append(next((code for code in ['F01;1', 'F03;1', 'F05;1', 'F10;1', 'F51;1', 'F60;1', 'F61;1', 'F62;1'] if code in status), 'F10;1'))
-                elif status == 'Weekly Off': row.append('Off')
-                elif status == 'Present': row.append(st['net_variance'] if 'H06;' in st['net_variance'] or 'H07;' in st['net_variance'] else 'P')
-                elif status == 'Mis Punch': row.append('Mis Punch')
-                else: row.append('F03;1')
-            else:
-                curr_dt_obj = datetime.strptime(d_str, '%Y-%m-%d')
-                row.append('Off' if curr_dt_obj.strftime('%A').upper() == emp_info['off'].upper() else 'F03;1')
-        ws.append(row)
-    excel_io = io.BytesIO()
-    wb.save(excel_io)
-    excel_io.seek(0)
-    return send_file(excel_io, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', as_attachment=True, download_name=f"Employee_Matrix_{start_date}_to_{end_date}.xlsx")
-
-@app.route('/shutdown')
-def shutdown():
-    dev_pass = os.getenv('DEV_PWD', 'Shama@8577')
-    if session.get('role') in ['admin', 'developer'] and request.args.get('pwd') == dev_pass:
-        func = request.environ.get('werkzeug.server.shutdown')
-        if func: func()
-        else: sys.exit(0)
-        return "Server successfully shutdown ho gaya hai."
-    return "Unauthorized access!", 403
-
-@app.route('/api/attendance/sync', methods=['POST'])
-def sync_attendance():
-    global SYNCED_ATTENDANCE_LOGS, LAST_DEVICE_SYNC_TIME
-    try:
-        data = request.get_json()
-        if not data or 'logs' not in data: return {'status': 'error', 'message': 'No logs'}, 400
-        logs = data['logs']
-        existing_keys = {(str(item.get('user_id')), str(item.get('timestamp'))) for item in SYNCED_ATTENDANCE_LOGS}
-        added_count = 0
-        for log in logs:
-            key = (str(log.get('user_id')), str(log.get('timestamp')))
-            if key not in existing_keys:
-                SYNCED_ATTENDANCE_LOGS.append(log)
-                existing_keys.add(key)
-                added_count += 1
-        LAST_DEVICE_SYNC_TIME = datetime.now()
-        return {'status': 'success', 'message': f'{len(logs)} records synced ({added_count} new)'}, 200
-    except Exception as e: return {'status': 'error', 'message': str(e)}, 500
 
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 5000))
