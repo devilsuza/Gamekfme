@@ -11,3 +11,13 @@ werkzeug
 requests
 zk
 gunicorn
+Flask
+Flask-SQLAlchemy
+gunicorn
+openpyxl
+PyGithub
+pypdf
+pyzk
+requests
+werkzeug
+zk
