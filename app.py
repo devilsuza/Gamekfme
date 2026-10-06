@@ -4,6 +4,8 @@ import json
 import math
 import os
 import sys
+import re
+import unicodedata
 import uuid
 from datetime import datetime, time, timedelta
 from flask import Flask, render_template_string, request, Response, send_file, session, redirect, url_for, flash, send_from_directory
@@ -136,6 +138,80 @@ def load_salary_slips():
     data = load_json_file(SALARY_SLIPS_FILE)
     return data if isinstance(data, list) else []
 def save_salary_slips(data): save_json_file(SALARY_SLIPS_FILE, data)
+
+
+def _normalize_salary_text(value):
+    value = value or ''
+    value = unicodedata.normalize('NFKD', value)
+    value = ''.join(ch for ch in value if not unicodedata.combining(ch))
+    value = value.upper()
+    value = re.sub(r'[^A-Z0-9]+', ' ', value)
+    return re.sub(r'\s+', ' ', value).strip()
+
+def _salary_employee_candidates(page_text):
+    text = _normalize_salary_text(page_text)
+    if not text:
+        return []
+    candidates = []
+    for emp_code, emp_info in MASTER_EMPLOYEES.items():
+        clean_code = emp_code.upper().replace('NWC', '')
+        if (re.search(r'\bNWC\s*' + re.escape(clean_code) + r'\b', text)
+                or re.search(r'\b' + re.escape(clean_code) + r'\b', text)):
+            candidates.append(emp_code)
+    if candidates:
+        return list(dict.fromkeys(candidates))
+    for emp_code, emp_info in MASTER_EMPLOYEES.items():
+        normalized_name = _normalize_salary_text(emp_info.get('name', ''))
+        if normalized_name and normalized_name in text:
+            candidates.append(emp_code)
+    return list(dict.fromkeys(candidates))
+
+def _build_salary_pdf_groups(reader):
+    """Group every merged-PDF page into an employee's multi-page salary slip."""
+    employee_order = sorted(MASTER_EMPLOYEES.keys(), key=lambda x: get_emp_info(x)['name'])
+    groups = {code: [] for code in employee_order}
+    unmatched_pages = []
+    current_emp = None
+
+    for page_index, page in enumerate(reader.pages):
+        try:
+            page_text = page.extract_text() or ''
+        except Exception:
+            page_text = ''
+        candidates = _salary_employee_candidates(page_text)
+        if candidates:
+            emp_code = current_emp if current_emp in candidates else candidates[0]
+            groups[emp_code].append(page_index)
+            current_emp = emp_code
+        else:
+            unmatched_pages.append(page_index)
+
+    # Pages without an employee identifier are normally continuation pages.
+    # Reserve enough pages for employees that have not yet been identified.
+    if unmatched_pages and current_emp:
+        assigned = {code for code, pages in groups.items() if pages}
+        missing = [code for code in employee_order if code not in assigned]
+        reserve = min(len(unmatched_pages), len(missing))
+        continuation_pages = unmatched_pages[reserve:]
+        groups[current_emp].extend(continuation_pages)
+        unmatched_pages = unmatched_pages[:reserve]
+
+    # Do not reject a 43-page PDF just because there are 35 employees.
+    # Give remaining unidentified pages to employees who have no page yet.
+    missing = [code for code in employee_order if not groups[code]]
+    for page_index, emp_code in zip(unmatched_pages, missing):
+        groups[emp_code].append(page_index)
+
+    # If the PDF has more pages than employees and some pages still have no
+    # readable employee identifier, never drop those pages. Attach the extra
+    # pages to the last employee/slip as continuation pages.
+    consumed = min(len(unmatched_pages), len(missing))
+    leftover_pages = unmatched_pages[consumed:]
+    if leftover_pages:
+        fallback_emp = current_emp or (missing[-1] if missing else employee_order[-1])
+        groups[fallback_emp].extend(leftover_pages)
+
+    return {code: pages for code, pages in groups.items() if pages}
 
 def get_emp_info(emp_code):
     emp_str = str(emp_code).strip()
@@ -1295,7 +1371,7 @@ HTML_TEMPLATE = """
                             <span id="upload-btn-text">Split & Upload</span>
                         </button>
                     </form>
-                    <p class="text-[10px] text-indigo-600 mt-2 italic">*System will sequentially read the merged PDF and map pages to employees.</p>
+                    <p class="text-[10px] text-indigo-600 mt-2 italic">*System PDF ke har page par employee code/name detect karega; multi-page salary slips ke saare pages ek hi employee ke slip mein save honge.</p>
                 </div>
                 {% endif %}
 
@@ -1735,105 +1811,130 @@ def index():
 # --- BULK SALARY SLIP APIs ---
 @app.route('/upload_bulk_salary', methods=['POST'])
 def upload_bulk_salary():
-    if session.get('role') not in ['admin', 'developer']: return redirect(url_for('index'))
-    
-    salary_month = request.form.get('salary_month') # Format YYYY-MM
+    if session.get('role') not in ['admin', 'developer']:
+        return redirect(url_for('index'))
+
+    salary_month = (request.form.get('salary_month') or '').strip()
     file = request.files.get('salary_pdf')
-    
     if not salary_month or not file or file.filename == '':
         flash('Sabhi fields bharna zaroori hai!', 'danger')
         return redirect(url_for('index'))
-        
     if not file.filename.lower().endswith('.pdf'):
         flash('Sirf PDF files allowed hain!', 'danger')
         return redirect(url_for('index'))
-        
+
     try:
-        # Load the uploaded PDF
         reader = PdfReader(file)
         total_pages = len(reader.pages)
-        
-        # Sort employees to maintain a sequential mapping (assuming alphabetical/ID order in the PDF)
-        # Note: In a real-world scenario, you might want to extract text to find the exact ID.
-        # This basic version maps Page 1 -> Employee 1, Page 2 -> Employee 2, based on dictionary order.
-        sorted_emp_codes = sorted(MASTER_EMPLOYEES.keys(), key=lambda x: get_emp_info(x)['name'])
-        
-        if total_pages > len(sorted_emp_codes):
-            flash(f'Error: Merged PDF mein {total_pages} pages hain, lekin system mein sirf {len(sorted_emp_codes)} employees hain.', 'danger')
+        if total_pages == 0:
+            flash('Uploaded PDF mein koi page nahi hai!', 'danger')
             return redirect(url_for('index'))
-            
+
+        # Page count and employee count are intentionally NOT compared.
+        # A salary slip can have multiple pages; all pages are preserved.
+        page_groups = _build_salary_pdf_groups(reader)
         slips = load_salary_slips()
+
+        # Re-uploading the same month replaces old slips for those employees.
+        uploaded_employee_codes = set(page_groups.keys())
+        kept_slips = []
+        for old in slips:
+            if old.get('month') == salary_month and old.get('user_id') in uploaded_employee_codes:
+                old_path = os.path.join(app.config['UPLOAD_FOLDER'], old.get('filename', ''))
+                if os.path.isfile(old_path):
+                    try:
+                        os.remove(old_path)
+                    except OSError:
+                        pass
+            else:
+                kept_slips.append(old)
+        slips = kept_slips
+
         pages_processed = 0
-        
-        for i in range(total_pages):
-            writer = PdfWriter()
-            writer.add_page(reader.pages[i])
-            
-            emp_code = sorted_emp_codes[i]
-            final_emp_code = f"NWC{emp_code}" if not emp_code.startswith('NWC') else emp_code
+        employees_processed = 0
+        for emp_code, page_indexes in page_groups.items():
+            final_emp_code = emp_code if emp_code.startswith('NWC') else f'NWC{emp_code}'
             emp_info = get_emp_info(emp_code)
-            
+            writer = PdfWriter()
+            for page_index in sorted(page_indexes):
+                writer.add_page(reader.pages[page_index])
+                pages_processed += 1
+
             file_id = str(uuid.uuid4())
-            secure_name = f"salary_{final_emp_code}_{salary_month}_{file_id}.pdf"
+            secure_name = f'salary_{final_emp_code}_{salary_month}_{file_id}.pdf'
             local_path = os.path.join(app.config['UPLOAD_FOLDER'], secure_name)
-            
-            # Save the single page PDF
-            with open(local_path, "wb") as output_pdf:
+            with open(local_path, 'wb') as output_pdf:
                 writer.write(output_pdf)
-                
+
             slips.append({
                 'file_id': file_id,
                 'user_id': final_emp_code,
                 'emp_name': emp_info['name'],
                 'month': salary_month,
                 'filename': secure_name,
+                'page_count': len(page_indexes),
                 'upload_date': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             })
-            pages_processed += 1
-            
+            employees_processed += 1
+
         save_salary_slips(slips)
-        flash(f'Success! Master PDF successfully split into {pages_processed} individual employee salary slips for {salary_month}.', 'success')
-        
+        missing_employees = [
+            get_emp_info(code)['name'] for code in MASTER_EMPLOYEES
+            if code not in page_groups
+        ]
+
+        if missing_employees:
+            preview = ', '.join(missing_employees[:5])
+            suffix = ' ...' if len(missing_employees) > 5 else ''
+            flash(
+                f'Success! {pages_processed}/{total_pages} pages save hue aur {employees_processed} employees ki slips bani. '
+                f'{len(missing_employees)} employees ke liye PDF mein identifiable page nahi mila: {preview}{suffix}',
+                'danger'
+            )
+        else:
+            flash(
+                f'Success! Merged PDF ke saare {total_pages} pages save ho gaye aur {employees_processed} employees ke salary slips ban gaye. '
+                f'Multi-page slips ke saare pages ek hi employee slip mein rakhe gaye.',
+                'success'
+            )
     except Exception as e:
         flash(f'PDF Split Error: {str(e)}', 'danger')
-        
     return redirect(url_for('index'))
 
 @app.route('/salary_file/<file_id>')
 def salary_file(file_id):
-    if not session.get('logged_in'): return redirect(url_for('login'))
-    
+    if not session.get('logged_in'):
+        return redirect(url_for('login'))
     slips = load_salary_slips()
-    target_slip = next((s for s in slips if s['file_id'] == file_id), None)
-    
+    target_slip = next((s for s in slips if s.get('file_id') == file_id), None)
     if not target_slip:
-        return "File not found", 404
-        
-    # Restrict viewing to only the owner employee or admin/dev
-    if session.get('role') == 'employee' and target_slip['user_id'] != session.get('user_id'):
-        return "Unauthorized Access", 403
-        
-    file_path = os.path.join(app.config['UPLOAD_FOLDER'], target_slip['filename'])
-    
-    # Adding #toolbar=0 to URL prevents download button in most modern browsers' native PDF viewers
+        return 'File not found', 404
+
+    # Employee: own slip only. Admin/Developer: all slips.
+    if session.get('role') == 'employee':
+        if target_slip.get('user_id') != session.get('user_id'):
+            return 'Unauthorized Access', 403
+    elif session.get('role') not in ['admin', 'developer']:
+        return 'Unauthorized Access', 403
+
+    file_path = os.path.join(app.config['UPLOAD_FOLDER'], target_slip.get('filename', ''))
+    if not os.path.isfile(file_path):
+        return 'Salary slip file missing on server', 404
     return send_file(file_path, mimetype='application/pdf')
 
 @app.route('/delete_salary/<file_id>')
 def delete_salary(file_id):
-    if session.get('role') not in ['admin', 'developer']: return redirect(url_for('index'))
-    
+    if session.get('role') not in ['admin', 'developer']:
+        return redirect(url_for('index'))
     slips = load_salary_slips()
-    target_slip = next((s for s in slips if s['file_id'] == file_id), None)
-    
+    target_slip = next((s for s in slips if s.get('file_id') == file_id), None)
     if target_slip:
-        file_path = os.path.join(app.config['UPLOAD_FOLDER'], target_slip['filename'])
+        file_path = os.path.join(app.config['UPLOAD_FOLDER'], target_slip.get('filename', ''))
         if os.path.exists(file_path):
             os.remove(file_path)
-            
-        slips = [s for s in slips if s['file_id'] != file_id]
+        slips = [s for s in slips if s.get('file_id') != file_id]
         save_salary_slips(slips)
         flash('Salary slip successfully deleted.', 'success')
-        
     return redirect(url_for('index'))
 
 # --- ROSTER PLANNER APIs ---
