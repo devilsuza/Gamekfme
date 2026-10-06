@@ -12,6 +12,7 @@ import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from werkzeug.utils import secure_filename
 from zk import ZK, const
+from pypdf import PdfReader, PdfWriter # Naya import for Bulk PDF splitting
 
 app = Flask(__name__)
 
@@ -41,7 +42,7 @@ ROSTER_JSON_FILE = 'roster.json'
 SHIFT_REQUESTS_FILE = 'shift_requests.json' 
 PASSWORD_RESETS_FILE = 'password_resets.json'
 USER_PASSWORDS_FILE = 'user_passwords.json'
-SALARY_SLIPS_FILE = 'salary_slips.json' # Naya file salary slips records ke liye
+SALARY_SLIPS_FILE = 'salary_slips.json'
 
 # Global storage for synced biometric logs
 SYNCED_ATTENDANCE_LOGS = []
@@ -868,6 +869,12 @@ HTML_TEMPLATE = """
             toggleModal('pdf-viewer-modal', true);
         }
 
+        function uploadLoading() {
+            document.getElementById('upload-btn-text').innerText = 'Splitting & Saving... Please wait...';
+            document.getElementById('upload-btn').disabled = true;
+            document.getElementById('upload-btn').classList.add('opacity-75', 'cursor-wait');
+        }
+
         document.addEventListener('DOMContentLoaded', function() {
             startTimer();
             setInterval(updateLiveClock, 1000);
@@ -886,7 +893,7 @@ HTML_TEMPLATE = """
                     <img src="{{ url_for('static', filename='fresmart.png') }}" alt="Logo" class="h-6 object-contain">
                 </div>
                 <div>
-                    <h2 class="text-sm font-bold text-slate-900 leading-tight">Gamek HRMS</h2>
+                    <h2 class="text-sm font-bold text-slate-900 leading-tight">Gamek HRM</h2>
                     <p class="text-[10px] text-slate-400 font-medium">Attendance Portal</p>
                 </div>
             </div>
@@ -985,7 +992,7 @@ HTML_TEMPLATE = """
 
             <div class="flex items-center space-x-3 flex-wrap">
                 <button onclick="toggleModal('leave-modal', true)" class="relative bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-bold px-3 py-2 rounded-xl transition border border-emerald-200 flex items-center space-x-1.5">
-                    <span>🏖️️ Leave Portal</span>
+                    <span>🏖 Leave Portal</span>
                     {% if role in ['admin', 'developer'] and pending_leaves_count > 0 %}
                     <span class="bg-rose-500 text-white text-[10px] px-1.5 py-0.2 rounded-full font-black animate-bounce">{{ pending_leaves_count }}</span>
                     {% endif %}
@@ -1272,29 +1279,23 @@ HTML_TEMPLATE = """
                     </div>
                 </div>
                 
-                <!-- UPLOAD SALARY SLIP (Admin/Dev) -->
+                <!-- UPLOAD BULK SALARY SLIP (Admin/Dev) -->
                 <div class="bg-indigo-50 border border-indigo-200 rounded-xl p-4">
-                    <h4 class="text-sm font-bold text-indigo-900 mb-3">Upload Employee Salary Slip (PDF)</h4>
-                    <form action="/upload_salary" method="POST" enctype="multipart/form-data" class="flex items-end gap-3">
-                        <div class="flex-1">
-                            <label class="block text-[10px] font-bold uppercase text-indigo-700 mb-1">Employee</label>
-                            <select name="emp_id" required class="w-full bg-white border border-indigo-300 rounded-lg px-3 py-2 text-xs focus:ring-2 focus:ring-indigo-500">
-                                <option value="">-- Select --</option>
-                                {% for emp in all_users %}
-                                    <option value="{{ emp.user_id }}">{{ emp.name }} ({{ emp.user_id }})</option>
-                                {% endfor %}
-                            </select>
-                        </div>
+                    <h4 class="text-sm font-bold text-indigo-900 mb-3">Bulk Upload (Merged PDF)</h4>
+                    <form action="/upload_bulk_salary" method="POST" enctype="multipart/form-data" class="flex items-end gap-3" onsubmit="uploadLoading()">
                         <div class="flex-1">
                             <label class="block text-[10px] font-bold uppercase text-indigo-700 mb-1">Month & Year</label>
                             <input type="month" name="salary_month" required class="w-full bg-white border border-indigo-300 rounded-lg px-3 py-2 text-xs focus:ring-2 focus:ring-indigo-500">
                         </div>
                         <div class="flex-1">
-                            <label class="block text-[10px] font-bold uppercase text-indigo-700 mb-1">Salary Slip (PDF Only)</label>
+                            <label class="block text-[10px] font-bold uppercase text-indigo-700 mb-1">Master Salary PDF (Merged)</label>
                             <input type="file" name="salary_pdf" accept=".pdf" required class="w-full bg-white border border-indigo-300 rounded-lg px-2 py-1.5 text-[11px] focus:ring-2 focus:ring-indigo-500">
                         </div>
-                        <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-4 py-2 rounded-lg text-xs transition">Upload</button>
+                        <button id="upload-btn" type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-4 py-2 rounded-lg text-xs transition">
+                            <span id="upload-btn-text">Split & Upload</span>
+                        </button>
                     </form>
+                    <p class="text-[10px] text-indigo-600 mt-2 italic">*System will sequentially read the merged PDF and map pages to employees.</p>
                 </div>
                 {% endif %}
 
@@ -1731,16 +1732,15 @@ def index():
         salary_slips=my_salary_slips
     )
 
-# --- SALARY SLIP APIs ---
-@app.route('/upload_salary', methods=['POST'])
-def upload_salary():
+# --- BULK SALARY SLIP APIs ---
+@app.route('/upload_bulk_salary', methods=['POST'])
+def upload_bulk_salary():
     if session.get('role') not in ['admin', 'developer']: return redirect(url_for('index'))
     
-    emp_id = request.form.get('emp_id')
     salary_month = request.form.get('salary_month') # Format YYYY-MM
     file = request.files.get('salary_pdf')
     
-    if not emp_id or not salary_month or not file or file.filename == '':
+    if not salary_month or not file or file.filename == '':
         flash('Sabhi fields bharna zaroori hai!', 'danger')
         return redirect(url_for('index'))
         
@@ -1748,24 +1748,55 @@ def upload_salary():
         flash('Sirf PDF files allowed hain!', 'danger')
         return redirect(url_for('index'))
         
-    file_id = str(uuid.uuid4())
-    secure_name = f"salary_{emp_id}_{salary_month}_{file_id}.pdf"
-    local_path = os.path.join(app.config['UPLOAD_FOLDER'], secure_name)
-    file.save(local_path)
-    
-    emp_info = get_emp_info(emp_id)
-    slips = load_salary_slips()
-    slips.append({
-        'file_id': file_id,
-        'user_id': emp_id,
-        'emp_name': emp_info['name'],
-        'month': salary_month,
-        'filename': secure_name,
-        'upload_date': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    })
-    save_salary_slips(slips)
-    
-    flash(f'Salary slip for {emp_id} ({salary_month}) uploaded successfully.', 'success')
+    try:
+        # Load the uploaded PDF
+        reader = PdfReader(file)
+        total_pages = len(reader.pages)
+        
+        # Sort employees to maintain a sequential mapping (assuming alphabetical/ID order in the PDF)
+        # Note: In a real-world scenario, you might want to extract text to find the exact ID.
+        # This basic version maps Page 1 -> Employee 1, Page 2 -> Employee 2, based on dictionary order.
+        sorted_emp_codes = sorted(MASTER_EMPLOYEES.keys(), key=lambda x: get_emp_info(x)['name'])
+        
+        if total_pages > len(sorted_emp_codes):
+            flash(f'Error: Merged PDF mein {total_pages} pages hain, lekin system mein sirf {len(sorted_emp_codes)} employees hain.', 'danger')
+            return redirect(url_for('index'))
+            
+        slips = load_salary_slips()
+        pages_processed = 0
+        
+        for i in range(total_pages):
+            writer = PdfWriter()
+            writer.add_page(reader.pages[i])
+            
+            emp_code = sorted_emp_codes[i]
+            final_emp_code = f"NWC{emp_code}" if not emp_code.startswith('NWC') else emp_code
+            emp_info = get_emp_info(emp_code)
+            
+            file_id = str(uuid.uuid4())
+            secure_name = f"salary_{final_emp_code}_{salary_month}_{file_id}.pdf"
+            local_path = os.path.join(app.config['UPLOAD_FOLDER'], secure_name)
+            
+            # Save the single page PDF
+            with open(local_path, "wb") as output_pdf:
+                writer.write(output_pdf)
+                
+            slips.append({
+                'file_id': file_id,
+                'user_id': final_emp_code,
+                'emp_name': emp_info['name'],
+                'month': salary_month,
+                'filename': secure_name,
+                'upload_date': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            })
+            pages_processed += 1
+            
+        save_salary_slips(slips)
+        flash(f'Success! Master PDF successfully split into {pages_processed} individual employee salary slips for {salary_month}.', 'success')
+        
+    except Exception as e:
+        flash(f'PDF Split Error: {str(e)}', 'danger')
+        
     return redirect(url_for('index'))
 
 @app.route('/salary_file/<file_id>')
