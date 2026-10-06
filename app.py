@@ -35,6 +35,9 @@ GITHUB_BRANCH = os.getenv('GITHUB_BRANCH', 'main')
 LEAVE_JSON_FILE = 'leave_requests.json'
 LEAVE_EXCEL_FILE = 'leave_records.xlsx'
 ATTENDANCE_OVERRIDES_FILE = 'attendance_overrides.json'
+MANUAL_PUNCHES_FILE = 'manual_punches.json'
+ROSTER_JSON_FILE = 'roster.json' 
+SHIFT_REQUESTS_FILE = 'shift_requests.json' 
 
 # Global storage for synced biometric logs
 SYNCED_ATTENDANCE_LOGS = []
@@ -89,41 +92,40 @@ EMPLOYEE_OVERRIDES = {
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-# Persistent JSON storage helpers for leave requests
-def load_leave_requests():
-    if os.path.exists(LEAVE_JSON_FILE):
+# Persistent JSON storage helpers
+def load_json_file(filepath):
+    if os.path.exists(filepath):
         try:
-            with open(LEAVE_JSON_FILE, 'r', encoding='utf-8') as f:
+            with open(filepath, 'r', encoding='utf-8') as f:
                 return json.load(f)
-        except Exception as e:
-            return []
-    return []
+        except Exception:
+            return [] if 'list' in filepath or 'requests' in filepath else {}
+    return [] if 'list' in filepath or 'requests' in filepath else {}
 
-def save_leave_requests(leave_list):
+def save_json_file(filepath, data):
     try:
-        with open(LEAVE_JSON_FILE, 'w', encoding='utf-8') as f:
-            json.dump(leave_list, f, indent=4, ensure_ascii=False)
-    except Exception as e:
-        print(f"Error saving {LEAVE_JSON_FILE}: {e}")
-
-# Helper for inline attendance overrides
-def load_overrides():
-    if os.path.exists(ATTENDANCE_OVERRIDES_FILE):
-        try:
-            with open(ATTENDANCE_OVERRIDES_FILE, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except Exception as e:
-            return {}
-    return {}
-
-def save_overrides(data):
-    try:
-        with open(ATTENDANCE_OVERRIDES_FILE, 'w', encoding='utf-8') as f:
+        with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=4, ensure_ascii=False)
     except Exception as e:
-        pass
+        print(f"Error saving {filepath}: {e}")
 
-LEAVE_REQUESTS = load_leave_requests()
+LEAVE_REQUESTS = load_json_file(LEAVE_JSON_FILE)
+
+def load_overrides(): return load_json_file(ATTENDANCE_OVERRIDES_FILE)
+def save_overrides(data): save_json_file(ATTENDANCE_OVERRIDES_FILE, data)
+
+def load_manual_punches():
+    data = load_json_file(MANUAL_PUNCHES_FILE)
+    return data if isinstance(data, list) else []
+def save_manual_punches(data): save_json_file(MANUAL_PUNCHES_FILE, data)
+
+def load_roster(): return load_json_file(ROSTER_JSON_FILE)
+def save_roster(data): save_json_file(ROSTER_JSON_FILE, data)
+
+def load_shift_requests():
+    data = load_json_file(SHIFT_REQUESTS_FILE)
+    return data if isinstance(data, list) else []
+def save_shift_requests(data): save_json_file(SHIFT_REQUESTS_FILE, data)
 
 def get_emp_info(emp_code):
     emp_str = str(emp_code).strip()
@@ -141,28 +143,15 @@ def upload_file_to_github(file_path, github_destination_path):
     try:
         g = Github(GITHUB_TOKEN)
         repo = g.get_repo(GITHUB_REPO_NAME)
-        
         with open(file_path, "rb") as f:
             content = f.read()
-            
         try:
             file = repo.get_contents(github_destination_path, ref=GITHUB_BRANCH)
-            repo.update_file(
-                path=github_destination_path,
-                message=f"Update leave document: {github_destination_path}",
-                content=content,
-                sha=file.sha,
-                branch=GITHUB_BRANCH
-            )
+            repo.update_file(path=github_destination_path, message=f"Update doc: {github_destination_path}", content=content, sha=file.sha, branch=GITHUB_BRANCH)
         except Exception:
-            repo.create_file(
-                path=github_destination_path,
-                message=f"Upload leave document: {github_destination_path}",
-                content=content,
-                branch=GITHUB_BRANCH
-            )
+            repo.create_file(path=github_destination_path, message=f"Upload doc: {github_destination_path}", content=content, branch=GITHUB_BRANCH)
         return True
-    except Exception as e:
+    except Exception:
         return False
 
 def save_leave_to_excel(emp_code, emp_name, start_date, end_date, leave_type, doc_filename):
@@ -190,9 +179,7 @@ def check_device_connectivity():
     
     if LAST_DEVICE_SYNC_TIME:
         time_diff = (datetime.now() - LAST_DEVICE_SYNC_TIME).total_seconds()
-        if time_diff < 300: # Active in last 5 mins
-            return True
-            
+        if time_diff < 300: return True
     return False
 
 def fetch_attendance_data(start_date_str, end_date_str, filter_user_id):
@@ -229,30 +216,27 @@ def fetch_attendance_data(start_date_str, end_date_str, filter_user_id):
                 
             attendance = conn.get_attendance()
             for att in attendance:
-                attendance_records.append({
-                    'user_id': str(att.user_id),
-                    'timestamp': att.timestamp
-                })
+                attendance_records.append({'user_id': str(att.user_id), 'timestamp': att.timestamp})
             conn.disconnect()
-    except Exception as e:
+    except Exception:
         pass
 
-    # Add locally synced punches
     if SYNCED_ATTENDANCE_LOGS:
         for log in SYNCED_ATTENDANCE_LOGS:
             ts = log['timestamp']
             if isinstance(ts, str):
-                try:
-                    ts = datetime.strptime(ts, '%Y-%m-%d %H:%M:%S')
+                try: ts = datetime.strptime(ts, '%Y-%m-%d %H:%M:%S')
                 except ValueError:
-                    try:
-                        ts = datetime.fromisoformat(ts)
-                    except Exception:
-                        continue
-            attendance_records.append({
-                'user_id': str(log['user_id']),
-                'timestamp': ts
-            })
+                    try: ts = datetime.fromisoformat(ts)
+                    except Exception: continue
+            attendance_records.append({'user_id': str(log['user_id']), 'timestamp': ts})
+
+    manual_punches = load_manual_punches()
+    for mp in manual_punches:
+        try:
+            ts = datetime.strptime(mp['timestamp'], '%Y-%m-%d %H:%M:%S')
+            attendance_records.append({'user_id': str(mp['user_id']), 'timestamp': ts})
+        except Exception: continue
 
     for att in attendance_records:
         att_ts = att['timestamp']
@@ -275,15 +259,10 @@ def fetch_attendance_data(start_date_str, end_date_str, filter_user_id):
             if filter_user_id and filter_user_id != 'ALL' and emp_code != filter_user_id and raw_uid != filter_user_id:
                 continue
             
-            raw_punches_list.append({
-                'date': att_date_str, 'time': att_ts.strftime('%H:%M:%S'),
-                'user_id': emp_code, 'name': emp_name, 'timestamp': att_ts
-            })
+            raw_punches_list.append({'date': att_date_str, 'time': att_ts.strftime('%H:%M:%S'), 'user_id': emp_code, 'name': emp_name, 'timestamp': att_ts})
             
-            if att_date_str not in period_data:
-                period_data[att_date_str] = {}
-            if emp_code not in period_data[att_date_str]:
-                period_data[att_date_str][emp_code] = {'name': emp_name, 'timestamps': []}
+            if att_date_str not in period_data: period_data[att_date_str] = {}
+            if emp_code not in period_data[att_date_str]: period_data[att_date_str][emp_code] = {'name': emp_name, 'timestamps': []}
             period_data[att_date_str][emp_code]['timestamps'].append(att_ts)
             
     users_list = []
@@ -304,11 +283,13 @@ def fetch_attendance_data(start_date_str, end_date_str, filter_user_id):
         dates_to_process = [start_date_str]
 
     overrides = load_overrides()
+    global_roster = load_roster()
 
     for date_str in dates_to_process:
         day_users_dict = period_data.get(date_str, {})
         current_dt = datetime.strptime(date_str, '%Y-%m-%d')
         current_day_name = current_dt.strftime('%A').upper()
+        # Define weekend as Saturday (5) or Sunday (6)
         is_weekend = current_dt.weekday() >= 5
 
         present_records, absent_records, off_records, mispunch_records, ml_records = [], [], [], [], []
@@ -316,15 +297,23 @@ def fetch_attendance_data(start_date_str, end_date_str, filter_user_id):
         for emp_code, emp_data_val in MASTER_EMPLOYEES.items():
             final_emp_code = f"NWC{emp_code}" if not emp_code.startswith('NWC') else emp_code
             emp_info = get_emp_info(emp_code)
-            emp_name, emp_off, emp_dept, emp_shift = emp_info['name'], emp_info['off'].upper(), emp_info['dept'], emp_info['shift']
+            emp_name, emp_dept = emp_info['name'], emp_info['dept']
+            
+            emp_off = emp_info['off'].upper()
+            emp_shift = emp_info['shift']
+
+            roster_val = global_roster.get(final_emp_code, {}).get(date_str)
+            if roster_val:
+                if roster_val == 'Weekly Off':
+                    emp_off = current_day_name
+                elif roster_val in ['Shift A', 'Shift B']:
+                    emp_off = 'NONE' 
+                    emp_shift = 'morning' if roster_val == 'Shift A' else 'second'
 
             if filter_user_id and filter_user_id != 'ALL' and final_emp_code != filter_user_id and emp_code != filter_user_id:
                 continue
 
-            approved_leave_obj = next(
-                (l for l in LEAVE_REQUESTS if l['user_id'] == final_emp_code and l['status'] == 'Approved' and l['start_date'] <= date_str <= l['end_date']),
-                None
-            )
+            approved_leave_obj = next((l for l in LEAVE_REQUESTS if l['user_id'] == final_emp_code and l['status'] == 'Approved' and l['start_date'] <= date_str <= l['end_date']), None)
 
             if approved_leave_obj:
                 ml_count += 1
@@ -347,19 +336,16 @@ def fetch_attendance_data(start_date_str, end_date_str, filter_user_id):
                 sorted_times = sorted(list(set(data_obj['timestamps'])))
                 total_punches = len(sorted_times)
                 
-                # Fetch original string times
                 store_in = sorted_times[0].strftime('%H:%M:%S') if total_punches > 0 else '-'
                 lunch_out = sorted_times[1].strftime('%H:%M:%S') if total_punches >= 3 else '-'
                 lunch_in = sorted_times[2].strftime('%H:%M:%S') if total_punches >= 3 else '-'
                 out_time = sorted_times[-1].strftime('%H:%M:%S') if total_punches > 1 else '-'
 
-                # Apply Dev Overrides
                 if 'store_in' in day_ovr: store_in = day_ovr['store_in']
                 if 'lunch_out' in day_ovr: lunch_out = day_ovr['lunch_out']
                 if 'lunch_in' in day_ovr: lunch_in = day_ovr['lunch_in']
                 if 'out_time' in day_ovr: out_time = day_ovr['out_time']
 
-                # Convert to seconds for math
                 def get_sec(t_s):
                     if t_s == '-': return None
                     try:
@@ -367,14 +353,9 @@ def fetch_attendance_data(start_date_str, end_date_str, filter_user_id):
                         return h * 3600 + m * 60 + s
                     except: return None
 
-                s_in = get_sec(store_in)
-                l_o = get_sec(lunch_out)
-                l_i = get_sec(lunch_in)
-                s_out = get_sec(out_time)
+                s_in, l_o, l_i, s_out = get_sec(store_in), get_sec(lunch_out), get_sec(lunch_in), get_sec(out_time)
 
-                # Shifts and Latings
-                shift_type = '-'
-                is_late = False
+                shift_type, is_late = '-', False
                 if s_in is not None:
                     if s_in <= 10 * 3600:
                         shift_type = 'Shift A'
@@ -388,37 +369,39 @@ def fetch_attendance_data(start_date_str, end_date_str, filter_user_id):
                         late_arrival_count += 1
                         is_late = True
 
-                # Lunch calculations
-                lunch_seconds = 3600
+                lunch_seconds = 0
+                has_lunch_punches = False
                 if l_o is not None and l_i is not None:
                     act_l = l_i - l_o
                     lunch_seconds = 3600 if act_l < 3600 else act_l
+                    has_lunch_punches = True
 
-                total_lunch_seconds += lunch_seconds
-                l_hrs = divmod(lunch_seconds, 3600)
-                total_lunch_str = f"{l_hrs[0]}h {l_hrs[1]//60}m"
+                if has_lunch_punches:
+                    total_lunch_seconds += lunch_seconds
+                    l_hrs = divmod(lunch_seconds, 3600)
+                    total_lunch_str = f"{l_hrs[0]}h {l_hrs[1]//60}m"
+                else:
+                    total_lunch_str = "-"
                 
-                # Net hours
                 net_duration_seconds = 0
                 if s_in is not None and s_out is not None and s_out > s_in:
-                    gross = s_out - s_in
-                    net_duration_seconds = max(0, gross - lunch_seconds)
+                    net_duration_seconds = max(0, (s_out - s_in) - lunch_seconds)
                 total_duration_seconds += net_duration_seconds
                 
-                if s_in is not None and s_out is not None:
-                    hours = divmod(net_duration_seconds, 3600)
-                    total_hours_str = f"{hours[0]}h {hours[1]//60}m"
-                else:
-                    total_hours_str = "-"
+                total_hours_str = f"{divmod(net_duration_seconds, 3600)[0]}h {divmod(net_duration_seconds, 3600)[1]//60}m" if s_in is not None and s_out is not None else "-"
                 
-                # Variance
                 net_variance_str, variance_type = "-", "neutral"
                 if s_in is not None and s_out is not None:
-                    diff = net_duration_seconds - (7 * 3600)
+                    # Dynamic Target Hours Logic: 8 hours if lunch punches exist, otherwise 7 hours
+                    target_seconds = (8 * 3600) if has_lunch_punches else (7 * 3600)
+                    diff = net_duration_seconds - target_seconds
                     total_net_variance_seconds += diff
-                    if diff > 0:
-                        e_hrs = divmod(diff, 3600)
-                        extra_hours_val = e_hrs[0] + (1 if e_hrs[1] > 0 else 0)
+
+                    # Overtime Calculation with 45-minute minimum grace period
+                    if diff > (45 * 60):
+                        extra_hours_val = math.floor(diff / 3600)
+                        if extra_hours_val == 0:
+                            extra_hours_val = 1
                         code_prefix = 'H07' if is_weekend else 'H06'
                         net_variance_str, variance_type = f"{code_prefix};{extra_hours_val}", 'positive'
                     elif diff < 0:
@@ -427,24 +410,19 @@ def fetch_attendance_data(start_date_str, end_date_str, filter_user_id):
                     else:
                         net_variance_str, variance_type = "0h 0m", 'neutral'
                 
-                # Status
                 if s_in is not None and s_out is None:
                     status = 'Mis Punch'
                     mis_punch_count += 1
-                elif s_in is None and s_out is None:
-                    status = 'Absent'
-                else:
-                    status = 'Present'
+                elif s_in is None and s_out is None: status = 'Absent'
+                else: status = 'Present'
 
-                if current_day_name == emp_off:
-                    status = 'Weekly Off'
+                if current_day_name == emp_off: status = 'Weekly Off'
 
                 record = {
                     'date': date_str, 'user_id': final_emp_code, 'name': emp_name, 'dept': emp_dept,
-                    'store_in': store_in, 'lunch_out': lunch_out, 'lunch_in': lunch_in,
-                    'out_time': out_time, 'total_lunch': total_lunch_str, 'lunch_seconds': lunch_seconds,
-                    'net_duration_seconds': net_duration_seconds, 'total_hours': total_hours_str,
-                    'net_variance': net_variance_str, 'variance_type': variance_type,
+                    'store_in': store_in, 'lunch_out': lunch_out, 'lunch_in': lunch_in, 'out_time': out_time, 
+                    'total_lunch': total_lunch_str, 'lunch_seconds': lunch_seconds, 'net_duration_seconds': net_duration_seconds, 
+                    'total_hours': total_hours_str, 'net_variance': net_variance_str, 'variance_type': variance_type,
                     'status': status, 'is_late': 'Yes' if is_late else 'No', 'shift_type': shift_type
                 }
                 
@@ -456,17 +434,17 @@ def fetch_attendance_data(start_date_str, end_date_str, filter_user_id):
                     off_count += 1
                     off_records.append({
                         'date': date_str, 'user_id': final_emp_code, 'name': emp_name, 'dept': emp_dept,
-                        'store_in': '-', 'lunch_out': '-', 'lunch_in': '-', 'out_time': '-',
-                        'total_lunch': '-', 'lunch_seconds': 3600, 'net_duration_seconds': 0, 'total_hours': '-', 'net_variance': 'Off', 'variance_type': 'neutral',
-                        'status': 'Weekly Off', 'is_late': 'No', 'shift_type': '-'
+                        'store_in': '-', 'lunch_out': '-', 'lunch_in': '-', 'out_time': '-', 'total_lunch': '-', 
+                        'lunch_seconds': 0, 'net_duration_seconds': 0, 'total_hours': '-', 'net_variance': 'Off', 
+                        'variance_type': 'neutral', 'status': 'Weekly Off', 'is_late': 'No', 'shift_type': '-'
                     })
                 else:
                     absent_count += 1
                     absent_records.append({
                         'date': date_str, 'user_id': final_emp_code, 'name': emp_name, 'dept': emp_dept,
-                        'store_in': '-', 'lunch_out': '-', 'lunch_in': '-', 'out_time': '-',
-                        'total_lunch': '-', 'lunch_seconds': 3600, 'net_duration_seconds': 0, 'total_hours': '-', 'net_variance': '-', 'variance_type': 'neutral',
-                        'status': 'Absent', 'is_late': 'No', 'shift_type': '-'
+                        'store_in': '-', 'lunch_out': '-', 'lunch_in': '-', 'out_time': '-', 'total_lunch': '-', 
+                        'lunch_seconds': 0, 'net_duration_seconds': 0, 'total_hours': '-', 'net_variance': '-', 
+                        'variance_type': 'neutral', 'status': 'Absent', 'is_late': 'No', 'shift_type': '-'
                     })
         
         final_data.extend(present_records + mispunch_records + off_records + absent_records + ml_records)
@@ -486,8 +464,7 @@ def fetch_attendance_data(start_date_str, end_date_str, filter_user_id):
     
     stats_summary = {
         'present': present_count, 'absent': absent_count, 'off': off_count, 'mispunch': mis_punch_count,
-        'late_arrival': late_arrival_count, 'ml': ml_count,
-        'shift_a': shift_a_count, 'shift_b': shift_b_count,
+        'late_arrival': late_arrival_count, 'ml': ml_count, 'shift_a': shift_a_count, 'shift_b': shift_b_count,
         'total_hrs': grand_total_hours, 'total_lunch_hrs': grand_total_lunch_hours,
         'total_variance': grand_total_variance, 'variance_type': grand_variance_type, 'device_online': device_online
     }
@@ -673,20 +650,15 @@ HTML_TEMPLATE = """
 
         let timeLeft = 180;
         let timerInterval;
-
         function startTimer() {
             clearInterval(timerInterval);
             timeLeft = 180;
             timerInterval = setInterval(function() {
-                if (timeLeft <= 0) { 
-                    window.location.reload(); 
-                } else {
+                if (timeLeft <= 0) { window.location.reload(); } else {
                     let m = Math.floor(timeLeft / 60);
                     let s = timeLeft % 60;
                     let timerEl = document.getElementById('countdown-timer');
-                    if (timerEl) {
-                        timerEl.innerText = m + ':' + (s < 10 ? '0' : '') + s;
-                    }
+                    if (timerEl) { timerEl.innerText = m + ':' + (s < 10 ? '0' : '') + s; }
                     timeLeft -= 1;
                 }
             }, 1000);
@@ -712,14 +684,10 @@ HTML_TEMPLATE = """
             document.getElementById('filter-form').submit();
         }
 
-        function openExportModal() { document.getElementById('export-modal').classList.remove('hidden'); }
-        function closeExportModal() { document.getElementById('export-modal').classList.add('hidden'); }
-        function openRosterModal() { document.getElementById('roster-modal').classList.remove('hidden'); }
-        function closeRosterModal() { document.getElementById('roster-modal').classList.add('hidden'); }
-        function openCalendarModal() { document.getElementById('calendar-modal').classList.remove('hidden'); }
-        function closeCalendarModal() { document.getElementById('calendar-modal').classList.add('hidden'); }
-        function openLeaveModal() { document.getElementById('leave-modal').classList.remove('hidden'); }
-        function closeLeaveModal() { document.getElementById('leave-modal').classList.add('hidden'); }
+        function toggleModal(id, show) {
+            let el = document.getElementById(id);
+            if(el) { show ? el.classList.remove('hidden') : el.classList.add('hidden'); }
+        }
 
         function inlineEdit(date, empId, field, currVal) {
             let title = field.replace('_', ' ').toUpperCase();
@@ -733,6 +701,89 @@ HTML_TEMPLATE = """
         function secureShutdown() {
             let pwd = prompt("Server band karne ke liye password enter karein:");
             if (pwd) window.location.href = "/shutdown?pwd=" + encodeURIComponent(pwd);
+        }
+
+        // --- ROSTER PLANNER JS ---
+        function loadRosterPlanner() {
+            let empId = document.getElementById('rp-emp').value;
+            let monthStr = document.getElementById('rp-month').value;
+            let tbody = document.getElementById('roster-planner-tbody');
+            if(!empId || !monthStr) {
+                tbody.innerHTML = '<tr><td colspan="2" class="text-center py-8 text-slate-400">Employee & Month select karein</td></tr>';
+                return;
+            }
+            
+            tbody.innerHTML = '<tr><td colspan="2" class="text-center py-8 text-slate-500">Loading roster...</td></tr>';
+            
+            fetch(`/api/get_roster?emp_id=${empId}`)
+            .then(r => r.json())
+            .then(data => {
+                let parts = monthStr.split('-');
+                let year = parseInt(parts[0]);
+                let month = parseInt(parts[1]);
+                let daysInMonth = new Date(year, month, 0).getDate();
+                
+                tbody.innerHTML = '';
+                for(let i=1; i<=daysInMonth; i++) {
+                    let dateStr = `${year}-${String(month).padStart(2,'0')}-${String(i).padStart(2,'0')}`;
+                    let dateObj = new Date(year, month-1, i);
+                    let dayName = dateObj.toLocaleDateString('en-US', {weekday:'long'});
+                    let val = data[dateStr] || '';
+
+                    let tr = document.createElement('tr');
+                    tr.className = "hover:bg-slate-50";
+                    tr.innerHTML = `
+                        <td class="py-2.5 px-3 border-b border-slate-200 font-mono text-xs text-slate-600">${dateStr} <strong class="ml-2 text-indigo-500">${dayName}</strong></td>
+                        <td class="py-2.5 px-3 border-b border-slate-200">
+                            <select class="roster-select w-full bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-xs font-bold focus:ring-2 focus:ring-indigo-500" data-date="${dateStr}" data-day="${dayName}" onchange="checkAutoReflect(this)">
+                                <option value="" class="text-slate-400">-- Default --</option>
+                                <option value="Shift A" ${val=='Shift A'?'selected':''} class="text-blue-600">Shift A (06:00)</option>
+                                <option value="Shift B" ${val=='Shift B'?'selected':''} class="text-indigo-600">Shift B (10:00+)</option>
+                                <option value="Weekly Off" ${val=='Weekly Off'?'selected':''} class="text-rose-600">Weekly Off</option>
+                            </select>
+                        </td>
+                    `;
+                    tbody.appendChild(tr);
+                }
+                document.getElementById('save-roster-btn').classList.remove('hidden');
+            });
+        }
+
+        function checkAutoReflect(selectEl) {
+            let val = selectEl.value;
+            let dayName = selectEl.getAttribute('data-day');
+            let dateStr = selectEl.getAttribute('data-date');
+            if(val === 'Weekly Off') {
+                if(confirm(`Kya aap iske aage ke sabhi "${dayName}" ko Weekly Off set karna chahte hain?`)) {
+                    let selects = document.querySelectorAll('.roster-select');
+                    selects.forEach(sel => {
+                        let selDate = sel.getAttribute('data-date');
+                        let selDay = sel.getAttribute('data-day');
+                        if(selDay === dayName && selDate > dateStr) {
+                            sel.value = 'Weekly Off';
+                        }
+                    });
+                }
+            }
+        }
+
+        function saveRoster() {
+            let empId = document.getElementById('rp-emp').value;
+            let selects = document.querySelectorAll('.roster-select');
+            let payload = {emp_id: empId, updates: {}};
+            selects.forEach(sel => {
+                if(sel.value !== '') {
+                    payload.updates[sel.getAttribute('data-date')] = sel.value;
+                }
+            });
+            fetch('/api/save_roster', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload)
+            }).then(r=>r.json()).then(res=>{
+                alert('Roster (Weekly Off & Shifts) successfully save ho gaya hai!');
+                toggleModal('roster-planner-modal', false);
+                window.location.reload();
+            });
         }
 
         document.addEventListener('DOMContentLoaded', function() {
@@ -765,15 +816,33 @@ HTML_TEMPLATE = """
                     <span>📊</span>
                     <span>Dashboard</span>
                 </a>
-                <a href="#" onclick="alert('Module under preparation.'); return false;" class="flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 font-medium text-xs transition">
-                    <span>📁</span>
-                    <span>Projects & Tasks</span>
+                
+                {% if role in ['admin', 'developer'] %}
+                <a href="#" onclick="toggleModal('roster-planner-modal', true); return false;" class="flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 font-medium text-xs transition border border-transparent hover:border-slate-200">
+                    <span>🗓️️</span>
+                    <span>Roster Planner</span>
                 </a>
-                <a href="#" onclick="openCalendarModal(); return false;" class="flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 font-medium text-xs transition">
+                <a href="#" onclick="toggleModal('shift-approvals-modal', true); return false;" class="flex items-center justify-between px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 font-medium text-xs transition">
+                    <div class="flex items-center space-x-3">
+                        <span>🔔</span>
+                        <span>Shift Approvals</span>
+                    </div>
+                    {% if pending_shifts_count > 0 %}
+                    <span class="bg-indigo-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full animate-pulse">{{ pending_shifts_count }}</span>
+                    {% endif %}
+                </a>
+                {% else %}
+                <a href="#" onclick="toggleModal('shift-request-modal', true); return false;" class="flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 font-medium text-xs transition border border-transparent hover:border-slate-200">
+                    <span>🔄</span>
+                    <span>Shift/Off Request</span>
+                </a>
+                {% endif %}
+
+                <a href="#" onclick="toggleModal('calendar-modal', true); return false;" class="flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 font-medium text-xs transition">
                     <span>📅</span>
                     <span>Calendar & Rota</span>
                 </a>
-                <a href="#" onclick="openLeaveModal(); return false;" class="flex items-center justify-between px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 font-medium text-xs transition">
+                <a href="#" onclick="toggleModal('leave-modal', true); return false;" class="flex items-center justify-between px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 font-medium text-xs transition">
                     <div class="flex items-center space-x-3">
                         <span>🏖️</span>
                         <span>Leave Management</span>
@@ -782,23 +851,15 @@ HTML_TEMPLATE = """
                     <span class="bg-rose-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full animate-pulse">{{ pending_leaves_count }}</span>
                     {% endif %}
                 </a>
-                <a href="#" onclick="alert('Module under preparation.'); return false;" class="flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 font-medium text-xs transition">
-                    <span>⚙</span>
-                    <span>Settings</span>
-                </a>
-
+                
                 <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-3 mt-6 mb-2">Team Management</p>
-                <a href="#" onclick="filterByStatus('Present'); return false;" class="flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 font-medium text-xs transition">
-                    <span>📈</span>
-                    <span>Performance</span>
-                </a>
-                <a href="#" onclick="openExportModal(); return false;" class="flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 font-medium text-xs transition">
+                <a href="#" onclick="toggleModal('export-modal', true); return false;" class="flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 font-medium text-xs transition">
                     <span>💰</span>
                     <span>Payroll & Reports</span>
                 </a>
-                <a href="#" onclick="openRosterModal(); return false;" class="flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 font-medium text-xs transition">
+                <a href="#" onclick="toggleModal('roster-modal', true); return false;" class="flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 font-medium text-xs transition">
                     <span>👥</span>
-                    <span>Employees Roster</span>
+                    <span>Employees Info</span>
                 </a>
             </div>
         </div>
@@ -827,7 +888,7 @@ HTML_TEMPLATE = """
             </div>
 
             <div class="flex items-center space-x-3 flex-wrap">
-                <button onclick="openLeaveModal()" class="relative bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-bold px-3 py-2 rounded-xl transition border border-emerald-200 flex items-center space-x-1.5">
+                <button onclick="toggleModal('leave-modal', true)" class="relative bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-bold px-3 py-2 rounded-xl transition border border-emerald-200 flex items-center space-x-1.5">
                     <span>🏖️ Leave Portal</span>
                     {% if role in ['admin', 'developer'] and pending_leaves_count > 0 %}
                     <span class="bg-rose-500 text-white text-[10px] px-1.5 py-0.2 rounded-full font-black animate-bounce">{{ pending_leaves_count }}</span>
@@ -919,7 +980,7 @@ HTML_TEMPLATE = """
                         <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Shift A (06-10)</p>
                         <h3 class="text-xl font-black text-blue-600 mt-0.5">{{ stats.shift_a }}</h3>
                     </div>
-                    <div class="p-2 bg-blue-50 text-blue-600 rounded-xl">☀️️</div>
+                    <div class="p-2 bg-blue-50 text-blue-600 rounded-xl">☀️</div>
                 </div>
                 <div onclick="filterByStatus('Shift B')" class="stat-card bg-white p-3.5 rounded-2xl shadow-sm border border-slate-200 flex items-center justify-between border-l-4 border-l-indigo-500">
                     <div>
@@ -967,9 +1028,9 @@ HTML_TEMPLATE = """
                     {% endif %}
                     <div class="flex space-x-2">
                         {% if role == 'admin' or role == 'developer' %}
-                        <button type="button" onclick="openExportModal()" class="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs uppercase tracking-wider py-3 px-3 rounded-xl text-center shadow-md transition">Export 📥</button>
+                        <button type="button" onclick="toggleModal('export-modal', true)" class="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs uppercase tracking-wider py-3 px-3 rounded-xl text-center shadow-md transition">Export 📥</button>
                         {% endif %}
-                        <button type="button" onclick="openCalendarModal()" class="flex-1 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs uppercase tracking-wider py-3 px-3 rounded-xl text-center shadow-md transition">📅 Rota</button>
+                        <button type="button" onclick="toggleModal('calendar-modal', true)" class="flex-1 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs uppercase tracking-wider py-3 px-3 rounded-xl text-center shadow-md transition">📅 Rota</button>
                     </div>
                 </form>
                 
@@ -1090,12 +1151,139 @@ HTML_TEMPLATE = """
         </main>
     </div>
 
+    <!-- Roster Planner Modal (Admin/Dev) -->
+    <div id="roster-planner-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center hidden">
+        <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 p-6 w-full max-w-4xl mx-4 space-y-6 max-h-[90vh] flex flex-col">
+            <div class="flex justify-between items-center border-b border-slate-100 pb-4">
+                <h3 class="text-lg font-bold text-slate-900 flex items-center gap-2">🗓️ Monthly Roster Planner (Weekly Off & Shifts)</h3>
+                <button onclick="toggleModal('roster-planner-modal', false)" class="text-slate-400 hover:text-slate-600 font-bold text-lg">✕</button>
+            </div>
+            <div class="flex gap-4 items-end">
+                <div class="flex-1">
+                    <label class="block text-xs font-bold uppercase text-slate-500 mb-1">Select Employee</label>
+                    <select id="rp-emp" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm font-medium focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                        <option value="">-- Choose Employee --</option>
+                        {% for emp in all_users %}
+                            <option value="{{ emp.user_id }}">{{ emp.name }} ({{ emp.user_id }})</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="flex-1">
+                    <label class="block text-xs font-bold uppercase text-slate-500 mb-1">Select Month</label>
+                    <input type="month" id="rp-month" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm font-medium focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                </div>
+                <button onclick="loadRosterPlanner()" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs uppercase tracking-wider px-5 py-2.5 rounded-xl transition shadow">Load Calendar</button>
+            </div>
+            
+            <div class="overflow-y-auto flex-1 border border-slate-200 rounded-xl">
+                <table class="w-full text-left">
+                    <thead class="bg-slate-100 text-slate-600 uppercase text-[10px] font-bold sticky top-0 shadow-sm">
+                        <tr>
+                            <th class="py-2.5 px-3">Date & Day</th>
+                            <th class="py-2.5 px-3">Shift / Status Allocation</th>
+                        </tr>
+                    </thead>
+                    <tbody id="roster-planner-tbody" class="divide-y divide-slate-100">
+                        <tr><td colspan="2" class="text-center py-8 text-slate-400">Employee & Month select karke Load par click karein.</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="pt-2 flex justify-end gap-2">
+                <button onclick="toggleModal('roster-planner-modal', false)" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition">Cancel</button>
+                <button id="save-roster-btn" onclick="saveRoster()" class="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold uppercase tracking-wider rounded-xl transition shadow hidden">Save Roster</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Employee Shift/Off Request Modal -->
+    <div id="shift-request-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center hidden">
+        <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 p-6 w-full max-w-md mx-4 space-y-6">
+            <div class="flex justify-between items-center border-b border-slate-100 pb-4">
+                <h3 class="text-lg font-bold text-slate-900 flex items-center gap-2">🔄 Request Shift or Weekly Off Change</h3>
+                <button onclick="toggleModal('shift-request-modal', false)" class="text-slate-400 hover:text-slate-600 font-bold text-lg">✕</button>
+            </div>
+            <form action="/request_shift" method="POST" class="space-y-4">
+                <div>
+                    <label class="block text-xs font-bold uppercase text-slate-500 mb-1">Date</label>
+                    <input type="date" name="req_date" required class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm font-medium focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold uppercase text-slate-500 mb-1">Requested Action</label>
+                    <select name="req_status" required class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm font-medium focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                        <option value="Shift A">Change to Shift A (06:00)</option>
+                        <option value="Shift B">Change to Shift B (10:00+)</option>
+                        <option value="Weekly Off">Set as Weekly Off</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold uppercase text-slate-500 mb-1">Reason</label>
+                    <input type="text" name="req_reason" placeholder="Kyun change karna hai?" required class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm font-medium focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                </div>
+                <div class="pt-4 flex justify-end gap-2">
+                    <button type="button" onclick="toggleModal('shift-request-modal', false)" class="px-4 py-2 bg-slate-100 text-slate-700 text-xs font-bold rounded-xl transition">Cancel</button>
+                    <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs uppercase tracking-wider px-5 py-2.5 rounded-xl transition shadow">Submit Request</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Admin Shift Approvals Modal -->
+    <div id="shift-approvals-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center hidden">
+        <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 p-6 w-full max-w-4xl mx-4 space-y-6 max-h-[85vh] flex flex-col">
+            <div class="flex justify-between items-center border-b border-slate-100 pb-4">
+                <h3 class="text-lg font-bold text-slate-900 flex items-center gap-2">🔔 Shift & Off Change Requests</h3>
+                <button onclick="toggleModal('shift-approvals-modal', false)" class="text-slate-400 hover:text-slate-600 font-bold text-lg">✕</button>
+            </div>
+            <div class="overflow-y-auto flex-1 border border-slate-200 rounded-xl">
+                <table class="w-full text-left">
+                    <thead class="bg-slate-100 text-slate-600 uppercase text-[10px] font-bold">
+                        <tr>
+                            <th class="py-2.5 px-3">Employee</th>
+                            <th class="py-2.5 px-3">Requested Date</th>
+                            <th class="py-2.5 px-3">Requested Status</th>
+                            <th class="py-2.5 px-3">Reason</th>
+                            <th class="py-2.5 px-3 text-center">Status</th>
+                            <th class="py-2.5 px-3 text-center">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100 text-xs">
+                        {% if shift_requests %}
+                            {% for req in shift_requests|reverse %}
+                            <tr class="hover:bg-slate-50">
+                                <td class="py-2.5 px-3 font-bold">{{ req.name }} <span class="text-[10px] text-slate-400 block">{{ req.user_id }}</span></td>
+                                <td class="py-2.5 px-3 font-mono">{{ req.date }}</td>
+                                <td class="py-2.5 px-3 font-bold text-indigo-700">{{ req.requested }}</td>
+                                <td class="py-2.5 px-3 text-slate-500 italic">{{ req.reason }}</td>
+                                <td class="py-2.5 px-3 text-center">
+                                    {% if req.status == 'Pending' %}<span class="bg-amber-100 text-amber-700 px-2 py-0.5 rounded font-bold text-[10px]">Pending</span>
+                                    {% elif req.status == 'Approved' %}<span class="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded font-bold text-[10px]">Approved</span>
+                                    {% else %}<span class="bg-rose-100 text-rose-700 px-2 py-0.5 rounded font-bold text-[10px]">Rejected</span>{% endif %}
+                                </td>
+                                <td class="py-2.5 px-3 text-center">
+                                    {% if req.status == 'Pending' %}
+                                    <div class="flex items-center justify-center space-x-1">
+                                        <a href="/update_shift_req/{{ req.id }}/approve" class="bg-emerald-500 hover:bg-emerald-600 text-white font-bold px-2 py-1 rounded text-[10px]">Approve</a>
+                                        <a href="/update_shift_req/{{ req.id }}/reject" class="bg-rose-500 hover:bg-rose-600 text-white font-bold px-2 py-1 rounded text-[10px]">Reject</a>
+                                    </div>
+                                    {% else %}<span class="text-[10px] text-slate-400">Processed</span>{% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        {% else %}
+                            <tr><td colspan="6" class="text-center py-6 text-slate-400">Koi pending shift requests nahi hain.</td></tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
     <!-- Leave Management Modal -->
     <div id="leave-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center hidden">
         <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 p-6 w-full max-w-4xl mx-4 space-y-6 max-h-[85vh] flex flex-col">
             <div class="flex justify-between items-center border-b border-slate-100 pb-4">
                 <h3 class="text-lg font-bold text-slate-900 flex items-center gap-2">🏖️ Leave Management & Complete History (Never Deleted)</h3>
-                <button onclick="closeLeaveModal()" class="text-slate-400 hover:text-slate-600 font-bold text-lg">✕</button>
+                <button onclick="toggleModal('leave-modal', false)" class="text-slate-400 hover:text-slate-600 font-bold text-lg">✕</button>
             </div>
             
             <div class="overflow-y-auto flex-1 space-y-6">
@@ -1208,7 +1396,7 @@ HTML_TEMPLATE = """
             </div>
 
             <div class="pt-2 flex justify-end">
-                <button onclick="closeLeaveModal()" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition">Close</button>
+                <button onclick="toggleModal('leave-modal', false)" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition">Close</button>
             </div>
         </div>
     </div>
@@ -1218,18 +1406,17 @@ HTML_TEMPLATE = """
         <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 p-6 w-full max-w-md mx-4 space-y-6">
             <div class="flex justify-between items-center border-b border-slate-100 pb-4">
                 <h3 class="text-lg font-bold text-slate-900 flex items-center gap-2">📊 Choose Excel Export Format</h3>
-                <button onclick="closeExportModal()" class="text-slate-400 hover:text-slate-600 font-bold text-lg">✕</button>
+                <button onclick="toggleModal('export-modal', false)" class="text-slate-400 hover:text-slate-600 font-bold text-lg">✕</button>
             </div>
             <div class="space-y-4">
-                <a href="/export?start_date={{ start_date }}&end_date={{ end_date }}&employee={{ selected_emp }}" onclick="closeExportModal()" class="block p-4 rounded-xl border border-slate-200 hover:border-emerald-500 hover:bg-emerald-50/50 transition group">
+                <a href="/export?start_date={{ start_date }}&end_date={{ end_date }}&employee={{ selected_emp }}" onclick="toggleModal('export-modal', false)" class="block p-4 rounded-xl border border-slate-200 hover:border-emerald-500 hover:bg-emerald-50/50 transition group">
                     <div class="font-bold text-slate-900 group-hover:text-emerald-700 flex items-center justify-between">
                         <span>Option 1: Standard Row Export</span>
                         <span>📄</span>
                     </div>
                     <p class="text-xs text-slate-500 mt-1">Same as current view with individual record rows for each employee per date.</p>
                 </a>
-                
-                <a href="/export_matrix?start_date={{ start_date }}&end_date={{ end_date }}&employee={{ selected_emp }}" onclick="closeExportModal()" class="block p-4 rounded-xl border border-slate-200 hover:border-emerald-500 hover:bg-emerald-50/50 transition group">
+                <a href="/export_matrix?start_date={{ start_date }}&end_date={{ end_date }}&employee={{ selected_emp }}" onclick="toggleModal('export-modal', false)" class="block p-4 rounded-xl border border-slate-200 hover:border-emerald-500 hover:bg-emerald-50/50 transition group">
                     <div class="font-bold text-slate-900 group-hover:text-emerald-700 flex items-center justify-between">
                         <span>Option 2: Employee Matrix (Leave Codes)</span>
                         <span>📅</span>
@@ -1238,82 +1425,81 @@ HTML_TEMPLATE = """
                 </a>
             </div>
             <div class="pt-2 flex justify-end">
-                <button onclick="closeExportModal()" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition">Cancel</button>
+                <button onclick="toggleModal('export-modal', false)" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition">Cancel</button>
             </div>
         </div>
     </div>
 
-    <!-- Employees Roster Modal -->
+    <!-- Employees Roster Info Modal -->
     <div id="roster-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center hidden">
         <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 p-6 w-full max-w-4xl mx-4 space-y-6 max-h-[85vh] flex flex-col">
             <div class="flex justify-between items-center border-b border-slate-100 pb-4">
-                <h3 class="text-lg font-bold text-slate-900 flex items-center gap-2">👥 Gamek Fresmart Express - Employees Roster</h3>
-                <button onclick="closeRosterModal()" class="text-slate-400 hover:text-slate-600 font-bold text-lg">✕</button>
+                <h3 class="text-lg font-bold text-slate-900 flex items-center gap-2">👥 Gamek Fresmart Express - Employees Info</h3>
+                <button onclick="toggleModal('roster-modal', false)" class="text-slate-400 hover:text-slate-600 font-bold text-lg">✕</button>
             </div>
-            <div class="overflow-y-auto flex-1">
+            <div class="overflow-y-auto flex-1 border border-slate-200 rounded-xl">
                 <table class="w-full text-left border-collapse">
-                    <thead>
-                        <tr class="bg-slate-100 text-slate-600 uppercase text-[11px] font-bold tracking-wider">
-                            <th class="py-3 px-4 border border-slate-200">Sr.</th>
-                            <th class="py-3 px-4 border border-slate-200">ID</th>
-                            <th class="py-3 px-4 border border-slate-200">Name</th>
-                            <th class="py-3 px-4 border border-slate-200">Department</th>
-                            <th class="py-3 px-4 border border-slate-200">Weekly Off</th>
+                    <thead class="bg-slate-100 text-slate-600 uppercase text-[11px] font-bold tracking-wider sticky top-0">
+                        <tr>
+                            <th class="py-3 px-4 border-b border-slate-200">Sr.</th>
+                            <th class="py-3 px-4 border-b border-slate-200">ID</th>
+                            <th class="py-3 px-4 border-b border-slate-200">Name</th>
+                            <th class="py-3 px-4 border-b border-slate-200">Department</th>
+                            <th class="py-3 px-4 border-b border-slate-200">Default Off</th>
                         </tr>
                     </thead>
                     <tbody class="text-xs text-slate-700 divide-y divide-slate-100">
                         {% for emp in all_users %}
                         <tr class="hover:bg-slate-50">
-                            <td class="py-2.5 px-4 border border-slate-200 text-slate-400 font-medium">{{ loop.index }}</td>
-                            <td class="py-2.5 px-4 border border-slate-200 font-mono text-slate-600 font-semibold">{{ emp.user_id }}</td>
-                            <td class="py-2.5 px-4 border border-slate-200 font-bold text-slate-900">{{ emp.name }}</td>
-                            <td class="py-2.5 px-4 border border-slate-200"><span class="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 font-bold">{{ emp.dept }}</span></td>
-                            <td class="py-2.5 px-4 border border-slate-200 font-bold text-indigo-600">{{ emp.off }}</td>
+                            <td class="py-2.5 px-4 font-medium text-slate-400">{{ loop.index }}</td>
+                            <td class="py-2.5 px-4 font-mono text-slate-600 font-semibold">{{ emp.user_id }}</td>
+                            <td class="py-2.5 px-4 font-bold text-slate-900">{{ emp.name }}</td>
+                            <td class="py-2.5 px-4"><span class="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 font-bold">{{ emp.dept }}</span></td>
+                            <td class="py-2.5 px-4 font-bold text-indigo-600">{{ emp.off }}</td>
                         </tr>
                         {% endfor %}
                     </tbody>
                 </table>
             </div>
             <div class="pt-2 flex justify-end">
-                <button onclick="closeRosterModal()" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition">Close</button>
+                <button onclick="toggleModal('roster-modal', false)" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition">Close</button>
             </div>
         </div>
     </div>
 
-    <!-- Weekly Off Calendar Modal -->
+    <!-- Default Calendar Modal -->
     <div id="calendar-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center hidden">
         <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 p-6 w-full max-w-5xl mx-4 space-y-6 max-h-[85vh] flex flex-col">
             <div class="flex justify-between items-center border-b border-slate-100 pb-4">
-                <h3 class="text-lg font-bold text-slate-900 flex items-center gap-2">📅 All Employees Weekly Off Rota Calendar</h3>
-                <button onclick="closeCalendarModal()" class="text-slate-400 hover:text-slate-600 font-bold text-lg">✕</button>
+                <h3 class="text-lg font-bold text-slate-900 flex items-center gap-2">📅 Master Default Rota System</h3>
+                <button onclick="toggleModal('calendar-modal', false)" class="text-slate-400 hover:text-slate-600 font-bold text-lg">✕</button>
             </div>
-            <div class="overflow-y-auto flex-1">
-                <p class="text-xs text-slate-500 mb-3">Yahan sabhi employees ke designated Weekly Off days ki complete list di gayi hai:</p>
+            <div class="overflow-y-auto flex-1 border border-slate-200 rounded-xl">
                 <table class="w-full text-left border-collapse">
-                    <thead>
-                        <tr class="bg-slate-100 text-slate-600 uppercase text-[11px] font-bold tracking-wider">
-                            <th class="py-3 px-4 border border-slate-200">Sr.</th>
-                            <th class="py-3 px-4 border border-slate-200">ID</th>
-                            <th class="py-3 px-4 border border-slate-200">Employee Name</th>
-                            <th class="py-3 px-4 border border-slate-200">Department</th>
-                            <th class="py-3 px-4 text-center border border-slate-200 bg-indigo-50 text-indigo-800">Weekly Off Day</th>
+                    <thead class="bg-slate-100 text-slate-600 uppercase text-[11px] font-bold tracking-wider sticky top-0">
+                        <tr>
+                            <th class="py-3 px-4 border-b border-slate-200">Sr.</th>
+                            <th class="py-3 px-4 border-b border-slate-200">ID</th>
+                            <th class="py-3 px-4 border-b border-slate-200">Employee Name</th>
+                            <th class="py-3 px-4 border-b border-slate-200">Department</th>
+                            <th class="py-3 px-4 border-b border-slate-200 text-center">Default Weekly Off Day</th>
                         </tr>
                     </thead>
                     <tbody class="text-xs text-slate-700 divide-y divide-slate-100">
                         {% for emp in all_users %}
                         <tr class="hover:bg-slate-50">
-                            <td class="py-2.5 px-4 border border-slate-200 text-slate-400 font-medium">{{ loop.index }}</td>
-                            <td class="py-2.5 px-4 border border-slate-200 font-mono text-slate-600 font-semibold">{{ emp.user_id }}</td>
-                            <td class="py-2.5 px-4 border border-slate-200 font-bold text-slate-900">{{ emp.name }}</td>
-                            <td class="py-2.5 px-4 border border-slate-200"><span class="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 font-bold">{{ emp.dept }}</span></td>
-                            <td class="py-2.5 px-4 border border-slate-200 text-center font-bold text-indigo-700 bg-indigo-50/50 text-sm">{{ emp.off }}</td>
+                            <td class="py-2.5 px-4 font-medium text-slate-400">{{ loop.index }}</td>
+                            <td class="py-2.5 px-4 font-mono text-slate-600 font-semibold">{{ emp.user_id }}</td>
+                            <td class="py-2.5 px-4 font-bold text-slate-900">{{ emp.name }}</td>
+                            <td class="py-2.5 px-4"><span class="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 font-bold">{{ emp.dept }}</span></td>
+                            <td class="py-2.5 px-4 text-center font-bold text-indigo-700 bg-indigo-50/50">{{ emp.off }}</td>
                         </tr>
                         {% endfor %}
                     </tbody>
                 </table>
             </div>
             <div class="pt-2 flex justify-end">
-                <button onclick="closeCalendarModal()" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition">Close</button>
+                <button onclick="toggleModal('calendar-modal', false)" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition">Close</button>
             </div>
         </div>
     </div>
@@ -1359,7 +1545,6 @@ def login():
 def logout():
     role = session.get('role')
     user_name = session.get('user_name', '')
-    
     msg_text = "Thank you admin" if role == 'admin' else f"Thank you {user_name}"
     session.clear()
     flash(msg_text, 'success')
@@ -1386,39 +1571,92 @@ def index():
     logs, all_users, g_hrs, g_l_hrs, g_var, raw_punches, stats = fetch_attendance_data(start_date, end_date, selected_emp)
     
     pending_leaves_count = sum(1 for req in LEAVE_REQUESTS if req['status'] == 'Pending')
-    
-    if role == 'employee':
-        current_user_leave_requests = [req for req in LEAVE_REQUESTS if req['user_id'] == logged_user_id]
-    else:
-        current_user_leave_requests = LEAVE_REQUESTS
+    current_user_leave_requests = [req for req in LEAVE_REQUESTS if req['user_id'] == logged_user_id] if role == 'employee' else LEAVE_REQUESTS
         
+    shift_reqs = load_shift_requests()
+    pending_shifts_count = sum(1 for req in shift_reqs if req.get('status') == 'Pending')
+    my_shift_reqs = [r for r in shift_reqs if r.get('user_id') == logged_user_id] if role == 'employee' else shift_reqs
+    
     return render_template_string(
         HTML_TEMPLATE,
-        logs=logs,
-        all_users=all_users,
-        start_date=start_date,
-        end_date=end_date,
-        selected_emp=selected_emp,
-        grand_total_hours=g_hrs,
-        grand_total_lunch_hours=g_l_hrs,
-        grand_total_variance=g_var,
-        stats=stats,
-        raw_punches=raw_punches,
-        role=role,
-        logged_user_name=logged_user_name,
-        leave_requests=current_user_leave_requests,
-        pending_leaves_count=pending_leaves_count
+        logs=logs, all_users=all_users, start_date=start_date, end_date=end_date, selected_emp=selected_emp,
+        grand_total_hours=g_hrs, grand_total_lunch_hours=g_l_hrs, grand_total_variance=g_var, stats=stats,
+        raw_punches=raw_punches, role=role, logged_user_name=logged_user_name,
+        leave_requests=current_user_leave_requests, pending_leaves_count=pending_leaves_count,
+        shift_requests=my_shift_reqs, pending_shifts_count=pending_shifts_count
     )
 
-# --- INLINE EDIT OVERRIDE ROUTE ---
+# --- ROSTER PLANNER APIs ---
+@app.route('/api/get_roster', methods=['GET'])
+def api_get_roster():
+    if session.get('role') not in ['admin', 'developer']: return {}, 403
+    emp_id = request.args.get('emp_id')
+    roster = load_roster()
+    return roster.get(emp_id, {})
+
+@app.route('/api/save_roster', methods=['POST'])
+def api_save_roster():
+    if session.get('role') not in ['admin', 'developer']: return {}, 403
+    data = request.get_json()
+    emp_id = data.get('emp_id')
+    updates = data.get('updates', {})
+    
+    roster = load_roster()
+    if emp_id not in roster: roster[emp_id] = {}
+    
+    for dt, val in updates.items():
+        roster[emp_id][dt] = val
+        
+    save_roster(roster)
+    return {'status': 'success'}
+
+# --- EMPLOYEE SHIFT REQUEST APIs ---
+@app.route('/request_shift', methods=['POST'])
+def request_shift():
+    if session.get('role') != 'employee': return redirect(url_for('index'))
+    req_date = request.form.get('req_date')
+    req_status = request.form.get('req_status')
+    req_reason = request.form.get('req_reason')
+    
+    reqs = load_shift_requests()
+    req_id = len(reqs) + 1
+    reqs.append({
+        'id': req_id, 'user_id': session.get('user_id'), 'name': session.get('user_name'),
+        'date': req_date, 'requested': req_status, 'reason': req_reason, 'status': 'Pending'
+    })
+    save_shift_requests(reqs)
+    flash("Shift/Off request submit ho gayi hai! Admin approval ka wait karein.", "success")
+    return redirect(url_for('index'))
+
+@app.route('/update_shift_req/<int:req_id>/<action>')
+def update_shift_req(req_id, action):
+    if session.get('role') not in ['admin', 'developer']: return redirect(url_for('login'))
+    reqs = load_shift_requests()
+    for req in reqs:
+        if req['id'] == req_id:
+            if action == 'approve':
+                req['status'] = 'Approved'
+                # Update main roster
+                roster = load_roster()
+                emp = req['user_id']
+                if emp not in roster: roster[emp] = {}
+                roster[emp][req['date']] = req['requested']
+                save_roster(roster)
+                flash(f"{req['name']} ki shift request approve kar di gayi hai.", "success")
+            elif action == 'reject':
+                req['status'] = 'Rejected'
+                flash(f"{req['name']} ki shift request reject ki gayi.", "success")
+            break
+    save_shift_requests(reqs)
+    return redirect(url_for('index'))
+
+# --- QUICK EDIT API ---
 @app.route('/quick_edit')
 def quick_edit():
-    if session.get('role') != 'developer': 
-        return redirect(url_for('index'))
-        
+    if session.get('role') != 'developer': return redirect(url_for('index'))
     date_str = request.args.get('date')
     emp_id = request.args.get('emp_id')
-    field = request.args.get('field') # e.g., store_in, lunch_out
+    field = request.args.get('field')
     new_time = request.args.get('time', '').strip()
 
     overrides = load_overrides()
@@ -1426,71 +1664,47 @@ def quick_edit():
     if emp_id not in overrides[date_str]: overrides[date_str][emp_id] = {}
 
     if new_time == '' or new_time == '-':
-        # Remove override to restore original punch
-        if field in overrides[date_str][emp_id]:
-            del overrides[date_str][emp_id][field]
+        if field in overrides[date_str][emp_id]: del overrides[date_str][emp_id][field]
     else:
-        if len(new_time.split(':')) == 2: new_time += ":00" # Auto-pad seconds
+        if len(new_time.split(':')) == 2: new_time += ":00"
         overrides[date_str][emp_id][field] = new_time
 
     save_overrides(overrides)
     flash(f"Time successfully updated for {emp_id}!", "success")
-    
     ref = request.referrer
-    if ref: return redirect(ref)
-    return redirect(url_for('index'))
+    return redirect(ref) if ref else redirect(url_for('index'))
 
+# --- LEAVE APIs ---
 @app.route('/apply_leave', methods=['POST'])
 def apply_leave():
-    if not session.get('logged_in') or session.get('role') != 'employee':
-        return redirect(url_for('login'))
-        
+    if not session.get('logged_in') or session.get('role') != 'employee': return redirect(url_for('login'))
     user_id = session.get('user_id')
     name = session.get('user_name')
     start_date = request.form.get('start_date')
     end_date = request.form.get('end_date')
     leave_type = request.form.get('leave_type', 'F10;1')
-    
     filename = None
     file = request.files.get('supporting_doc')
     if file and file.filename != '':
         if not allowed_file(file.filename):
             flash('Invalid file format! Sirf PDF, JPG, PNG ya DOC files allowed hain.', 'danger')
             return redirect(url_for('index'))
-            
         filename = secure_filename(file.filename)
         local_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         file.save(local_path)
-        
-        # 1. GitHub par upload karein (Folder ka naam: leave_documents/)
-        github_path = f"leave_documents/{user_id}_{filename}"
-        upload_file_to_github(local_path, github_path)
-
-    # 2. Excel me record save karein
+        upload_file_to_github(local_path, f"leave_documents/{user_id}_{filename}")
     save_leave_to_excel(user_id, name, start_date, end_date, leave_type, filename if filename else "No Document")
-
-    # 3. Global list me add karein aur JSON persistence save karein
-    leave_req = {
-        'id': len(LEAVE_REQUESTS) + 1,
-        'user_id': user_id,
-        'name': name,
-        'start_date': start_date,
-        'end_date': end_date,
-        'leave_type': leave_type,
-        'filename': filename,
-        'status': 'Pending'
-    }
-    LEAVE_REQUESTS.append(leave_req)
+    LEAVE_REQUESTS.append({
+        'id': len(LEAVE_REQUESTS) + 1, 'user_id': user_id, 'name': name, 'start_date': start_date,
+        'end_date': end_date, 'leave_type': leave_type, 'filename': filename, 'status': 'Pending'
+    })
     save_leave_requests(LEAVE_REQUESTS)
-    
-    flash('Aapki leave request successfully submit ho gayi hai aur document GitHub par sync ho gaya hai!', 'success')
+    flash('Aapki leave request successfully submit ho gayi hai!', 'success')
     return redirect(url_for('index'))
 
 @app.route('/update_leave/<int:req_id>/<action>')
 def update_leave(req_id, action):
-    if not session.get('logged_in') or session.get('role') not in ['admin', 'developer']:
-        return redirect(url_for('login'))
-        
+    if session.get('role') not in ['admin', 'developer']: return redirect(url_for('login'))
     for req in LEAVE_REQUESTS:
         if req['id'] == req_id:
             if action == 'approve':
@@ -1500,147 +1714,96 @@ def update_leave(req_id, action):
                 req['status'] = 'Rejected'
                 flash(f"Leave request for {req['name']} rejected.", 'success')
             break
-            
     save_leave_requests(LEAVE_REQUESTS)
     return redirect(url_for('index'))
 
 @app.route('/uploads/<filename>')
 def uploaded_file(filename):
-    if not session.get('logged_in'):
-        return redirect(url_for('login'))
+    if not session.get('logged_in'): return redirect(url_for('login'))
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
 
 @app.route('/export')
 def export_excel():
-    if not session.get('logged_in') or session.get('role') not in ['admin', 'developer']:
-        return redirect(url_for('login'))
-        
+    if session.get('role') not in ['admin', 'developer']: return redirect(url_for('login'))
     start_date = request.args.get('start_date', datetime.now().strftime('%Y-%m-%d'))
     end_date = request.args.get('end_date', datetime.now().strftime('%Y-%m-%d'))
     selected_emp = request.args.get('employee', 'ALL')
-    
     logs, _, g_hrs, g_l_hrs, g_var, _, _ = fetch_attendance_data(start_date, end_date, selected_emp)
-    
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Attendance Report"
-    ws.sheet_view.showGridLines = True
-    
-    headers = ["Sr. No.", "Date", "ID", "Employee Name", "Department", "Store In", "Lunch Out", "Lunch In", "Out Time", "Total Lunch", "Working Hours", "Total Hora Extra", "Status"]
-    ws.append([])
     ws.append(["Gamek Fresmart Express - Attendance Report"])
     ws.append([f"Period: {start_date} to {end_date}"])
     ws.append([])
-    ws.append(headers)
-    
+    ws.append(["Sr. No.", "Date", "ID", "Employee Name", "Department", "Store In", "Lunch Out", "Lunch In", "Out Time", "Total Lunch", "Working Hours", "Total Hora Extra", "Status"])
     for idx, log in enumerate(logs, 1):
-        ws.append([
-            idx, log['date'], log['user_id'], log['name'], log['dept'],
-            log['store_in'], log['lunch_out'], log['lunch_in'], log['out_time'],
-            log['total_lunch'], log['total_hours'], log['net_variance'], log['status']
-        ])
-        
+        ws.append([idx, log['date'], log['user_id'], log['name'], log['dept'], log['store_in'], log['lunch_out'], log['lunch_in'], log['out_time'], log['total_lunch'], log['total_hours'], log['net_variance'], log['status']])
     ws.append([])
     ws.append(["", "", "", "", "", "", "", "", "Total Summary:", g_l_hrs, g_hrs, g_var])
-    
     excel_io = io.BytesIO()
     wb.save(excel_io)
     excel_io.seek(0)
-    
-    filename = f"Attendance_Report_{start_date}_to_{end_date}.xlsx"
-    return send_file(excel_io, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', as_attachment=True, download_name=filename)
+    return send_file(excel_io, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', as_attachment=True, download_name=f"Attendance_Report_{start_date}_to_{end_date}.xlsx")
 
 @app.route('/export_matrix')
 def export_matrix():
-    if not session.get('logged_in') or session.get('role') not in ['admin', 'developer']:
-        return redirect(url_for('login'))
-        
+    if session.get('role') not in ['admin', 'developer']: return redirect(url_for('login'))
     start_date = request.args.get('start_date', datetime.now().strftime('%Y-%m-%d'))
     end_date = request.args.get('end_date', datetime.now().strftime('%Y-%m-%d'))
-    
-    start_dt = datetime.strptime(start_date, '%Y-%m-%d')
-    end_dt = datetime.strptime(end_date, '%Y-%m-%d')
+    start_dt, end_dt = datetime.strptime(start_date, '%Y-%m-%d'), datetime.strptime(end_date, '%Y-%m-%d')
     date_list = []
-    curr = start_dt
-    while curr <= end_dt:
-        date_list.append(curr.strftime('%Y-%m-%d'))
-        curr += timedelta(days=1)
-        
+    while start_dt <= end_dt:
+        date_list.append(start_dt.strftime('%Y-%m-%d'))
+        start_dt += timedelta(days=1)
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Employee Matrix"
-    ws.sheet_view.showGridLines = True
-    
-    headers = ["ID", "Employee Name", "Department"] + date_list
     ws.append(["Gamek Fresmart Express - Employee Matrix Attendance Report"])
     ws.append([f"Period: {start_date} to {end_date}"])
     ws.append([])
-    ws.append(headers)
-    
+    ws.append(["ID", "Employee Name", "Department"] + date_list)
     for emp_code, emp_data in sorted(MASTER_EMPLOYEES.items(), key=lambda x: get_emp_info(x[0])['name']):
         final_code = f"NWC{emp_code}" if not emp_code.startswith('NWC') else emp_code
         emp_info = get_emp_info(emp_code)
         row = [final_code, emp_info['name'], emp_info['dept']]
-        
         for d_str in date_list:
             logs_d, _, _, _, _, _, _ = fetch_attendance_data(d_str, d_str, final_code)
             if logs_d:
                 st = logs_d[0]
                 status = st['status']
-                
                 if any(code in status for code in ['F01;1', 'F03;1', 'F05;1', 'F10;1', 'F51;1', 'F60;1', 'F61;1', 'F62;1']):
-                    matched_code = next((code for code in ['F01;1', 'F03;1', 'F05;1', 'F10;1', 'F51;1', 'F60;1', 'F61;1', 'F62;1'] if code in status), 'F10;1')
-                    row.append(matched_code)
-                elif status == 'Weekly Off':
-                    row.append('Off')
-                elif status == 'Present':
-                    var_str = st['net_variance']
-                    if 'H06;' in var_str or 'H07;' in var_str:
-                        row.append(var_str)
-                    else:
-                        row.append('P')
-                elif status == 'Mis Punch':
-                    row.append('Mis Punch')
-                else:
-                    row.append('F03;1')
+                    row.append(next((code for code in ['F01;1', 'F03;1', 'F05;1', 'F10;1', 'F51;1', 'F60;1', 'F61;1', 'F62;1'] if code in status), 'F10;1'))
+                elif status == 'Weekly Off': row.append('Off')
+                elif status == 'Present': row.append(st['net_variance'] if 'H06;' in st['net_variance'] or 'H07;' in st['net_variance'] else 'P')
+                elif status == 'Mis Punch': row.append('Mis Punch')
+                else: row.append('F03;1')
             else:
                 curr_dt_obj = datetime.strptime(d_str, '%Y-%m-%d')
-                if curr_dt_obj.strftime('%A').upper() == emp_info['off'].upper():
-                    row.append('Off')
-                else:
-                    row.append('F03;1')
+                row.append('Off' if curr_dt_obj.strftime('%A').upper() == emp_info['off'].upper() else 'F03;1')
         ws.append(row)
-        
     excel_io = io.BytesIO()
     wb.save(excel_io)
     excel_io.seek(0)
-    filename = f"Employee_Matrix_{start_date}_to_{end_date}.xlsx"
-    return send_file(excel_io, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', as_attachment=True, download_name=filename)
+    return send_file(excel_io, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', as_attachment=True, download_name=f"Employee_Matrix_{start_date}_to_{end_date}.xlsx")
 
 @app.route('/shutdown')
 def shutdown():
     dev_pass = os.getenv('DEV_PWD', 'Shama@8577')
     if session.get('role') in ['admin', 'developer'] and request.args.get('pwd') == dev_pass:
         func = request.environ.get('werkzeug.server.shutdown')
-        if func:
-            func()
-            return "Server successfully shutdown ho gaya hai."
-        else:
-            sys.exit(0)
+        if func: func()
+        else: sys.exit(0)
+        return "Server successfully shutdown ho gaya hai."
     return "Unauthorized access!", 403
 
-# BIOMETRIC LOCAL SYNC ENDPOINT
 @app.route('/api/attendance/sync', methods=['POST'])
 def sync_attendance():
     global SYNCED_ATTENDANCE_LOGS, LAST_DEVICE_SYNC_TIME
     try:
         data = request.get_json()
-        if not data or 'logs' not in data:
-            return {'status': 'error', 'message': 'No logs provided'}, 400
-            
+        if not data or 'logs' not in data: return {'status': 'error', 'message': 'No logs'}, 400
         logs = data['logs']
         existing_keys = {(str(item.get('user_id')), str(item.get('timestamp'))) for item in SYNCED_ATTENDANCE_LOGS}
-        
         added_count = 0
         for log in logs:
             key = (str(log.get('user_id')), str(log.get('timestamp')))
@@ -1648,11 +1811,9 @@ def sync_attendance():
                 SYNCED_ATTENDANCE_LOGS.append(log)
                 existing_keys.add(key)
                 added_count += 1
-                
         LAST_DEVICE_SYNC_TIME = datetime.now()
-        return {'status': 'success', 'message': f'{len(logs)} records synced successfully ({added_count} new)'}, 200
-    except Exception as e:
-        return {'status': 'error', 'message': str(e)}, 500
+        return {'status': 'success', 'message': f'{len(logs)} records synced ({added_count} new)'}, 200
+    except Exception as e: return {'status': 'error', 'message': str(e)}, 500
 
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 5000))
