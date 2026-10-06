@@ -167,7 +167,6 @@ def _salary_employee_candidates(page_text):
     return list(dict.fromkeys(candidates))
 
 def _build_salary_pdf_groups(reader):
-    """Group every merged-PDF page into an employee's multi-page salary slip."""
     employee_order = sorted(MASTER_EMPLOYEES.keys(), key=lambda x: get_emp_info(x)['name'])
     groups = {code: [] for code in employee_order}
     unmatched_pages = []
@@ -186,8 +185,6 @@ def _build_salary_pdf_groups(reader):
         else:
             unmatched_pages.append(page_index)
 
-    # Pages without an employee identifier are normally continuation pages.
-    # Reserve enough pages for employees that have not yet been identified.
     if unmatched_pages and current_emp:
         assigned = {code for code, pages in groups.items() if pages}
         missing = [code for code in employee_order if code not in assigned]
@@ -196,15 +193,10 @@ def _build_salary_pdf_groups(reader):
         groups[current_emp].extend(continuation_pages)
         unmatched_pages = unmatched_pages[:reserve]
 
-    # Do not reject a 43-page PDF just because there are 35 employees.
-    # Give remaining unidentified pages to employees who have no page yet.
     missing = [code for code in employee_order if not groups[code]]
     for page_index, emp_code in zip(unmatched_pages, missing):
         groups[emp_code].append(page_index)
 
-    # If the PDF has more pages than employees and some pages still have no
-    # readable employee identifier, never drop those pages. Attach the extra
-    # pages to the last employee/slip as continuation pages.
     consumed = min(len(unmatched_pages), len(missing))
     leftover_pages = unmatched_pages[consumed:]
     if leftover_pages:
@@ -478,12 +470,10 @@ def fetch_attendance_data(start_date_str, end_date_str, filter_user_id):
                 
                 net_variance_str, variance_type = "-", "neutral"
                 if s_in is not None and s_out is not None:
-                    # Dynamic Target Hours Logic: 8 hours if lunch punches exist, otherwise 7 hours
                     target_seconds = (8 * 3600) if has_lunch_punches else (7 * 3600)
                     diff = net_duration_seconds - target_seconds
                     total_net_variance_seconds += diff
 
-                    # Overtime Calculation with 45-minute minimum grace period
                     if diff > (45 * 60):
                         extra_hours_val = math.floor(diff / 3600)
                         if extra_hours_val == 0:
@@ -573,7 +563,8 @@ LOGIN_TEMPLATE = """
     <div class="bg-white/95 backdrop-blur-md rounded-3xl shadow-2xl border border-slate-200/50 p-8 w-full max-w-md space-y-6">
         <div class="text-center space-y-2">
             <div class="inline-flex bg-[#78b13f] px-5 py-3 rounded-2xl shadow-lg mb-2 items-center justify-center">
-                <img src="{{ url_for('static', filename='fresmart.png') }}" alt="Logo" class="h-12 object-contain">
+                <img src="{{ url_for('static', filename='fresmart.png') }}" alt="Logo" class="h-12 object-contain" onerror="this.style.display='none'">
+                <span class="text-white font-bold text-xl ml-2">Gamek HRM</span>
             </div>
             <h1 class="text-2xl font-black text-slate-900 tracking-tight">Attendance Portal</h1>
             <p class="text-xs text-slate-500 font-medium">Developed by Sonu Kumar <span class="text-emerald-600 font-semibold">(NCSA0608)</span></p>
@@ -680,11 +671,17 @@ HTML_TEMPLATE = """
     <style>
         body { font-family: 'Inter', sans-serif; }
         td.nowrap-cell { white-space: nowrap; }
-        .excel-table th, .excel-table td { border: 1px solid #e2e8f0 !important; }
+        .excel-table th, .excel-table td { border: 1px solid #e2e8f0 !important; white-space: nowrap; }
         th.sortable { cursor: pointer; user-select: none; transition: background-color 0.15s ease; }
         th.sortable:hover { background-color: #cbd5e1; }
         .stat-card { cursor: pointer; transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1); position: relative; overflow: hidden; }
         .stat-card:hover { transform: translateY(-2px); box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05); }
+        
+        /* Custom scrollbar for better mobile view */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #f1f5f9; rounded-full }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
     </style>
     <script>
         let inactivityTimer;
@@ -715,6 +712,19 @@ HTML_TEMPLATE = """
             let seconds = String(now.getSeconds()).padStart(2, '0');
             const clockEl = document.getElementById('live-digital-clock');
             if (clockEl) clockEl.innerText = dateStr + ' | ' + hours + ':' + minutes + ':' + seconds;
+        }
+        
+        // --- MOBILE SIDEBAR TOGGLE ---
+        function toggleMobileMenu(show) {
+            const sidebar = document.getElementById('sidebar');
+            const overlay = document.getElementById('sidebar-overlay');
+            if (show) {
+                sidebar.classList.remove('-translate-x-full');
+                overlay.classList.remove('hidden');
+            } else {
+                sidebar.classList.add('-translate-x-full');
+                overlay.classList.add('hidden');
+            }
         }
 
         let sortDirections = {};
@@ -828,6 +838,8 @@ HTML_TEMPLATE = """
         function toggleModal(id, show) {
             let el = document.getElementById(id);
             if(el) { show ? el.classList.remove('hidden') : el.classList.add('hidden'); }
+            // If opening a modal on mobile, close sidebar just in case
+            if (show) toggleMobileMenu(false);
         }
 
         function inlineEdit(date, empId, field, currVal) {
@@ -844,7 +856,6 @@ HTML_TEMPLATE = """
             if (pwd) window.location.href = "/shutdown?pwd=" + encodeURIComponent(pwd);
         }
 
-        // --- ROSTER PLANNER JS ---
         function loadRosterPlanner() {
             let empId = document.getElementById('rp-emp').value;
             let monthStr = document.getElementById('rp-month').value;
@@ -946,7 +957,7 @@ HTML_TEMPLATE = """
         }
 
         function uploadLoading() {
-            document.getElementById('upload-btn-text').innerText = 'Splitting & Saving... Please wait...';
+            document.getElementById('upload-btn-text').innerText = 'Splitting... Please wait...';
             document.getElementById('upload-btn').disabled = true;
             document.getElementById('upload-btn').classList.add('opacity-75', 'cursor-wait');
         }
@@ -960,18 +971,25 @@ HTML_TEMPLATE = """
 </head>
 <body class="bg-slate-50 text-slate-800 antialiased flex h-screen overflow-hidden">
     
+    <!-- Mobile Sidebar Overlay -->
+    <div id="sidebar-overlay" onclick="toggleMobileMenu(false)" class="fixed inset-0 bg-slate-900/50 z-40 hidden lg:hidden backdrop-blur-sm transition-opacity"></div>
+
     <!-- Sidebar Navigation -->
-    <aside class="w-64 bg-white border-r border-slate-200 flex flex-col justify-between hidden lg:flex z-20">
-        <div>
+    <aside id="sidebar" class="w-64 bg-white border-r border-slate-200 flex flex-col justify-between fixed inset-y-0 left-0 transform -translate-x-full lg:relative lg:translate-x-0 transition duration-200 ease-in-out z-50 h-screen">
+        <div class="overflow-y-auto">
             <!-- Logo Header -->
-            <div class="p-5 flex items-center space-x-3 border-b border-slate-100">
-                <div class="bg-[#78b13f] p-2 rounded-xl shadow-sm">
-                    <img src="{{ url_for('static', filename='fresmart.png') }}" alt="Logo" class="h-6 object-contain">
+            <div class="p-5 flex items-center justify-between border-b border-slate-100">
+                <div class="flex items-center space-x-3">
+                    <div class="bg-[#78b13f] p-2 rounded-xl shadow-sm">
+                        <img src="{{ url_for('static', filename='fresmart.png') }}" alt="Logo" class="h-6 object-contain" onerror="this.style.display='none'">
+                    </div>
+                    <div>
+                        <h2 class="text-sm font-bold text-slate-900 leading-tight">Gamek HRM</h2>
+                        <p class="text-[10px] text-slate-400 font-medium">Attendance Portal</p>
+                    </div>
                 </div>
-                <div>
-                    <h2 class="text-sm font-bold text-slate-900 leading-tight">Gamek HRM</h2>
-                    <p class="text-[10px] text-slate-400 font-medium">Attendance Portal</p>
-                </div>
+                <!-- Close Button (Mobile Only) -->
+                <button onclick="toggleMobileMenu(false)" class="lg:hidden p-2 text-slate-400 hover:text-slate-600 rounded-lg">✕</button>
             </div>
 
             <!-- Menu Links -->
@@ -1059,22 +1077,30 @@ HTML_TEMPLATE = """
     <!-- Main Wrapper -->
     <div class="flex-1 flex flex-col h-screen overflow-hidden">
         
-        <!-- Top Navbar -->
-        <header class="bg-white border-b border-slate-200 px-6 py-3.5 flex justify-between items-center z-10">
-            <div class="flex items-center space-x-3">
-                <h1 class="text-base font-black text-slate-900 tracking-tight">Dashboard</h1>
-                <span class="text-xs text-slate-400 font-medium">| Good day, {{ logged_user_name }}</span>
+        <!-- Top Navbar (Responsive) -->
+        <header class="bg-white border-b border-slate-200 px-4 sm:px-6 py-3.5 flex justify-between items-center z-10">
+            <div class="flex items-center flex-1">
+                <!-- Mobile Menu Button -->
+                <button onclick="toggleMobileMenu(true)" class="lg:hidden mr-3 p-2 rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200 transition">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
+                </button>
+                <div class="flex flex-col sm:flex-row sm:items-center sm:space-x-3">
+                    <h1 class="text-sm sm:text-base font-black text-slate-900 tracking-tight">Dashboard</h1>
+                    <span class="hidden sm:inline-block text-xs text-slate-400 font-medium">| Good day, {{ logged_user_name }}</span>
+                </div>
             </div>
 
-            <div class="flex items-center space-x-3 flex-wrap">
-                <button onclick="toggleModal('leave-modal', true)" class="relative bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-bold px-3 py-2 rounded-xl transition border border-emerald-200 flex items-center space-x-1.5">
-                    <span>🏖 Leave Portal</span>
+            <div class="flex items-center gap-2 flex-wrap justify-end">
+                <button onclick="toggleModal('leave-modal', true)" class="relative bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-bold px-2 py-1.5 sm:px-3 sm:py-2 rounded-xl transition border border-emerald-200 flex items-center space-x-1.5">
+                    <span class="hidden sm:inline">🏖 Leave Portal</span>
+                    <span class="sm:hidden">🏖 Leaves</span>
                     {% if role in ['admin', 'developer'] and pending_leaves_count > 0 %}
                     <span class="bg-rose-500 text-white text-[10px] px-1.5 py-0.2 rounded-full font-black animate-bounce">{{ pending_leaves_count }}</span>
                     {% endif %}
                 </button>
 
-                <div class="text-xs bg-slate-50 px-3 py-2 rounded-xl border border-slate-200 flex items-center space-x-2">
+                <!-- Clock and Status (Hidden on very small screens to save space) -->
+                <div class="hidden md:flex text-xs bg-slate-50 px-3 py-2 rounded-xl border border-slate-200 items-center space-x-2">
                     <span class="h-2 w-2 {% if stats.device_online %}bg-emerald-500{% else %}bg-red-500{% endif %} rounded-full animate-pulse"></span>
                     <span class="text-slate-600 font-medium">Device: <strong class="{% if stats.device_online %}text-emerald-600{% else %}text-red-600{% endif %}">{% if stats.device_online %}Online{% else %}Offline{% endif %}</strong></span>
                     <span class="text-slate-300">|</span>
@@ -1083,114 +1109,106 @@ HTML_TEMPLATE = """
                     <span class="text-slate-500">Sync: <strong id="countdown-timer" class="text-emerald-600 font-mono">03:00</strong></span>
                 </div>
 
-                <div class="flex items-center space-x-2 bg-slate-100 border border-slate-200 px-3 py-1.5 rounded-xl text-xs font-bold text-slate-700">
-                    <span>👤 {{ logged_user_name }}</span>
-                    <a href="/logout" class="text-rose-600 hover:text-rose-700 ml-2 font-semibold">Logout 🔒</a>
+                <div class="flex items-center space-x-2 bg-slate-100 border border-slate-200 px-2.5 py-1.5 sm:px-3 sm:py-1.5 rounded-xl text-xs font-bold text-slate-700">
+                    <span class="hidden sm:inline">👤 {{ logged_user_name }}</span>
+                    <a href="/logout" class="text-rose-600 hover:text-rose-700 sm:ml-2 font-semibold">Logout 🔒</a>
                 </div>
 
                 {% if role == 'admin' or role == 'developer' %}
-                <button onclick="secureShutdown()" class="bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold px-3 py-2 rounded-xl transition border border-rose-200">
-                    🛑 Shutdown
+                <button onclick="secureShutdown()" class="bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl transition border border-rose-200">
+                    <span class="hidden sm:inline">🛑 Shutdown</span>
+                    <span class="sm:hidden">🛑</span>
                 </button>
                 {% endif %}
             </div>
         </header>
 
         <!-- Main Content Area -->
-        <main class="flex-1 overflow-y-auto p-6 space-y-6">
+        <main class="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
             
             {% with messages = get_flashed_messages(with_categories=true) %}
                 {% if messages %}
                     {% for category, message in messages %}
                     <div class="{% if category == 'success' %}bg-emerald-50 border-emerald-200 text-emerald-800{% else %}bg-rose-50 border-rose-200 text-rose-700{% endif %} border text-xs font-bold p-4 rounded-2xl shadow-sm flex items-center justify-between">
                         <span>{{ message }}</span>
-                        <span class="cursor-pointer" onclick="this.parentElement.style.display='none'">✕</span>
+                        <span class="cursor-pointer text-lg px-2" onclick="this.parentElement.style.display='none'">✕</span>
                     </div>
                     {% endfor %}
                 {% endif %}
             {% endwith %}
 
             <!-- Quick Top Cards / Stat Overview -->
-            <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-9 gap-3">
+            <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-9 gap-3">
                 <div onclick="filterByStatus('Present')" class="stat-card bg-white p-3.5 rounded-2xl shadow-sm border border-slate-200 flex items-center justify-between border-l-4 border-l-emerald-500">
                     <div>
                         <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Present</p>
                         <h3 class="text-xl font-black text-emerald-600 mt-0.5">{{ stats.present }}</h3>
                     </div>
-                    <div class="p-2 bg-emerald-50 text-emerald-600 rounded-xl">✅</div>
                 </div>
                 <div onclick="filterByStatus('Absent')" class="stat-card bg-white p-3.5 rounded-2xl shadow-sm border border-slate-200 flex items-center justify-between border-l-4 border-l-rose-500">
                     <div>
                         <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Absent</p>
                         <h3 class="text-xl font-black text-rose-600 mt-0.5">{{ stats.absent }}</h3>
                     </div>
-                    <div class="p-2 bg-rose-50 text-rose-600 rounded-xl">❌</div>
                 </div>
                 <div onclick="filterByStatus('ML')" class="stat-card bg-white p-3.5 rounded-2xl shadow-sm border border-slate-200 flex items-center justify-between border-l-4 border-l-cyan-500">
                     <div>
-                        <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Medical/Leave</p>
+                        <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Med/Leave</p>
                         <h3 class="text-xl font-black text-cyan-600 mt-0.5">{{ stats.ml }}</h3>
                     </div>
-                    <div class="p-2 bg-cyan-50 text-cyan-600 rounded-xl">🏥</div>
                 </div>
                 <div onclick="filterByStatus('Weekly Off')" class="stat-card bg-white p-3.5 rounded-2xl shadow-sm border border-slate-200 flex items-center justify-between border-l-4 border-l-slate-400">
                     <div>
-                        <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Weekly Off</p>
+                        <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Week Off</p>
                         <h3 class="text-xl font-black text-slate-700 mt-0.5">{{ stats.off }}</h3>
                     </div>
-                    <div class="p-2 bg-slate-100 text-slate-600 rounded-xl">🏖️</div>
                 </div>
                 <div onclick="filterByStatus('Late Arrival')" class="stat-card bg-white p-3.5 rounded-2xl shadow-sm border border-slate-200 flex items-center justify-between border-l-4 border-l-amber-500">
                     <div>
-                        <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Late Arrival</p>
+                        <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Late Arr.</p>
                         <h3 class="text-xl font-black text-amber-600 mt-0.5">{{ stats.late_arrival }}</h3>
                     </div>
-                    <div class="p-2 bg-amber-50 text-amber-600 rounded-xl">⏰</div>
                 </div>
                 <div onclick="filterByStatus('Mis Punch')" class="stat-card bg-white p-3.5 rounded-2xl shadow-sm border border-slate-200 flex items-center justify-between border-l-4 border-l-orange-500">
                     <div>
-                        <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Mis-Punches</p>
+                        <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Mis-Punch</p>
                         <h3 class="text-xl font-black text-orange-600 mt-0.5">{{ stats.mispunch }}</h3>
                     </div>
-                    <div class="p-2 bg-orange-50 text-orange-600 rounded-xl">⚠</div>
                 </div>
                 <div onclick="filterByStatus('Shift A')" class="stat-card bg-white p-3.5 rounded-2xl shadow-sm border border-slate-200 flex items-center justify-between border-l-4 border-l-blue-500">
                     <div>
-                        <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Shift A (06-10)</p>
+                        <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Shift A</p>
                         <h3 class="text-xl font-black text-blue-600 mt-0.5">{{ stats.shift_a }}</h3>
                     </div>
-                    <div class="p-2 bg-blue-50 text-blue-600 rounded-xl">☀️</div>
                 </div>
                 <div onclick="filterByStatus('Shift B')" class="stat-card bg-white p-3.5 rounded-2xl shadow-sm border border-slate-200 flex items-center justify-between border-l-4 border-l-indigo-500">
                     <div>
-                        <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Shift B (&gt;10:00)</p>
+                        <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Shift B</p>
                         <h3 class="text-xl font-black text-indigo-600 mt-0.5">{{ stats.shift_b }}</h3>
                     </div>
-                    <div class="p-2 bg-indigo-50 text-indigo-600 rounded-xl">🌙</div>
                 </div>
-                <div onclick="filterByStatus('ALL')" class="stat-card bg-white p-3.5 rounded-2xl shadow-sm border border-slate-200 flex items-center justify-between border-l-4 border-l-emerald-600">
+                <div onclick="filterByStatus('ALL')" class="stat-card bg-white p-3.5 rounded-2xl shadow-sm border border-slate-200 flex items-center justify-between border-l-4 border-l-emerald-600 col-span-2 lg:col-span-1">
                     <div>
-                        <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Total Hours</p>
+                        <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Tot Hrs</p>
                         <h3 class="text-xl font-black text-emerald-600 mt-0.5">{{ stats.total_hrs }}</h3>
                     </div>
-                    <div class="p-2 bg-emerald-50 text-emerald-600 rounded-xl">⏱</div>
                 </div>
             </div>
 
             <!-- Filter Controls Bar -->
-            <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-5">
-                <form id="filter-form" method="GET" action="/" class="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+            <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 sm:p-5">
+                <form id="filter-form" method="GET" action="/" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 items-end">
                     <div>
-                        <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Start Date</label>
+                        <label class="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">Start Date</label>
                         <input type="date" name="start_date" value="{{ start_date }}" onchange="this.form.submit()" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm font-medium focus:ring-2 focus:ring-emerald-500 focus:outline-none">
                     </div>
                     <div>
-                        <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">End Date</label>
+                        <label class="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">End Date</label>
                         <input type="date" name="end_date" value="{{ end_date }}" onchange="this.form.submit()" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm font-medium focus:ring-2 focus:ring-emerald-500 focus:outline-none">
                     </div>
                     {% if role == 'admin' or role == 'developer' %}
                     <div>
-                        <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Employee Filter</label>
+                        <label class="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">Employee Filter</label>
                         <select name="employee" onchange="this.form.submit()" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm font-medium focus:ring-2 focus:ring-emerald-500 focus:outline-none">
                             <option value="ALL">-- All Personnel --</option>
                             {% for emp in all_users %}
@@ -1200,7 +1218,7 @@ HTML_TEMPLATE = """
                     </div>
                     {% else %}
                     <div>
-                        <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Logged In As</label>
+                        <label class="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">Logged In As</label>
                         <input type="hidden" name="employee" value="{{ selected_emp }}">
                         <input type="text" disabled value="{{ selected_emp }}" class="w-full bg-slate-100 border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm font-bold text-emerald-700 cursor-not-allowed">
                     </div>
@@ -1213,7 +1231,7 @@ HTML_TEMPLATE = """
                     </div>
                 </form>
                 
-                <div class="flex items-center space-x-2 mt-4 pt-4 border-t border-slate-100 text-xs flex-wrap gap-y-2">
+                <div class="flex items-center space-x-2 mt-4 pt-4 border-t border-slate-100 text-[11px] flex-wrap gap-y-2">
                     <span class="text-slate-400 font-bold uppercase tracking-wide mr-1">Quick Range:</span>
                     <button type="button" onclick="setQuickDate('today')" class="px-3 py-1.5 bg-slate-100 hover:bg-emerald-50 hover:text-emerald-700 text-slate-700 rounded-lg font-semibold transition">Today</button>
                     <button type="button" onclick="setQuickDate('yesterday')" class="px-3 py-1.5 bg-slate-100 hover:bg-emerald-50 hover:text-emerald-700 text-slate-700 rounded-lg font-semibold transition">Yesterday</button>
@@ -1226,18 +1244,19 @@ HTML_TEMPLATE = """
             <!-- Attendance Data Table -->
             <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
                 <div class="p-4 bg-slate-50 border-b border-slate-200 flex flex-col sm:flex-row justify-between items-center gap-3">
-                    <div class="text-xs text-slate-500 font-semibold">
-                        💡 Shift A = 1st Punch 06:00-10:00 AM | Shift B = 1st Punch after 10:00 AM.
+                    <div class="text-[10px] sm:text-xs text-slate-500 font-semibold w-full sm:w-auto text-center sm:text-left">
+                        💡 Shift A = 06:00-10:00 | Shift B = >10:00 AM
                     </div>
-                    <div>
-                        <input type="text" id="table-search-input" onkeyup="filterTableSearch()" placeholder="🔍 Search employee name, ID or department..." class="bg-white border border-slate-300 rounded-xl px-3.5 py-2 text-xs w-72 shadow-sm focus:outline-none focus:border-emerald-500 font-medium">
+                    <div class="w-full sm:w-auto">
+                        <input type="text" id="table-search-input" onkeyup="filterTableSearch()" placeholder="🔍 Search Name, ID..." class="w-full sm:w-64 bg-white border border-slate-300 rounded-xl px-3.5 py-2 text-xs shadow-sm focus:outline-none focus:border-emerald-500 font-medium">
                     </div>
                 </div>
-                <div class="overflow-x-auto">
-                    <table id="attendance-table" class="w-full text-left border-collapse excel-table">
+                <!-- Overflow-x-auto ensures horizontal scrolling on mobile -->
+                <div class="overflow-x-auto w-full block">
+                    <table id="attendance-table" class="w-full text-left border-collapse excel-table min-w-[800px]">
                         <thead>
                             <tr class="bg-slate-100 text-slate-600 uppercase text-[11px] font-bold tracking-wider">
-                                <th class="py-3 px-4">Sr. No.</th>
+                                <th class="py-3 px-4">Sr.</th>
                                 <th class="py-3 px-4 sortable" onclick="sortTable(1)">Date ↕</th>
                                 <th class="py-3 px-4 sortable" onclick="sortTable(2)">ID ↕</th>
                                 <th class="py-3 px-4 sortable" onclick="sortTable(3)">Employee Name ↕</th>
@@ -1247,8 +1266,8 @@ HTML_TEMPLATE = """
                                 <th class="py-3 px-4">Lunch In</th>
                                 <th class="py-3 px-4 sortable" onclick="sortTable(8)">Out Time ↕</th>
                                 <th class="py-3 px-4 sortable" onclick="sortTable(9)">Total Lunch ↕</th>
-                                <th class="py-3 px-4 sortable" onclick="sortTable(10)">Working Hours ↕</th>
-                                <th class="py-3 px-4 sortable" onclick="sortTable(11)">Total Hora Extra ↕</th>
+                                <th class="py-3 px-4 sortable" onclick="sortTable(10)">Working Hrs ↕</th>
+                                <th class="py-3 px-4 sortable" onclick="sortTable(11)">Hora Extra ↕</th>
                                 <th class="py-3 px-4 text-center sortable" onclick="sortTable(12)">Status ↕</th>
                             </tr>
                         </thead>
@@ -1262,33 +1281,33 @@ HTML_TEMPLATE = """
                                     <td class="py-3 px-4 font-bold text-slate-900 nowrap-cell">{{ log.name }}</td>
                                     <td class="py-3 px-4 nowrap-cell"><span class="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 text-[11px] font-bold">{{ log.dept }}</span></td>
                                     
-                                    <td class="py-3 px-4 nowrap-cell font-mono text-xs group">
+                                    <td class="py-3 px-4 nowrap-cell font-mono text-xs group relative">
                                         {{ log.store_in }}
                                         {% if role == 'developer' %}
-                                        <span onclick="inlineEdit('{{ log.date }}', '{{ log.user_id }}', 'store_in', '{{ log.store_in }}')" class="cursor-pointer ml-1 text-amber-400 hover:text-amber-600 opacity-0 group-hover:opacity-100 transition-opacity" title="Edit Store In">✎</span>
+                                        <span onclick="inlineEdit('{{ log.date }}', '{{ log.user_id }}', 'store_in', '{{ log.store_in }}')" class="cursor-pointer ml-1 text-amber-400 hover:text-amber-600 sm:opacity-0 group-hover:opacity-100 transition-opacity" title="Edit Store In">✎</span>
                                         {% endif %}
                                         {% if log.shift_type == 'Shift A' %}
-                                            <span class="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-sans font-bold ml-1 block mt-1">Shift A</span>
+                                            <span class="text-[9px] bg-blue-100 text-blue-700 px-1 py-0.5 rounded font-sans font-bold ml-1 absolute top-1/2 -translate-y-1/2 right-2">A</span>
                                         {% elif log.shift_type == 'Shift B' %}
-                                            <span class="text-[10px] bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded font-sans font-bold ml-1 block mt-1">Shift B</span>
+                                            <span class="text-[9px] bg-indigo-100 text-indigo-700 px-1 py-0.5 rounded font-sans font-bold ml-1 absolute top-1/2 -translate-y-1/2 right-2">B</span>
                                         {% endif %}
                                     </td>
                                     <td class="py-3 px-4 nowrap-cell font-mono text-xs text-slate-500 group">
                                         {{ log.lunch_out }}
                                         {% if role == 'developer' %}
-                                        <span onclick="inlineEdit('{{ log.date }}', '{{ log.user_id }}', 'lunch_out', '{{ log.lunch_out }}')" class="cursor-pointer ml-1 text-amber-400 hover:text-amber-600 opacity-0 group-hover:opacity-100 transition-opacity" title="Edit Lunch Out">✎</span>
+                                        <span onclick="inlineEdit('{{ log.date }}', '{{ log.user_id }}', 'lunch_out', '{{ log.lunch_out }}')" class="cursor-pointer ml-1 text-amber-400 hover:text-amber-600 sm:opacity-0 group-hover:opacity-100 transition-opacity" title="Edit Lunch Out">✎</span>
                                         {% endif %}
                                     </td>
                                     <td class="py-3 px-4 nowrap-cell font-mono text-xs text-slate-500 group">
                                         {{ log.lunch_in }}
                                         {% if role == 'developer' %}
-                                        <span onclick="inlineEdit('{{ log.date }}', '{{ log.user_id }}', 'lunch_in', '{{ log.lunch_in }}')" class="cursor-pointer ml-1 text-amber-400 hover:text-amber-600 opacity-0 group-hover:opacity-100 transition-opacity" title="Edit Lunch In">✎</span>
+                                        <span onclick="inlineEdit('{{ log.date }}', '{{ log.user_id }}', 'lunch_in', '{{ log.lunch_in }}')" class="cursor-pointer ml-1 text-amber-400 hover:text-amber-600 sm:opacity-0 group-hover:opacity-100 transition-opacity" title="Edit Lunch In">✎</span>
                                         {% endif %}
                                     </td>
                                     <td class="py-3 px-4 nowrap-cell font-mono text-xs group">
                                         {{ log.out_time }}
                                         {% if role == 'developer' %}
-                                        <span onclick="inlineEdit('{{ log.date }}', '{{ log.user_id }}', 'out_time', '{{ log.out_time }}')" class="cursor-pointer ml-1 text-amber-400 hover:text-amber-600 opacity-0 group-hover:opacity-100 transition-opacity" title="Edit Out Time">✎</span>
+                                        <span onclick="inlineEdit('{{ log.date }}', '{{ log.user_id }}', 'out_time', '{{ log.out_time }}')" class="cursor-pointer ml-1 text-amber-400 hover:text-amber-600 sm:opacity-0 group-hover:opacity-100 transition-opacity" title="Edit Out Time">✎</span>
                                         {% endif %}
                                     </td>
                                     
@@ -1297,17 +1316,17 @@ HTML_TEMPLATE = """
                                     <td class="py-3 px-4 font-bold nowrap-cell font-mono text-xs {% if log.variance_type == 'positive' %}text-emerald-600{% elif log.variance_type == 'negative' %}text-rose-600{% else %}text-slate-600{% endif %}">{{ log.net_variance }}</td>
                                     <td class="py-3 px-4 text-center nowrap-cell">
                                         {% if log.status == 'Weekly Off' %}
-                                            <span class="px-3 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-600 border border-slate-200">Weekly Off</span>
+                                            <span class="px-2 py-1 rounded-full text-[10px] sm:text-xs font-bold bg-slate-100 text-slate-600 border border-slate-200">Weekly Off</span>
                                         {% elif log.status == 'Absent' %}
-                                            <span class="px-3 py-1 rounded-full text-xs font-bold bg-rose-50 text-rose-600 border border-rose-200">Absent</span>
+                                            <span class="px-2 py-1 rounded-full text-[10px] sm:text-xs font-bold bg-rose-50 text-rose-600 border border-rose-200">Absent</span>
                                         {% elif 'F01;1' in log.status or 'F05;1' in log.status or 'F10;1' in log.status or 'F51;1' in log.status or 'F60;1' in log.status or 'F61;1' in log.status or 'F62;1' in log.status %}
-                                            <span class="px-3 py-1 rounded-full text-xs font-bold bg-cyan-50 text-cyan-700 border border-cyan-200">{{ log.status }}</span>
+                                            <span class="px-2 py-1 rounded-full text-[10px] sm:text-xs font-bold bg-cyan-50 text-cyan-700 border border-cyan-200">{{ log.status }}</span>
                                         {% elif log.status == 'ML' %}
-                                            <span class="px-3 py-1 rounded-full text-xs font-bold bg-cyan-50 text-cyan-700 border border-cyan-200">Medical/Leave</span>
+                                            <span class="px-2 py-1 rounded-full text-[10px] sm:text-xs font-bold bg-cyan-50 text-cyan-700 border border-cyan-200">Medical/Leave</span>
                                         {% elif log.status == 'Present' %}
-                                            <span class="px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">Present</span>
+                                            <span class="px-2 py-1 rounded-full text-[10px] sm:text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">Present</span>
                                         {% elif log.status == 'Mis Punch' %}
-                                            <span class="px-3 py-1 rounded-full text-xs font-bold bg-orange-50 text-orange-700 border border-orange-200">Mis Punch</span>
+                                            <span class="px-2 py-1 rounded-full text-[10px] sm:text-xs font-bold bg-orange-50 text-orange-700 border border-orange-200">Mis Punch</span>
                                         {% endif %}
                                     </td>
                                 </tr>
@@ -1318,10 +1337,10 @@ HTML_TEMPLATE = """
                         </tbody>
                         <tfoot class="bg-slate-100 font-bold text-slate-900 text-sm border-t border-slate-200">
                             <tr>
-                                <td colspan="9" class="py-4 px-4 text-right uppercase text-xs tracking-wider text-slate-500">Total Summary:</td>
-                                <td class="py-4 px-4 text-emerald-700 font-mono">{{ grand_total_lunch_hours }}</td>
-                                <td class="py-4 px-4 text-slate-900 font-mono">{{ grand_total_hours }}</td>
-                                <td class="py-4 px-4 font-mono {% if stats.variance_type == 'positive' %}text-emerald-700{% else %}text-rose-700{% endif %}" colspan="2">{{ grand_total_variance }}</td>
+                                <td colspan="9" class="py-4 px-4 text-right uppercase text-[10px] sm:text-xs tracking-wider text-slate-500">Total Summary:</td>
+                                <td class="py-4 px-4 text-emerald-700 font-mono text-xs sm:text-sm">{{ grand_total_lunch_hours }}</td>
+                                <td class="py-4 px-4 text-slate-900 font-mono text-xs sm:text-sm">{{ grand_total_hours }}</td>
+                                <td class="py-4 px-4 font-mono text-xs sm:text-sm {% if stats.variance_type == 'positive' %}text-emerald-700{% else %}text-rose-700{% endif %}" colspan="2">{{ grand_total_variance }}</td>
                             </tr>
                         </tfoot>
                     </table>
@@ -1331,10 +1350,10 @@ HTML_TEMPLATE = """
     </div>
 
     <!-- Salary Slips & Export Modal (Merged Payroll) -->
-    <div id="salary-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center hidden">
-        <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 p-6 w-full max-w-4xl mx-4 space-y-6 max-h-[90vh] flex flex-col">
+    <div id="salary-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[60] flex items-center justify-center hidden">
+        <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 p-4 sm:p-6 w-full max-w-4xl mx-4 space-y-6 max-h-[90vh] flex flex-col">
             <div class="flex justify-between items-center border-b border-slate-100 pb-4">
-                <h3 class="text-lg font-bold text-slate-900 flex items-center gap-2">💰 Payroll, Reports & Salary Slips</h3>
+                <h3 class="text-sm sm:text-lg font-bold text-slate-900 flex items-center gap-2">💰 Payroll & Reports</h3>
                 <button onclick="toggleModal('salary-modal', false)" class="text-slate-400 hover:text-slate-600 font-bold text-lg">✕</button>
             </div>
             
@@ -1342,14 +1361,14 @@ HTML_TEMPLATE = """
                 <!-- EXPORT SECTION (Admin/Dev) -->
                 {% if role in ['admin', 'developer'] %}
                 <div class="bg-slate-50 border border-slate-200 rounded-xl p-4">
-                    <h4 class="text-sm font-bold text-slate-900 mb-3">Download Attendance Reports</h4>
-                    <div class="flex gap-4">
+                    <h4 class="text-xs sm:text-sm font-bold text-slate-900 mb-3">Download Attendance Reports</h4>
+                    <div class="flex flex-col sm:flex-row gap-4">
                         <a href="/export?start_date={{ start_date }}&end_date={{ end_date }}&employee={{ selected_emp }}" class="flex-1 bg-white border border-slate-300 hover:border-emerald-500 p-3 rounded-xl text-center transition group">
-                            <div class="font-bold text-slate-800 group-hover:text-emerald-700">Standard Row Export 📄</div>
+                            <div class="font-bold text-slate-800 text-sm group-hover:text-emerald-700">Standard Row Export 📄</div>
                             <div class="text-[10px] text-slate-500 mt-1">Individual records per date</div>
                         </a>
                         <a href="/export_matrix?start_date={{ start_date }}&end_date={{ end_date }}&employee={{ selected_emp }}" class="flex-1 bg-white border border-slate-300 hover:border-emerald-500 p-3 rounded-xl text-center transition group">
-                            <div class="font-bold text-slate-800 group-hover:text-emerald-700">Employee Matrix 📅</div>
+                            <div class="font-bold text-slate-800 text-sm group-hover:text-emerald-700">Employee Matrix 📅</div>
                             <div class="text-[10px] text-slate-500 mt-1">Monthly grid with Leave Codes</div>
                         </a>
                     </div>
@@ -1357,54 +1376,53 @@ HTML_TEMPLATE = """
                 
                 <!-- UPLOAD BULK SALARY SLIP (Admin/Dev) -->
                 <div class="bg-indigo-50 border border-indigo-200 rounded-xl p-4">
-                    <h4 class="text-sm font-bold text-indigo-900 mb-3">Bulk Upload (Merged PDF)</h4>
-                    <form action="/upload_bulk_salary" method="POST" enctype="multipart/form-data" class="flex items-end gap-3" onsubmit="uploadLoading()">
-                        <div class="flex-1">
+                    <h4 class="text-xs sm:text-sm font-bold text-indigo-900 mb-3">Bulk Upload (Merged PDF)</h4>
+                    <form action="/upload_bulk_salary" method="POST" enctype="multipart/form-data" class="flex flex-col sm:flex-row items-end gap-3" onsubmit="uploadLoading()">
+                        <div class="w-full sm:flex-1">
                             <label class="block text-[10px] font-bold uppercase text-indigo-700 mb-1">Month & Year</label>
                             <input type="month" name="salary_month" required class="w-full bg-white border border-indigo-300 rounded-lg px-3 py-2 text-xs focus:ring-2 focus:ring-indigo-500">
                         </div>
-                        <div class="flex-1">
-                            <label class="block text-[10px] font-bold uppercase text-indigo-700 mb-1">Master Salary PDF (Merged)</label>
+                        <div class="w-full sm:flex-1">
+                            <label class="block text-[10px] font-bold uppercase text-indigo-700 mb-1">Master PDF</label>
                             <input type="file" name="salary_pdf" accept=".pdf" required class="w-full bg-white border border-indigo-300 rounded-lg px-2 py-1.5 text-[11px] focus:ring-2 focus:ring-indigo-500">
                         </div>
-                        <button id="upload-btn" type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-4 py-2 rounded-lg text-xs transition">
+                        <button id="upload-btn" type="submit" class="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-4 py-2 rounded-lg text-xs transition">
                             <span id="upload-btn-text">Split & Upload</span>
                         </button>
                     </form>
-                    <p class="text-[10px] text-indigo-600 mt-2 italic">*System PDF ke har page par employee code/name detect karega; multi-page salary slips ke saare pages ek hi employee ke slip mein save honge.</p>
                 </div>
                 {% endif %}
 
                 <!-- VIEW SALARY SLIPS (All) -->
                 <div>
                     <div class="flex justify-between items-end mb-3">
-                        <h4 class="text-sm font-bold text-slate-900">{% if role == 'employee' %}My Salary Slips{% else %}Uploaded Salary Slips{% endif %}</h4>
-                        <div class="w-48">
+                        <h4 class="text-xs sm:text-sm font-bold text-slate-900">{% if role == 'employee' %}My Salary Slips{% else %}Uploaded Salary Slips{% endif %}</h4>
+                        <div class="w-32 sm:w-48">
                             <input type="month" id="salary-month-select" onchange="filterSalarySlips()" class="w-full bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-xs focus:outline-none">
                         </div>
                     </div>
-                    <div class="border border-slate-200 rounded-xl overflow-hidden">
-                        <table class="w-full text-left">
+                    <div class="border border-slate-200 rounded-xl overflow-x-auto">
+                        <table class="w-full text-left min-w-[300px]">
                             <thead class="bg-slate-100 text-slate-600 uppercase text-[10px] font-bold sticky top-0">
                                 <tr>
-                                    <th class="py-2.5 px-3 border-b border-slate-200">Month</th>
-                                    {% if role in ['admin', 'developer'] %}<th class="py-2.5 px-3 border-b border-slate-200">Employee</th>{% endif %}
-                                    <th class="py-2.5 px-3 border-b border-slate-200 text-center">Action</th>
+                                    <th class="py-2 px-3 border-b border-slate-200">Month</th>
+                                    {% if role in ['admin', 'developer'] %}<th class="py-2 px-3 border-b border-slate-200">Employee</th>{% endif %}
+                                    <th class="py-2 px-3 border-b border-slate-200 text-center">Action</th>
                                 </tr>
                             </thead>
-                            <tbody class="text-xs text-slate-700 divide-y divide-slate-100">
+                            <tbody class="text-[11px] sm:text-xs text-slate-700 divide-y divide-slate-100">
                                 {% if salary_slips %}
                                     {% for slip in salary_slips|reverse %}
                                     <tr class="hover:bg-slate-50 salary-row" data-month="{{ slip.month }}">
-                                        <td class="py-2.5 px-3 font-mono font-bold">{{ slip.month }}</td>
+                                        <td class="py-2 px-3 font-mono font-bold">{{ slip.month }}</td>
                                         {% if role in ['admin', 'developer'] %}
-                                        <td class="py-2.5 px-3 font-bold">{{ slip.emp_name }} <span class="text-[10px] text-slate-400">({{ slip.user_id }})</span></td>
+                                        <td class="py-2 px-3 font-bold">{{ slip.emp_name }} <span class="text-[9px] text-slate-400">({{ slip.user_id }})</span></td>
                                         {% endif %}
-                                        <td class="py-2.5 px-3 text-center">
+                                        <td class="py-2 px-3 text-center">
                                             <div class="flex justify-center gap-2">
-                                                <button onclick="openPdfViewer('/salary_file/{{ slip.file_id }}')" class="bg-blue-50 text-blue-600 hover:bg-blue-100 border border-blue-200 font-bold px-3 py-1 rounded text-[10px] transition">View Slip</button>
+                                                <button onclick="openPdfViewer('/salary_file/{{ slip.file_id }}')" class="bg-blue-50 text-blue-600 hover:bg-blue-100 border border-blue-200 font-bold px-2 py-1 rounded text-[10px] transition">View</button>
                                                 {% if role in ['admin', 'developer'] %}
-                                                <a href="/delete_salary/{{ slip.file_id }}" onclick="return confirm('Are you sure you want to delete this salary slip?');" class="bg-rose-50 text-rose-600 hover:bg-rose-100 border border-rose-200 font-bold px-2 py-1 rounded text-[10px] transition">Delete</a>
+                                                <a href="/delete_salary/{{ slip.file_id }}" onclick="return confirm('Are you sure you want to delete this salary slip?');" class="bg-rose-50 text-rose-600 hover:bg-rose-100 border border-rose-200 font-bold px-2 py-1 rounded text-[10px] transition">Del</a>
                                                 {% endif %}
                                             </div>
                                         </td>
@@ -1422,67 +1440,67 @@ HTML_TEMPLATE = """
     </div>
 
     <!-- PDF Viewer Modal (Restricted Download) -->
-    <div id="pdf-viewer-modal" class="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[60] flex items-center justify-center hidden">
-        <div class="bg-slate-800 rounded-xl shadow-2xl p-2 w-full max-w-4xl h-[90vh] flex flex-col relative">
-            <button onclick="toggleModal('pdf-viewer-modal', false); document.getElementById('pdf-viewer-frame').src='';" class="absolute -top-4 -right-4 bg-rose-600 hover:bg-rose-700 text-white rounded-full w-8 h-8 flex items-center justify-center font-bold shadow-lg">✕</button>
+    <div id="pdf-viewer-modal" class="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[70] flex items-center justify-center hidden p-2 sm:p-4">
+        <div class="bg-slate-800 rounded-xl shadow-2xl p-2 w-full max-w-4xl h-full sm:h-[90vh] flex flex-col relative">
+            <button onclick="toggleModal('pdf-viewer-modal', false); document.getElementById('pdf-viewer-frame').src='';" class="absolute -top-2 -right-2 sm:-top-4 sm:-right-4 bg-rose-600 hover:bg-rose-700 text-white rounded-full w-8 h-8 flex items-center justify-center font-bold shadow-lg z-10">✕</button>
             <div class="flex-1 rounded-lg overflow-hidden bg-white" oncontextmenu="return false;">
-                <!-- PDF embedded using iframe with toolbar=0 to hide native download buttons -->
+                <!-- PDF embedded using iframe -->
                 <iframe id="pdf-viewer-frame" class="w-full h-full pointer-events-none" style="pointer-events: auto;" src=""></iframe>
             </div>
-            <div class="text-center mt-2 text-[10px] text-slate-400 uppercase tracking-widest font-bold">Confidential Document • Downloading Restricted</div>
+            <div class="text-center mt-2 text-[10px] text-slate-400 uppercase tracking-widest font-bold">Confidential Document</div>
         </div>
     </div>
 
     <!-- Password Resets Modal (Dev Only) -->
-    <div id="reset-approvals-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center hidden">
-        <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 p-6 w-full max-w-4xl mx-4 space-y-6 max-h-[85vh] flex flex-col">
-            <div class="flex justify-between items-center border-b border-slate-100 pb-4">
-                <h3 class="text-lg font-bold text-slate-900 flex items-center gap-2">🔑 Manage Passwords</h3>
+    <div id="reset-approvals-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[60] flex items-center justify-center hidden p-2">
+        <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 p-4 w-full max-w-4xl mx-auto space-y-4 max-h-[85vh] flex flex-col">
+            <div class="flex justify-between items-center border-b border-slate-100 pb-2">
+                <h3 class="text-sm sm:text-lg font-bold text-slate-900">🔑 Manage Passwords</h3>
                 <button onclick="toggleModal('reset-approvals-modal', false)" class="text-slate-400 hover:text-slate-600 font-bold text-lg">✕</button>
             </div>
             
-            <div class="mb-2 p-4 border border-emerald-200 bg-emerald-50 rounded-xl">
-                <h4 class="text-sm font-bold text-emerald-800 mb-3">Directly Set/Reset Password (Admin Override)</h4>
-                <form action="/dev_force_reset" method="POST" class="flex gap-3">
-                    <input type="text" name="target_user_id" placeholder="User ID (e.g. NWC1234 or LM11)" required class="flex-1 px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none">
-                    <input type="text" name="target_new_password" placeholder="New Password" required class="flex-1 px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none">
-                    <button type="submit" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-5 py-2 rounded-lg text-xs tracking-wider uppercase transition shadow-sm">Set Password</button>
+            <div class="p-3 border border-emerald-200 bg-emerald-50 rounded-xl">
+                <h4 class="text-xs font-bold text-emerald-800 mb-2">Direct Reset (Admin Override)</h4>
+                <form action="/dev_force_reset" method="POST" class="flex flex-col sm:flex-row gap-2">
+                    <input type="text" name="target_user_id" placeholder="User ID (e.g. NWC1234)" required class="flex-1 px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none">
+                    <input type="text" name="target_new_password" placeholder="New Password" required class="flex-1 px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none">
+                    <button type="submit" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2 rounded-lg text-xs uppercase transition">Set</button>
                 </form>
             </div>
 
-            <div class="overflow-y-auto flex-1 border border-slate-200 rounded-xl mt-2">
-                <table class="w-full text-left">
-                    <thead class="bg-slate-100 text-slate-600 uppercase text-[10px] font-bold sticky top-0">
+            <div class="overflow-auto flex-1 border border-slate-200 rounded-xl">
+                <table class="w-full text-left min-w-[400px]">
+                    <thead class="bg-slate-100 text-slate-600 uppercase text-[9px] font-bold sticky top-0">
                         <tr>
-                            <th class="py-2.5 px-3">Employee</th>
-                            <th class="py-2.5 px-3">Requested New Password</th>
-                            <th class="py-2.5 px-3 text-center">Status</th>
-                            <th class="py-2.5 px-3 text-center">Action</th>
+                            <th class="py-2 px-2">Emp</th>
+                            <th class="py-2 px-2">Requested Pwd</th>
+                            <th class="py-2 px-2 text-center">Status</th>
+                            <th class="py-2 px-2 text-center">Action</th>
                         </tr>
                     </thead>
-                    <tbody class="divide-y divide-slate-100 text-xs">
+                    <tbody class="divide-y divide-slate-100 text-[10px] sm:text-xs">
                         {% if reset_requests %}
                             {% for req in reset_requests|reverse %}
                             <tr class="hover:bg-slate-50">
-                                <td class="py-2.5 px-3 font-bold">{{ req.name }} <span class="text-[10px] text-slate-400 block">{{ req.user_id }}</span></td>
-                                <td class="py-2.5 px-3 font-mono text-emerald-600 font-bold">{{ req.new_password }}</td>
-                                <td class="py-2.5 px-3 text-center">
-                                    {% if req.status == 'Pending' %}<span class="bg-amber-100 text-amber-700 px-2 py-0.5 rounded font-bold text-[10px]">Pending</span>
-                                    {% elif req.status == 'Approved' %}<span class="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded font-bold text-[10px]">Approved</span>
-                                    {% else %}<span class="bg-rose-100 text-rose-700 px-2 py-0.5 rounded font-bold text-[10px]">Rejected</span>{% endif %}
+                                <td class="py-2 px-2 font-bold">{{ req.name }} <br><span class="text-[9px] text-slate-400">{{ req.user_id }}</span></td>
+                                <td class="py-2 px-2 font-mono text-emerald-600">{{ req.new_password }}</td>
+                                <td class="py-2 px-2 text-center">
+                                    {% if req.status == 'Pending' %}<span class="bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">Pending</span>
+                                    {% elif req.status == 'Approved' %}<span class="bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded">Approved</span>
+                                    {% else %}<span class="bg-rose-100 text-rose-700 px-1.5 py-0.5 rounded">Rejected</span>{% endif %}
                                 </td>
-                                <td class="py-2.5 px-3 text-center">
+                                <td class="py-2 px-2 text-center">
                                     {% if req.status == 'Pending' %}
-                                    <div class="flex items-center justify-center space-x-1">
-                                        <a href="/update_password_req/{{ req.id }}/approve" class="bg-emerald-500 hover:bg-emerald-600 text-white font-bold px-2 py-1 rounded text-[10px]">Approve</a>
-                                        <a href="/update_password_req/{{ req.id }}/reject" class="bg-rose-500 hover:bg-rose-600 text-white font-bold px-2 py-1 rounded text-[10px]">Reject</a>
+                                    <div class="flex flex-col sm:flex-row justify-center gap-1">
+                                        <a href="/update_password_req/{{ req.id }}/approve" class="bg-emerald-500 text-white px-2 py-1 rounded">Approve</a>
+                                        <a href="/update_password_req/{{ req.id }}/reject" class="bg-rose-500 text-white px-2 py-1 rounded">Reject</a>
                                     </div>
-                                    {% else %}<span class="text-[10px] text-slate-400">Processed</span>{% endif %}
+                                    {% else %}<span class="text-slate-400">Processed</span>{% endif %}
                                 </td>
                             </tr>
                             {% endfor %}
                         {% else %}
-                            <tr><td colspan="4" class="text-center py-6 text-slate-400">Koi pending password resets nahi hain.</td></tr>
+                            <tr><td colspan="4" class="text-center py-4 text-slate-400">No requests</td></tr>
                         {% endif %}
                     </tbody>
                 </table>
@@ -1491,125 +1509,121 @@ HTML_TEMPLATE = """
     </div>
 
     <!-- Roster Planner Modal (Admin/Dev) -->
-    <div id="roster-planner-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center hidden">
-        <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 p-6 w-full max-w-4xl mx-4 space-y-6 max-h-[90vh] flex flex-col">
-            <div class="flex justify-between items-center border-b border-slate-100 pb-4">
-                <h3 class="text-lg font-bold text-slate-900 flex items-center gap-2">🗓️ Monthly Roster Planner (Weekly Off & Shifts)</h3>
+    <div id="roster-planner-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[60] flex items-center justify-center hidden p-2">
+        <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 p-4 w-full max-w-4xl mx-auto space-y-4 max-h-[90vh] flex flex-col">
+            <div class="flex justify-between items-center border-b border-slate-100 pb-2">
+                <h3 class="text-sm sm:text-lg font-bold text-slate-900">🗓️ Roster Planner</h3>
                 <button onclick="toggleModal('roster-planner-modal', false)" class="text-slate-400 hover:text-slate-600 font-bold text-lg">✕</button>
             </div>
-            <div class="flex gap-4 items-end">
-                <div class="flex-1">
-                    <label class="block text-xs font-bold uppercase text-slate-500 mb-1">Select Employee</label>
-                    <select id="rp-emp" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm font-medium focus:ring-2 focus:ring-indigo-500 focus:outline-none">
-                        <option value="">-- Choose Employee --</option>
+            <div class="flex flex-col sm:flex-row gap-2 items-end">
+                <div class="w-full sm:flex-1">
+                    <label class="block text-[10px] font-bold uppercase text-slate-500 mb-1">Employee</label>
+                    <select id="rp-emp" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-2 py-1.5 text-xs">
+                        <option value="">-- Choose --</option>
                         {% for emp in all_users %}
                             <option value="{{ emp.user_id }}">{{ emp.name }} ({{ emp.user_id }})</option>
                         {% endfor %}
                     </select>
                 </div>
-                <div class="flex-1">
-                    <label class="block text-xs font-bold uppercase text-slate-500 mb-1">Select Month</label>
-                    <input type="month" id="rp-month" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm font-medium focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                <div class="w-full sm:flex-1">
+                    <label class="block text-[10px] font-bold uppercase text-slate-500 mb-1">Month</label>
+                    <input type="month" id="rp-month" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-2 py-1.5 text-xs">
                 </div>
-                <button onclick="loadRosterPlanner()" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs uppercase tracking-wider px-5 py-2.5 rounded-xl transition shadow">Load Calendar</button>
+                <button onclick="loadRosterPlanner()" class="w-full sm:w-auto bg-indigo-600 text-white font-bold text-[10px] sm:text-xs uppercase px-4 py-2 rounded-xl">Load</button>
             </div>
             
             <div class="overflow-y-auto flex-1 border border-slate-200 rounded-xl">
                 <table class="w-full text-left">
-                    <thead class="bg-slate-100 text-slate-600 uppercase text-[10px] font-bold sticky top-0 shadow-sm">
+                    <thead class="bg-slate-100 text-slate-600 uppercase text-[9px] sm:text-[10px] font-bold sticky top-0">
                         <tr>
-                            <th class="py-2.5 px-3">Date & Day</th>
-                            <th class="py-2.5 px-3">Shift / Status Allocation</th>
+                            <th class="py-2 px-3">Date & Day</th>
+                            <th class="py-2 px-3">Shift Allocation</th>
                         </tr>
                     </thead>
                     <tbody id="roster-planner-tbody" class="divide-y divide-slate-100">
-                        <tr><td colspan="2" class="text-center py-8 text-slate-400">Employee & Month select karke Load par click karein.</td></tr>
+                        <tr><td colspan="2" class="text-center py-6 text-slate-400 text-xs">Select Employee & Month</td></tr>
                     </tbody>
                 </table>
             </div>
             <div class="pt-2 flex justify-end gap-2">
-                <button onclick="toggleModal('roster-planner-modal', false)" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition">Cancel</button>
-                <button id="save-roster-btn" onclick="saveRoster()" class="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold uppercase tracking-wider rounded-xl transition shadow hidden">Save Roster</button>
+                <button id="save-roster-btn" onclick="saveRoster()" class="w-full sm:w-auto px-5 py-2 bg-emerald-600 text-white text-xs font-bold uppercase rounded-xl hidden">Save</button>
             </div>
         </div>
     </div>
 
     <!-- Employee Shift/Off Request Modal -->
-    <div id="shift-request-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center hidden">
-        <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 p-6 w-full max-w-md mx-4 space-y-6">
-            <div class="flex justify-between items-center border-b border-slate-100 pb-4">
-                <h3 class="text-lg font-bold text-slate-900 flex items-center gap-2">🔄 Request Shift or Weekly Off Change</h3>
+    <div id="shift-request-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[60] flex items-center justify-center hidden p-4">
+        <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 p-5 w-full max-w-md mx-auto space-y-4">
+            <div class="flex justify-between items-center border-b border-slate-100 pb-2">
+                <h3 class="text-sm sm:text-base font-bold text-slate-900">🔄 Request Shift Change</h3>
                 <button onclick="toggleModal('shift-request-modal', false)" class="text-slate-400 hover:text-slate-600 font-bold text-lg">✕</button>
             </div>
-            <form action="/request_shift" method="POST" class="space-y-4">
+            <form action="/request_shift" method="POST" class="space-y-3">
                 <div>
-                    <label class="block text-xs font-bold uppercase text-slate-500 mb-1">Date</label>
-                    <input type="date" name="req_date" required class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm font-medium focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                    <label class="block text-xs font-bold text-slate-500 mb-1">Date</label>
+                    <input type="date" name="req_date" required class="w-full border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
                 </div>
                 <div>
-                    <label class="block text-xs font-bold uppercase text-slate-500 mb-1">Requested Action</label>
-                    <select name="req_status" required class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm font-medium focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                    <label class="block text-xs font-bold text-slate-500 mb-1">Requested Action</label>
+                    <select name="req_status" required class="w-full border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
                         <option value="Shift A">Change to Shift A (06:00)</option>
                         <option value="Shift B">Change to Shift B (10:00+)</option>
                         <option value="Weekly Off">Set as Weekly Off</option>
                     </select>
                 </div>
                 <div>
-                    <label class="block text-xs font-bold uppercase text-slate-500 mb-1">Reason</label>
-                    <input type="text" name="req_reason" placeholder="Kyun change karna hai?" required class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm font-medium focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                    <label class="block text-xs font-bold text-slate-500 mb-1">Reason</label>
+                    <input type="text" name="req_reason" placeholder="Reason..." required class="w-full border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
                 </div>
-                <div class="pt-4 flex justify-end gap-2">
-                    <button type="button" onclick="toggleModal('shift-request-modal', false)" class="px-4 py-2 bg-slate-100 text-slate-700 text-xs font-bold rounded-xl transition">Cancel</button>
-                    <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs uppercase tracking-wider px-5 py-2.5 rounded-xl transition shadow">Submit Request</button>
-                </div>
+                <button type="submit" class="w-full bg-indigo-600 text-white font-bold text-xs uppercase py-2.5 rounded-xl">Submit</button>
             </form>
         </div>
     </div>
 
     <!-- Admin Shift Approvals Modal -->
-    <div id="shift-approvals-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center hidden">
-        <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 p-6 w-full max-w-4xl mx-4 space-y-6 max-h-[85vh] flex flex-col">
-            <div class="flex justify-between items-center border-b border-slate-100 pb-4">
-                <h3 class="text-lg font-bold text-slate-900 flex items-center gap-2">🔔 Shift & Off Change Requests</h3>
+    <div id="shift-approvals-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[60] flex items-center justify-center hidden p-2">
+        <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 p-4 w-full max-w-4xl mx-auto space-y-4 max-h-[85vh] flex flex-col">
+            <div class="flex justify-between items-center border-b border-slate-100 pb-2">
+                <h3 class="text-sm sm:text-lg font-bold text-slate-900">🔔 Shift & Off Requests</h3>
                 <button onclick="toggleModal('shift-approvals-modal', false)" class="text-slate-400 hover:text-slate-600 font-bold text-lg">✕</button>
             </div>
-            <div class="overflow-y-auto flex-1 border border-slate-200 rounded-xl">
-                <table class="w-full text-left">
-                    <thead class="bg-slate-100 text-slate-600 uppercase text-[10px] font-bold">
+            <div class="overflow-auto flex-1 border border-slate-200 rounded-xl">
+                <table class="w-full text-left min-w-[500px]">
+                    <thead class="bg-slate-100 text-slate-600 uppercase text-[9px] sm:text-[10px] font-bold">
                         <tr>
-                            <th class="py-2.5 px-3">Employee</th>
-                            <th class="py-2.5 px-3">Requested Date</th>
-                            <th class="py-2.5 px-3">Requested Status</th>
-                            <th class="py-2.5 px-3">Reason</th>
-                            <th class="py-2.5 px-3 text-center">Status</th>
-                            <th class="py-2.5 px-3 text-center">Action</th>
+                            <th class="py-2 px-2">Emp</th>
+                            <th class="py-2 px-2">Date</th>
+                            <th class="py-2 px-2">Request</th>
+                            <th class="py-2 px-2">Reason</th>
+                            <th class="py-2 px-2 text-center">Status</th>
+                            <th class="py-2 px-2 text-center">Action</th>
                         </tr>
                     </thead>
-                    <tbody class="divide-y divide-slate-100 text-xs">
+                    <tbody class="divide-y divide-slate-100 text-[10px] sm:text-xs">
                         {% if shift_requests %}
                             {% for req in shift_requests|reverse %}
                             <tr class="hover:bg-slate-50">
-                                <td class="py-2.5 px-3 font-bold">{{ req.name }} <span class="text-[10px] text-slate-400 block">{{ req.user_id }}</span></td>
-                                <td class="py-2.5 px-3 font-mono">{{ req.date }}</td>
-                                <td class="py-2.5 px-3 font-bold text-indigo-700">{{ req.requested }}</td>
-                                <td class="py-2.5 px-3 text-slate-500 italic">{{ req.reason }}</td>
-                                <td class="py-2.5 px-3 text-center">
-                                    {% if req.status == 'Pending' %}<span class="bg-amber-100 text-amber-700 px-2 py-0.5 rounded font-bold text-[10px]">Pending</span>
-                                    {% elif req.status == 'Approved' %}<span class="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded font-bold text-[10px]">Approved</span>
-                                    {% else %}<span class="bg-rose-100 text-rose-700 px-2 py-0.5 rounded font-bold text-[10px]">Rejected</span>{% endif %}
+                                <td class="py-2 px-2 font-bold">{{ req.name }} <br><span class="text-[9px] text-slate-400">{{ req.user_id }}</span></td>
+                                <td class="py-2 px-2 font-mono">{{ req.date }}</td>
+                                <td class="py-2 px-2 font-bold text-indigo-700">{{ req.requested }}</td>
+                                <td class="py-2 px-2 text-slate-500 italic">{{ req.reason }}</td>
+                                <td class="py-2 px-2 text-center">
+                                    {% if req.status == 'Pending' %}<span class="bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">Pending</span>
+                                    {% elif req.status == 'Approved' %}<span class="bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded">Approved</span>
+                                    {% else %}<span class="bg-rose-100 text-rose-700 px-1.5 py-0.5 rounded">Rejected</span>{% endif %}
                                 </td>
-                                <td class="py-2.5 px-3 text-center">
+                                <td class="py-2 px-2 text-center">
                                     {% if req.status == 'Pending' %}
-                                    <div class="flex items-center justify-center space-x-1">
-                                        <a href="/update_shift_req/{{ req.id }}/approve" class="bg-emerald-500 hover:bg-emerald-600 text-white font-bold px-2 py-1 rounded text-[10px]">Approve</a>
-                                        <a href="/update_shift_req/{{ req.id }}/reject" class="bg-rose-500 hover:bg-rose-600 text-white font-bold px-2 py-1 rounded text-[10px]">Reject</a>
+                                    <div class="flex gap-1 justify-center">
+                                        <a href="/update_shift_req/{{ req.id }}/approve" class="bg-emerald-500 text-white px-2 py-1 rounded">Ok</a>
+                                        <a href="/update_shift_req/{{ req.id }}/reject" class="bg-rose-500 text-white px-2 py-1 rounded">No</a>
                                     </div>
-                                    {% else %}<span class="text-[10px] text-slate-400">Processed</span>{% endif %}
+                                    {% else %}<span class="text-slate-400">Done</span>{% endif %}
                                 </td>
                             </tr>
                             {% endfor %}
                         {% else %}
-                            <tr><td colspan="6" class="text-center py-6 text-slate-400">Koi pending shift requests nahi hain.</td></tr>
+                            <tr><td colspan="6" class="text-center py-4 text-slate-400">No requests</td></tr>
                         {% endif %}
                     </tbody>
                 </table>
@@ -1830,12 +1844,9 @@ def upload_bulk_salary():
             flash('Uploaded PDF mein koi page nahi hai!', 'danger')
             return redirect(url_for('index'))
 
-        # Page count and employee count are intentionally NOT compared.
-        # A salary slip can have multiple pages; all pages are preserved.
         page_groups = _build_salary_pdf_groups(reader)
         slips = load_salary_slips()
 
-        # Re-uploading the same month replaces old slips for those employees.
         uploaded_employee_codes = set(page_groups.keys())
         kept_slips = []
         for old in slips:
@@ -1910,7 +1921,6 @@ def salary_file(file_id):
     if not target_slip:
         return 'File not found', 404
 
-    # Employee: own slip only. Admin/Developer: all slips.
     if session.get('role') == 'employee':
         if target_slip.get('user_id') != session.get('user_id'):
             return 'Unauthorized Access', 403
