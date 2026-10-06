@@ -8,7 +8,7 @@ import re
 import unicodedata
 import uuid
 from datetime import datetime, time, timedelta
-from flask import Flask, render_template_string, request, Response, send_file, session, redirect, url_for, flash, send_from_directory
+from flask import Flask, render_template_string, request, Response, send_file, session, redirect, url_for, flash, send_from_directory, jsonify
 from github import Github
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -45,6 +45,17 @@ SHIFT_REQUESTS_FILE = 'shift_requests.json'
 PASSWORD_RESETS_FILE = 'password_resets.json'
 USERS_DB_FILE = 'users_db.json'
 SALARY_SLIPS_FILE = 'salary_slips.json'
+MACHINES_DB_FILE = 'machines_db.json'
+PERMISSIONS = ['dashboard','roster','shift_approvals','password_management','calendar','leave_management','payroll','employees_info','attendance_edit','user_management','machine_management','profile']
+ROLE_PRESETS = {
+    'HR':['dashboard','leave_management','payroll','employees_info','profile'],
+    'AREA MANAGER':['dashboard','attendance_edit','leave_management','roster','shift_approvals','employees_info','profile'],
+    'OPERATION HEAD':['dashboard','attendance_edit','leave_management','roster','shift_approvals','payroll','employees_info','profile'],
+    'STORE MANAGER':['dashboard','attendance_edit','leave_management','roster','shift_approvals','employees_info','profile'],
+    'EMPLOYEE':['dashboard','profile']
+}
+DEFAULT_MACHINES = dict(MACHINES)
+
 
 SYNCED_ATTENDANCE_LOGS = []
 LAST_DEVICE_SYNC_TIME = None
@@ -110,17 +121,83 @@ def save_json_file(filepath, data):
         with open(filepath, 'w', encoding='utf-8') as f: json.dump(data, f, indent=4, ensure_ascii=False)
     except Exception as e: print(f"Error saving {filepath}: {e}")
 
+def load_machines_db():
+    global MACHINES
+    stored = load_json_file(MACHINES_DB_FILE)
+    if not isinstance(stored, dict) or not stored:
+        stored = {k: dict(v) for k, v in MACHINES.items()}
+        save_json_file(MACHINES_DB_FILE, stored)
+    changed = False
+    for code, info in DEFAULT_MACHINES.items():
+        if code not in stored:
+            stored[code] = dict(info); changed = True
+    if changed: save_json_file(MACHINES_DB_FILE, stored)
+    MACHINES = stored
+    return MACHINES
+
+load_machines_db()
+
+def normalize_user_record(info):
+    info = dict(info or {})
+    info.setdefault('status','active'); info.setdefault('role','employee')
+    info.setdefault('designation', info.get('dept','Employee'))
+    info.setdefault('job_role', 'EMPLOYEE' if info.get('role') == 'employee' else 'ADMIN')
+    stores = info.get('stores')
+    if not isinstance(stores,list): stores=[info.get('store','LM11')]
+    info['stores']=[str(x).upper() for x in stores if x]
+    if not info['stores']: info['stores']=['LM11']
+    info['store']=info['stores'][0]
+    perms=info.get('permissions')
+    if not isinstance(perms,list):
+        preset=ROLE_PRESETS.get(str(info.get('job_role','')).upper())
+        perms=preset[:] if preset else (PERMISSIONS[:] if info.get('role') in ['admin','developer'] else ROLE_PRESETS['EMPLOYEE'][:])
+    info['permissions']=[p for p in perms if p in PERMISSIONS]
+    info.setdefault('profile_photo',''); info.setdefault('off','SUNDAY'); info.setdefault('dept',info.get('designation','General')); info.setdefault('shift','morning')
+    return info
+
+def user_has_permission(user_id, permission):
+    if session.get('role')=='developer' or user_id=='NCSA0608': return True
+    info=normalize_user_record(load_users_db().get(user_id,{}))
+    return permission in info.get('permissions',[])
+
+def session_has_permission(permission): return user_has_permission(session.get('user_id'), permission)
+
+def get_user_stores(user_id=None):
+    user_id=user_id or session.get('user_id')
+    if session.get('role')=='developer' or user_id=='NCSA0608': return list(MACHINES.keys())
+    info=normalize_user_record(load_users_db().get(user_id,{}))
+    return [x for x in info.get('stores',[]) if x in MACHINES]
+
+def save_leave_requests(data): save_json_file(LEAVE_JSON_FILE,data)
+
+def save_leave_to_excel(user_id,name,start_date,end_date,leave_type,filename):
+    try:
+        if os.path.exists(LEAVE_EXCEL_FILE):
+            try: wb=openpyxl.load_workbook(LEAVE_EXCEL_FILE); ws=wb.active
+            except Exception: wb=openpyxl.Workbook(); ws=wb.active
+        else: wb=openpyxl.Workbook(); ws=wb.active
+        if ws.max_row==1 and ws.cell(1,1).value is None:
+            ws.append(['User ID','Name','Start Date','End Date','Leave Type','Document','Saved At'])
+        elif ws.max_row==1 and ws.cell(1,1).value != 'User ID':
+            ws.insert_rows(1); ws.append(['User ID','Name','Start Date','End Date','Leave Type','Document','Saved At'])
+        ws.append([user_id,name,start_date,end_date,leave_type,filename,datetime.now().strftime('%Y-%m-%d %H:%M:%S')]); wb.save(LEAVE_EXCEL_FILE)
+    except Exception as e: print(f'Leave Excel save error: {e}')
+
 # Database initialization
 def load_users_db():
-    db = load_json_file(USERS_DB_FILE)
+    db=load_json_file(USERS_DB_FILE)
     if not db:
-        db = {}
-        for k, v in MASTER_EMPLOYEES.items():
-            db[k] = {'name': v['name'], 'password': '123', 'store': 'LM11', 'status': 'active', 'role': 'employee', 'off': v.get('off', 'SUNDAY'), 'dept': v.get('dept', 'General'), 'shift': v.get('shift', 'morning')}
-        # Admins
-        db['LM11'] = {'name': 'Admin (LM11)', 'password': os.getenv('ADMIN_PWD', 'Gamek@789'), 'store': 'LM11', 'status': 'active', 'role': 'admin', 'off': 'SUNDAY', 'dept': 'Admin', 'shift': 'morning'}
-        db['LF07'] = {'name': 'Admin (LF07)', 'password': '123', 'store': 'LF07', 'status': 'active', 'role': 'admin', 'off': 'SUNDAY', 'dept': 'Admin', 'shift': 'morning'}
-        save_json_file(USERS_DB_FILE, db)
+        db={}
+        for k,v in MASTER_EMPLOYEES.items():
+            db[k]=normalize_user_record({'name':v['name'],'password':'123','store':'LM11','status':'active','role':'employee','off':v.get('off','SUNDAY'),'dept':v.get('dept','General'),'shift':v.get('shift','morning'),'designation':v.get('dept','Employee'),'job_role':'EMPLOYEE'})
+        db['LM11']=normalize_user_record({'name':'Admin (LM11)','password':os.getenv('ADMIN_PWD','Gamek@789'),'store':'LM11','status':'active','role':'admin','off':'SUNDAY','dept':'Admin','shift':'morning','designation':'Store Admin','job_role':'ADMIN'})
+        db['LF07']=normalize_user_record({'name':'Admin (LF07)','password':'123','store':'LF07','status':'active','role':'admin','off':'SUNDAY','dept':'Admin','shift':'morning','designation':'Store Admin','job_role':'ADMIN'})
+        save_json_file(USERS_DB_FILE,db)
+    changed=False
+    for uid in list(db.keys()):
+        n=normalize_user_record(db[uid])
+        if n!=db[uid]: db[uid]=n; changed=True
+    if changed: save_json_file(USERS_DB_FILE,db)
     return db
 
 LEAVE_REQUESTS = load_json_file(LEAVE_JSON_FILE)
@@ -571,6 +648,9 @@ RESET_TEMPLATE = """
 </html>
 """
 
+@app.context_processor
+def inject_portal_helpers(): return {'session_has_permission': session_has_permission}
+
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="en">
@@ -910,11 +990,13 @@ HTML_TEMPLATE = """
                     <span>Dashboard</span>
                 </a>
                 
-                {% if role in ['admin', 'developer'] %}
+                {% if session_has_permission('roster') %}
                 <a href="#" onclick="toggleModal('roster-planner-modal', true); return false;" class="flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 font-medium text-xs transition border border-transparent hover:border-slate-200">
                     <span>🗓</span>
                     <span>Roster Planner</span>
                 </a>
+                {% endif %}
+                {% if session_has_permission('shift_approvals') %}
                 <a href="#" onclick="toggleModal('shift-approvals-modal', true); return false;" class="flex items-center justify-between px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 font-medium text-xs transition">
                     <div class="flex items-center space-x-3">
                         <span>🔔</span>
@@ -927,13 +1009,14 @@ HTML_TEMPLATE = """
                 {% endif %}
                 
                 {% if role == 'developer' %}
+                <a href="#" onclick="toggleModal('machine-mgmt-modal', true); return false;" class="flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 font-medium text-xs transition"><span>🖥️</span><span>Biometric Machines</span></a>
                 <a href="#" onclick="toggleModal('user-mgmt-modal', true); return false;" class="flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 font-medium text-xs transition border border-transparent hover:border-slate-200">
                     <span>🪪</span>
                     <span>User Management</span>
                 </a>
                 {% endif %}
                 
-                {% if role in ['admin', 'developer'] %}
+                {% if session_has_permission('password_management') %}
                 <a href="#" onclick="toggleModal('reset-approvals-modal', true); return false;" class="flex items-center justify-between px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 font-medium text-xs transition border border-transparent hover:border-slate-200">
                     <div class="flex items-center space-x-3">
                         <span>🔑</span>
@@ -956,7 +1039,7 @@ HTML_TEMPLATE = """
                     <span>📅</span>
                     <span>Calendar & Rota</span>
                 </a>
-                <a href="#" onclick="toggleModal('leave-modal', true); return false;" class="flex items-center justify-between px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 font-medium text-xs transition">
+                {% if session_has_permission('leave_management') %}<a href="#" onclick="toggleModal('leave-modal', true); return false;" class="flex items-center justify-between px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 font-medium text-xs transition">
                     <div class="flex items-center space-x-3">
                         <span>🏖️</span>
                         <span>Leave Management</span>
@@ -964,17 +1047,17 @@ HTML_TEMPLATE = """
                     {% if role in ['admin', 'developer'] and pending_leaves_count > 0 %}
                     <span class="bg-rose-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full animate-pulse">{{ pending_leaves_count }}</span>
                     {% endif %}
-                </a>
+                </a>{% endif %}
                 
-                <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-3 mt-6 mb-2">Team Management</p>
-                <a href="#" onclick="toggleModal('salary-modal', true); return false;" class="flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 font-medium text-xs transition border border-transparent hover:border-slate-200">
+                <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-3 mt-6 mb-2">Team Management</p
+                {% if session_has_permission('payroll') %}<a href="#" onclick="toggleModal('salary-modal', true); return false;" class="flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 font-medium text-xs transition border border-transparent hover:border-slate-200">
                     <span>💰</span>
                     <span>Payroll & Reports</span>
-                </a>
-                <a href="#" onclick="toggleModal('roster-modal', true); return false;" class="flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 font-medium text-xs transition">
+                </a>{% endif %}
+                {% if session_has_permission('employees_info') %}<a href="#" onclick="toggleModal('roster-modal', true); return false;" class="flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 font-medium text-xs transition">
                     <span>👥</span>
                     <span>Employees Info</span>
-                </a>
+                </a>{% endif %}
             </div>
         </div>
 
@@ -1002,7 +1085,7 @@ HTML_TEMPLATE = """
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
                 </button>
                 <div class="flex flex-col sm:flex-row sm:items-center sm:space-x-3">
-                    <h1 class="text-sm sm:text-base font-black text-slate-900 tracking-tight">Dashboard</h1>
+                    <h1 class="text-sm sm:text-base font-black text-slate-900 tracking-tight">Dashboard</h1>{% if accessible_stores|length > 1 %}<select onchange="location.href='/?store='+this.value" class="ml-2 text-xs border rounded-lg px-2 py-1">{% for st in accessible_stores %}<option value="{{st}}" {% if st==store %}selected{% endif %}>{{st}}</option>{% endfor %}</select>{% endif %}
                     <span class="hidden sm:inline-block text-xs text-slate-400 font-medium">| Good day, {{ logged_user_name }}</span>
                 </div>
             </div>
@@ -1019,7 +1102,7 @@ HTML_TEMPLATE = """
                 <!-- Clock and Status (Hidden on very small screens to save space) -->
                 <div class="hidden md:flex text-xs bg-slate-50 px-3 py-2 rounded-xl border border-slate-200 items-center space-x-2">
                     <span class="h-2 w-2 {% if stats.device_online %}bg-emerald-500{% else %}bg-red-500{% endif %} rounded-full animate-pulse"></span>
-                    <span class="text-slate-600 font-medium">Device: <strong class="{% if stats.device_online %}text-emerald-600{% else %}text-red-600{% endif %}">{% if stats.device_online %}Online{% else %}Offline{% endif %}</strong></span>
+                    <span class="text-slate-600 font-medium">Device: <strong class="{% if stats.device_online %}text-emerald-600{% else %}text-red-600{% endif %}">{% if stats.device_online %}Online{% else %}Offline{% endif %}</strong></span><span class="text-slate-300">|</span><span class="text-slate-500 font-mono text-[10px]">{{ current_machine.ip }}:{{ current_machine.port }}</span>
                     <span class="text-slate-300">|</span>
                     <span id="live-digital-clock" class="text-slate-700 font-semibold"></span>
                     <span class="text-slate-300">|</span>
@@ -1027,7 +1110,7 @@ HTML_TEMPLATE = """
                 </div>
 
                 <div class="flex items-center space-x-2 bg-slate-100 border border-slate-200 px-2.5 py-1.5 sm:px-3 sm:py-1.5 rounded-xl text-xs font-bold text-slate-700">
-                    <span class="hidden sm:inline">👤 {{ logged_user_name }}</span>
+                    <button onclick="toggleModal('profile-modal',true)" class="flex items-center gap-1">{% if current_user.profile_photo %}<img src="/uploads/{{ current_user.profile_photo }}" class="w-7 h-7 rounded-full object-cover border">{% else %}<span>👤</span>{% endif %}<span class="hidden sm:inline">{{ logged_user_name }}</span></button>
                     <a href="/logout" class="text-rose-600 hover:text-rose-700 sm:ml-2 font-semibold">Logout 🔒</a>
                 </div>
 
@@ -1368,6 +1451,11 @@ HTML_TEMPLATE = """
         </div>
     </div>
 
+    <div id="profile-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[60] flex items-center justify-center hidden p-4"><div class="bg-white rounded-2xl shadow-2xl p-5 w-full max-w-md space-y-4"><div class="flex justify-between"><h3 class="font-bold">👤 My Profile</h3><button onclick="toggleModal('profile-modal',false)">✕</button></div><div class="text-center">{% if current_user.profile_photo %}<img src="/uploads/{{current_user.profile_photo}}" class="w-24 h-24 rounded-full object-cover mx-auto">{% else %}<div class="w-24 h-24 rounded-full bg-slate-100 flex items-center justify-center mx-auto text-3xl">👤</div>{% endif %}<p class="font-bold mt-2">{{logged_user_name}}</p><p class="text-xs text-slate-500">{{current_user.designation}} · {{current_user.job_role}}</p></div><form action="/upload_profile_photo" method="POST" enctype="multipart/form-data" class="space-y-2"><input type="file" name="profile_photo" accept=".jpg,.jpeg,.png,.webp" required class="w-full border rounded-lg p-2 text-xs"><button class="w-full bg-indigo-600 text-white py-2 rounded-lg font-bold text-xs">Upload / Change Photo</button></form>{% if current_user.profile_photo %}<form action="/remove_profile_photo" method="POST"><button class="w-full bg-rose-50 text-rose-700 py-2 rounded-lg font-bold text-xs">Remove Photo</button></form>{% endif %}</div></div>
+
+    <!-- Leave Management Modal -->
+    <div id="leave-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[60] flex items-center justify-center hidden p-2"><div class="bg-white rounded-2xl shadow-2xl p-4 w-full max-w-5xl max-h-[90vh] flex flex-col space-y-4"><div class="flex justify-between"><h3 class="font-bold">🏖️ Leave Management</h3><button onclick="toggleModal('leave-modal',false)">✕</button></div>{% if role=='employee' %}<form action="/apply_leave" method="POST" enctype="multipart/form-data" class="grid grid-cols-1 sm:grid-cols-5 gap-2 bg-emerald-50 p-3 rounded-xl"><input type="date" name="start_date" required class="border rounded p-2 text-xs"><input type="date" name="end_date" required class="border rounded p-2 text-xs"><select name="leave_type" class="border rounded p-2 text-xs"><option>F10;1</option><option>F01;1</option><option>F03;1</option><option>F05;1</option><option>F51;1</option><option>F60;1</option><option>F61;1</option><option>F62;1</option></select><input type="file" name="supporting_doc" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" class="border rounded p-1 text-[10px] bg-white"><button class="bg-emerald-600 text-white font-bold rounded text-xs">Submit Leave</button></form>{% endif %}<div class="overflow-auto flex-1 border rounded-xl"><table class="w-full text-left min-w-[650px] text-[10px]"><thead class="bg-slate-100 font-bold"><tr><th class="p-2">Employee</th><th class="p-2">Dates</th><th class="p-2">Type</th><th class="p-2">Status</th><th class="p-2">Action</th></tr></thead><tbody>{% for req in leave_requests|reverse %}<tr class="border-b"><td class="p-2 font-bold">{{req.name}}<br><span class="text-slate-400">{{req.user_id}} · {{req.get('store','')}}</span></td><td class="p-2">{{req.start_date}} → {{req.end_date}}</td><td class="p-2">{{req.leave_type}}</td><td class="p-2">{{req.status}}</td><td class="p-2">{% if req.status=='Pending' and role in ['admin','developer'] %}<a href="/update_leave/{{req.id}}/approve" class="bg-emerald-500 text-white px-2 py-1 rounded mr-1">Approve</a><a href="/update_leave/{{req.id}}/reject" class="bg-rose-500 text-white px-2 py-1 rounded">Reject</a>{% else %}<span class="text-slate-400">Processed</span>{% endif %}</td></tr>{% else %}<tr><td colspan="5" class="p-6 text-center text-slate-400">No leave requests</td></tr>{% endfor %}</tbody></table></div></div></div>
+
     <!-- Password Resets Modal (Admin & Dev) -->
     <div id="reset-approvals-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[60] flex items-center justify-center hidden p-2">
         <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 p-4 w-full max-w-4xl mx-auto space-y-4 max-h-[85vh] flex flex-col">
@@ -1570,80 +1658,11 @@ HTML_TEMPLATE = """
     </div>
 
     <!-- Developer User Management Modal -->
-    <div id="user-mgmt-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[60] flex items-center justify-center hidden p-2">
-        <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 p-4 w-full max-w-4xl mx-auto space-y-4 max-h-[90vh] flex flex-col">
-            <div class="flex justify-between items-center border-b border-slate-100 pb-2">
-                <h3 class="text-sm sm:text-lg font-bold text-slate-900">🪪 User Management</h3>
-                <button onclick="toggleModal('user-mgmt-modal', false)" class="text-slate-400 hover:text-slate-600 font-bold text-lg">✕</button>
-            </div>
-            <div class="p-3 bg-slate-50 border border-slate-200 rounded-xl">
-                <form action="/manage_user" method="POST" class="flex flex-wrap gap-2 items-end">
-                    <input type="hidden" name="action" value="create">
-                    <div>
-                        <label class="block text-[10px] font-bold text-slate-500 mb-1">Emp ID</label>
-                        <input type="text" name="uid" placeholder="NWC..." required class="w-24 px-2 py-1.5 border border-slate-300 rounded-lg text-xs focus:outline-none">
-                    </div>
-                    <div>
-                        <label class="block text-[10px] font-bold text-slate-500 mb-1">Name</label>
-                        <input type="text" name="name" placeholder="Full Name" required class="w-40 px-2 py-1.5 border border-slate-300 rounded-lg text-xs focus:outline-none">
-                    </div>
-                    <div>
-                        <label class="block text-[10px] font-bold text-slate-500 mb-1">Password</label>
-                        <input type="text" name="password" value="123" required class="w-20 px-2 py-1.5 border border-slate-300 rounded-lg text-xs focus:outline-none">
-                    </div>
-                    <div>
-                        <label class="block text-[10px] font-bold text-slate-500 mb-1">Store Map</label>
-                        <select name="store" class="w-24 px-2 py-1.5 border border-slate-300 rounded-lg text-xs focus:outline-none">
-                            <option value="LM11">LM11</option>
-                            <option value="LF07">LF07</option>
-                        </select>
-                    </div>
-                    <button type="submit" class="bg-emerald-600 text-white font-bold px-4 py-1.5 rounded-lg text-xs uppercase tracking-wider mb-0.5 shadow">Add / Update</button>
-                </form>
-            </div>
-            <div class="overflow-y-auto flex-1 border border-slate-200 rounded-xl">
-                <table class="w-full text-left min-w-[500px]">
-                    <thead class="bg-slate-100 text-slate-600 uppercase text-[9px] font-bold sticky top-0">
-                        <tr>
-                            <th class="py-2 px-3">Emp ID</th>
-                            <th class="py-2 px-3">Name</th>
-                            <th class="py-2 px-3 text-center">Store</th>
-                            <th class="py-2 px-3 text-center">Status</th>
-                            <th class="py-2 px-3 text-center">Action</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-slate-100 text-xs">
-                        {% for u_id, u_info in users_db.items() %}
-                        <tr class="hover:bg-slate-50">
-                            <td class="py-2 px-3 font-mono text-slate-600">{{ u_id }}</td>
-                            <td class="py-2 px-3 font-bold">{{ u_info.name }}</td>
-                            <td class="py-2 px-3 text-center font-bold text-indigo-600">{{ u_info.store }}</td>
-                            <td class="py-2 px-3 text-center">
-                                <span class="px-2 py-0.5 rounded-full text-[10px] font-bold {% if u_info.status == 'active' %}bg-emerald-100 text-emerald-700{% else %}bg-rose-100 text-rose-700{% endif %}">
-                                    {{ u_info.status|upper }}
-                                </span>
-                            </td>
-                            <td class="py-2 px-3 text-center">
-                                <div class="flex justify-center gap-1">
-                                    <form action="/manage_user" method="POST" class="inline">
-                                        <input type="hidden" name="uid" value="{{ u_id }}">
-                                        <input type="hidden" name="action" value="toggle_status">
-                                        <button type="submit" class="bg-amber-100 hover:bg-amber-200 text-amber-700 px-2 py-1 rounded text-[10px] font-bold border border-amber-200">Toggle</button>
-                                    </form>
-                                    <form action="/manage_user" method="POST" class="inline" onsubmit="return confirm('Delete this user?');">
-                                        <input type="hidden" name="uid" value="{{ u_id }}">
-                                        <input type="hidden" name="action" value="delete">
-                                        <button type="submit" class="bg-rose-100 hover:bg-rose-200 text-rose-700 px-2 py-1 rounded text-[10px] font-bold border border-rose-200">Del</button>
-                                    </form>
-                                </div>
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    </div>
+    <div id="user-mgmt-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[60] flex items-center justify-center hidden p-2"><div class="bg-white rounded-2xl shadow-2xl p-4 w-full max-w-6xl max-h-[92vh] flex flex-col space-y-3"><div class="flex justify-between"><h3 class="font-bold">🪪 User / Role / Store Rights</h3><button onclick="toggleModal('user-mgmt-modal',false)">✕</button></div><form action="/manage_user" method="POST" class="grid grid-cols-1 md:grid-cols-4 gap-2 bg-slate-50 p-3 rounded-xl"><input type="hidden" name="action" value="create"><input name="uid" placeholder="User ID" required class="border rounded p-2 text-xs"><input name="name" placeholder="Name" required class="border rounded p-2 text-xs"><input name="password" placeholder="Password" class="border rounded p-2 text-xs"><input name="designation" placeholder="Designation" class="border rounded p-2 text-xs"><select name="role" class="border rounded p-2 text-xs"><option value="employee">Employee</option><option value="admin">Admin</option></select><input name="job_role" placeholder="HR / AREA MANAGER / OPERATION HEAD" class="border rounded p-2 text-xs"><input name="dept" placeholder="Department" class="border rounded p-2 text-xs"><select name="status" class="border rounded p-2 text-xs"><option value="active">Active</option><option value="blocked">Deactive / Blocked</option></select><div class="md:col-span-2"><b class="text-[10px]">Stores:</b>{% for code,m in machines.items() if code!='DEV' %}<label class="ml-2 text-[10px]"><input type="checkbox" name="stores" value="{{code}}">{{code}}</label>{% endfor %}<label class="ml-2 text-[10px] font-bold"><input type="checkbox" name="all_stores" value="1"> ALL</label></div><div class="md:col-span-2 grid grid-cols-2 sm:grid-cols-3 gap-1 max-h-16 overflow-auto">{% for p in permission_list %}<label class="text-[9px]"><input type="checkbox" name="permissions" value="{{p}}">{{p|replace('_',' ')|title}}</label>{% endfor %}</div><button class="md:col-span-4 bg-emerald-600 text-white font-bold py-2 rounded text-xs">Create / Update</button></form><div class="overflow-auto flex-1 border rounded-xl"><table class="w-full min-w-[950px] text-left text-[10px]"><thead class="bg-slate-100 sticky top-0"><tr><th class="p-2">ID / Name</th><th>Designation / Role</th><th>Stores</th><th>Status</th><th>Permissions</th><th>Action</th></tr></thead><tbody>{% for uid,info in users_db.items() %}<tr class="border-b"><td class="p-2 font-bold">{{uid}}<br>{{info.name}}</td><td class="p-2">{{info.designation}}<br>{{info.job_role}} / {{info.role}}</td><td class="p-2">{{info.stores|join(', ')}}</td><td class="p-2">{{info.status|upper}}</td><td class="p-2">{{info.permissions|join(', ')}}</td><td class="p-2"><div class="flex gap-1"><form action="/manage_user" method="POST"><input type="hidden" name="uid" value="{{uid}}"><input type="hidden" name="action" value="toggle_status"><button class="bg-amber-100 text-amber-700 px-2 py-1 rounded">Toggle</button></form><form action="/manage_user" method="POST" onsubmit="return confirm('Delete this user?')"><input type="hidden" name="uid" value="{{uid}}"><input type="hidden" name="action" value="delete"><button class="bg-rose-100 text-rose-700 px-2 py-1 rounded">Del</button></form></div></td></tr>{% endfor %}</tbody></table></div></div></div>
+
+    <!-- Biometric Machine Management -->
+    <div id="machine-mgmt-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[60] flex items-center justify-center hidden p-2"><div class="bg-white rounded-2xl shadow-2xl p-4 w-full max-w-5xl max-h-[90vh] overflow-auto"><div class="flex justify-between mb-3"><h3 class="font-bold">🖥️ Biometric Machines / Stores</h3><button onclick="toggleModal('machine-mgmt-modal',false)">✕</button></div><form action="/manage_machine" method="POST" class="grid grid-cols-1 md:grid-cols-5 gap-2 bg-slate-50 p-3 rounded-xl"><input name="code" placeholder="Store Code" required class="border rounded p-2 text-xs"><input name="name" placeholder="Portal Name" required class="border rounded p-2 text-xs"><input name="ip" placeholder="Machine IP" required class="border rounded p-2 text-xs"><input name="port" value="4370" required class="border rounded p-2 text-xs"><input name="admin" placeholder="Portal Admin User ID" class="border rounded p-2 text-xs"><button class="md:col-span-5 bg-indigo-600 text-white font-bold py-2 rounded text-xs">Save / Merge Machine</button></form><table class="w-full text-left text-xs mt-3"><thead class="bg-slate-100"><tr><th class="p-2">Store</th><th class="p-2">Portal</th><th class="p-2">Address</th><th class="p-2">Admin</th><th class="p-2">Status</th><th></th></tr></thead><tbody>{% for code,m in machines.items() %}<tr class="border-b"><td class="p-2 font-bold">{{code}}</td><td class="p-2">{{m.name}}</td><td class="p-2 font-mono">{{m.ip}}:{{m.port}}</td><td class="p-2">{{m.get('admin','-')}}</td><td class="p-2">{% if machine_status.get(code) %}<span class="text-emerald-600 font-bold">ONLINE</span>{% else %}<span class="text-rose-600 font-bold">OFFLINE</span>{% endif %}</td><td class="p-2">{% if code not in ['LM11','LF07','DEV'] %}<form action="/manage_machine" method="POST"><input type="hidden" name="code" value="{{code}}"><input type="hidden" name="action" value="delete"><button class="text-rose-600 font-bold" onclick="return confirm('Delete machine?')">Delete</button></form>{% endif %}</td></tr>{% endfor %}</tbody></table></div></div>
+
 </body>
 </html>
 """
@@ -1660,7 +1679,7 @@ def login():
         db = load_users_db()
         
         if uid == 'NCSA0608' and pwd == dev_pass:
-            session.update({'logged_in': True, 'role': 'developer', 'user_id': uid, 'user_name': 'Sonu Kumar (Dev)', 'store': 'DEV'})
+            session.update({'logged_in': True, 'role': 'developer', 'user_id': uid, 'user_name': 'Sonu Kumar (Dev)', 'store': 'DEV', 'stores': list(MACHINES.keys()), 'designation':'Developer', 'job_role':'DEVELOPER', 'permissions':PERMISSIONS[:]})
             return redirect(url_for('index'))
             
         emp_key = f"NWC{uid}" if not uid.startswith('NWC') and uid not in ['LM11', 'LF07'] else uid
@@ -1671,7 +1690,7 @@ def login():
                 return render_template_string(LOGIN_TEMPLATE, error="Account is Suspended/Blocked. Contact Developer.")
             
             if pwd == user_data.get('password'):
-                session.update({'logged_in': True, 'role': user_data['role'], 'user_id': emp_key, 'user_name': user_data['name'], 'store': user_data['store']})
+                session.update({'logged_in': True, 'role': user_data['role'], 'user_id': emp_key, 'user_name': user_data['name'], 'store': user_data.get('store','LM11'), 'stores': user_data.get('stores',[user_data.get('store','LM11')]), 'designation':user_data.get('designation',''), 'job_role':user_data.get('job_role',user_data.get('role','employee')), 'permissions':user_data.get('permissions',[])})
                 session['failed_attempts'] = 0
                 return redirect(url_for('index'))
                 
@@ -1788,29 +1807,58 @@ def dev_force_reset():
 
 @app.route('/manage_user', methods=['POST'])
 def manage_user():
-    if session.get('role') != 'developer': return redirect(url_for('login'))
-    db = load_users_db()
-    action = request.form.get('action')
-    uid = request.form.get('uid').strip().upper()
-    uid = f"NWC{uid}" if not uid.startswith('NWC') and uid not in ['LM11', 'LF07'] else uid
-    
-    if action == 'create':
-        db[uid] = {
-            'name': request.form.get('name').strip(),
-            'password': request.form.get('password').strip(),
-            'store': request.form.get('store'),
-            'status': 'active', 'role': 'employee', 'off': 'SUNDAY', 'dept': 'General', 'shift': 'morning'
-        }
-        flash(f"User {uid} created/updated successfully.", "success")
-    elif action == 'toggle_status' and uid in db:
-        db[uid]['status'] = 'blocked' if db[uid].get('status') == 'active' else 'active'
-        flash(f"User {uid} status changed to {db[uid]['status']}.", "success")
-    elif action == 'delete' and uid in db:
-        del db[uid]
-        flash(f"User {uid} deleted permanently.", "success")
-        
-    save_json_file(USERS_DB_FILE, db)
-    return redirect(url_for('index'))
+    if session.get('role')!='developer': return redirect(url_for('login'))
+    db=load_users_db(); action=request.form.get('action','create'); raw=(request.form.get('uid') or '').strip().upper()
+    uid=raw if raw in ['LM11','LF07'] or raw.startswith('NWC') else f'NWC{raw}'
+    if action=='create':
+        old=normalize_user_record(db.get(uid,{})); role=request.form.get('role','employee')
+        job=(request.form.get('job_role') or ('ADMIN' if role=='admin' else 'EMPLOYEE')).strip().upper()
+        stores=[x.upper() for x in request.form.getlist('stores') if x.upper() in MACHINES and x.upper()!='DEV']
+        if request.form.get('all_stores')=='1': stores=[x for x in MACHINES if x!='DEV']
+        if not stores: stores=old.get('stores') or [request.form.get('store','LM11').upper()]
+        perms=[x for x in request.form.getlist('permissions') if x in PERMISSIONS]
+        if not perms: perms=ROLE_PRESETS.get(job,ROLE_PRESETS['EMPLOYEE'])[:]
+        db[uid]=normalize_user_record({**old,'name':(request.form.get('name') or old.get('name') or uid).strip(),'password':(request.form.get('password') or old.get('password') or '123').strip(),'role':role if role in ['admin','employee'] else 'employee','designation':(request.form.get('designation') or old.get('designation') or 'Employee').strip(),'job_role':job,'stores':stores,'store':stores[0],'permissions':perms,'status':request.form.get('status','active'),'dept':(request.form.get('dept') or old.get('dept') or 'General').strip()})
+        flash(f'User {uid} created/updated successfully.','success')
+    elif action=='toggle_status' and uid in db:
+        db[uid]=normalize_user_record(db[uid]); db[uid]['status']='blocked' if db[uid].get('status')=='active' else 'active'; flash(f'User {uid} status changed to {db[uid]["status"]}.','success')
+    elif action=='delete' and uid in db: del db[uid]; flash(f'User {uid} deleted permanently.','success')
+    save_json_file(USERS_DB_FILE,db); return redirect(url_for('index'))
+
+@app.route('/upload_profile_photo', methods=['POST'])
+def upload_profile_photo():
+    if not session.get('logged_in'): return redirect(url_for('login'))
+    uid=session.get('user_id'); db=load_users_db(); f=request.files.get('profile_photo')
+    if not f or not f.filename: flash('Photo select karein.','danger'); return redirect(url_for('index'))
+    ext=os.path.splitext(f.filename)[1].lower()
+    if ext not in ['.png','.jpg','.jpeg','.webp']: flash('Sirf JPG, JPEG, PNG ya WEBP photo allowed hai.','danger'); return redirect(url_for('index'))
+    info=normalize_user_record(db.get(uid,{})); old=info.get('profile_photo',''); filename=secure_filename(f'profile_{uid}_{uuid.uuid4().hex}{ext}'); f.save(os.path.join(app.config['UPLOAD_FOLDER'],filename))
+    if old and os.path.isfile(os.path.join(app.config['UPLOAD_FOLDER'],old)):
+        try: os.remove(os.path.join(app.config['UPLOAD_FOLDER'],old))
+        except OSError: pass
+    info['profile_photo']=filename; db[uid]=info; save_json_file(USERS_DB_FILE,db); flash('Profile photo update ho gaya.','success'); return redirect(url_for('index'))
+
+@app.route('/remove_profile_photo', methods=['POST'])
+def remove_profile_photo():
+    if not session.get('logged_in'): return redirect(url_for('login'))
+    uid=session.get('user_id'); db=load_users_db(); info=normalize_user_record(db.get(uid,{})); old=info.get('profile_photo','')
+    if old and os.path.isfile(os.path.join(app.config['UPLOAD_FOLDER'],old)):
+        try: os.remove(os.path.join(app.config['UPLOAD_FOLDER'],old))
+        except OSError: pass
+    info['profile_photo']=''; db[uid]=info; save_json_file(USERS_DB_FILE,db); flash('Profile photo remove ho gaya.','success'); return redirect(url_for('index'))
+
+@app.route('/manage_machine', methods=['POST'])
+def manage_machine():
+    if session.get('role')!='developer': return redirect(url_for('login'))
+    code=(request.form.get('code') or '').strip().upper(); action=request.form.get('action','save'); machines=load_machines_db()
+    if action=='delete':
+        if code in ['LM11','LF07','DEV']: flash('Default machine delete nahi ki ja sakti.','danger')
+        else: machines.pop(code,None); save_json_file(MACHINES_DB_FILE,machines); load_machines_db(); flash(f'{code} machine remove ho gayi.','success')
+        return redirect(url_for('index'))
+    if not re.match(r'^[A-Z0-9_-]{2,30}$',code): flash('Store/Machine code invalid hai.','danger'); return redirect(url_for('index'))
+    try: port=int(request.form.get('port','4370'))
+    except ValueError: flash('Port invalid hai.','danger'); return redirect(url_for('index'))
+    machines[code]={'ip':(request.form.get('ip') or '').strip(),'port':port,'name':(request.form.get('name') or code).strip(),'admin':(request.form.get('admin') or '').strip()}; save_json_file(MACHINES_DB_FILE,machines); load_machines_db(); flash(f'{code} biometric portal save ho gaya.','success'); return redirect(url_for('index'))
 
 @app.route('/logout')
 def logout():
@@ -1826,17 +1874,12 @@ def index():
     if not session.get('logged_in'):
         return redirect(url_for('login'))
         
-    role = session.get('role')
-    store = session.get('store', 'LM11')
-    portal_name = MACHINES.get(store, MACHINES['LM11'])['name']
-    
-    logged_user_id = session.get('user_id')
-    logged_user_name = session.get('user_name')
-    
-    if role == 'employee':
-        selected_emp = logged_user_id
-    else:
-        selected_emp = request.args.get('employee', 'ALL')
+    role=session.get('role'); logged_user_id=session.get('user_id'); db_all=load_users_db()
+    current_user=normalize_user_record(db_all.get(logged_user_id,{'name':session.get('user_name','')})) if role!='developer' else {'name':'Sonu Kumar (Dev)','profile_photo':'','designation':'Developer','job_role':'DEVELOPER','stores':list(MACHINES.keys()),'permissions':PERMISSIONS}
+    accessible_stores=get_user_stores(logged_user_id)
+    requested_store=(request.args.get('store') or session.get('store') or (accessible_stores[0] if accessible_stores else 'LM11')).upper()
+    store=requested_store if requested_store in accessible_stores else (accessible_stores[0] if accessible_stores else 'LM11'); session['store']=store; session['stores']=accessible_stores
+    portal_name=MACHINES.get(store,MACHINES.get('LM11'))['name']; logged_user_name=session.get('user_name'); selected_emp=logged_user_id if role=='employee' else request.args.get('employee','ALL')
         
     today_str = datetime.now().strftime('%Y-%m-%d')
     start_date = request.args.get('start_date', today_str)
@@ -1866,7 +1909,9 @@ def index():
     all_salary_slips = load_salary_slips()
     my_salary_slips = [s for s in all_salary_slips if s['user_id'] == logged_user_id] if role == 'employee' else all_salary_slips
     
-    users_db = load_users_db() if role == 'developer' else {}
+    users_db=load_users_db() if role=='developer' else {}
+    machine_status={code:check_device_connectivity(code) for code in accessible_stores if code in MACHINES}
+    current_machine=MACHINES.get(store,{})
     
     return render_template_string(
         HTML_TEMPLATE,
@@ -1876,13 +1921,13 @@ def index():
         leave_requests=current_user_leave_requests, pending_leaves_count=pending_leaves_count,
         shift_requests=my_shift_reqs, pending_shifts_count=pending_shifts_count,
         reset_requests=reset_requests, pending_resets_count=pending_resets_count,
-        salary_slips=my_salary_slips, users_db=users_db
+        salary_slips=my_salary_slips, users_db=users_db, store=store, accessible_stores=accessible_stores, current_user=current_user, machine_status=machine_status, current_machine=current_machine, machines=MACHINES, permission_list=PERMISSIONS, role_presets=ROLE_PRESETS
     )
 
 # --- BULK SALARY SLIP APIs ---
 @app.route('/upload_bulk_salary', methods=['POST'])
 def upload_bulk_salary():
-    if session.get('role') not in ['admin', 'developer']:
+    if not session_has_permission('payroll'):
         return redirect(url_for('index'))
 
     salary_month = (request.form.get('salary_month') or '').strip()
@@ -1981,7 +2026,7 @@ def salary_file(file_id):
     if session.get('role') == 'employee':
         if target_slip.get('user_id') != session.get('user_id'):
             return 'Unauthorized Access', 403
-    elif session.get('role') not in ['admin', 'developer']:
+    elif not session_has_permission('payroll'):
         return 'Unauthorized Access', 403
 
     file_path = os.path.join(app.config['UPLOAD_FOLDER'], target_slip.get('filename', ''))
@@ -1991,7 +2036,7 @@ def salary_file(file_id):
 
 @app.route('/delete_salary/<file_id>')
 def delete_salary(file_id):
-    if session.get('role') not in ['admin', 'developer']:
+    if not session_has_permission('payroll'):
         return redirect(url_for('index'))
     slips = load_salary_slips()
     target_slip = next((s for s in slips if s.get('file_id') == file_id), None)
@@ -2007,14 +2052,14 @@ def delete_salary(file_id):
 # --- ROSTER PLANNER APIs ---
 @app.route('/api/get_roster', methods=['GET'])
 def api_get_roster():
-    if session.get('role') not in ['admin', 'developer']: return {}, 403
+    if not session_has_permission('roster'): return {}, 403
     emp_id = request.args.get('emp_id')
     roster = load_roster()
     return roster.get(emp_id, {})
 
 @app.route('/api/save_roster', methods=['POST'])
 def api_save_roster():
-    if session.get('role') not in ['admin', 'developer']: return {}, 403
+    if not session_has_permission('roster'): return {}, 403
     data = request.get_json()
     emp_id = data.get('emp_id')
     updates = data.get('updates', {})
@@ -2048,7 +2093,7 @@ def request_shift():
 
 @app.route('/update_shift_req/<int:req_id>/<action>')
 def update_shift_req(req_id, action):
-    if session.get('role') not in ['admin', 'developer']: return redirect(url_for('login'))
+    if not session_has_permission('shift_approvals'): return redirect(url_for('login'))
     reqs = load_shift_requests()
     for req in reqs:
         if req['id'] == req_id:
@@ -2071,7 +2116,7 @@ def update_shift_req(req_id, action):
 # --- QUICK EDIT API ---
 @app.route('/quick_edit')
 def quick_edit():
-    if session.get('role') != 'developer': return redirect(url_for('index'))
+    if not session_has_permission('attendance_edit'): return redirect(url_for('index'))
     date_str = request.args.get('date')
     emp_id = request.args.get('emp_id')
     field = request.args.get('field')
@@ -2114,7 +2159,7 @@ def apply_leave():
     save_leave_to_excel(user_id, name, start_date, end_date, leave_type, filename if filename else "No Document")
     LEAVE_REQUESTS.append({
         'id': len(LEAVE_REQUESTS) + 1, 'user_id': user_id, 'name': name, 'start_date': start_date,
-        'end_date': end_date, 'leave_type': leave_type, 'filename': filename, 'status': 'Pending'
+        'end_date': end_date, 'leave_type': leave_type, 'filename': filename, 'status': 'Pending', 'store': session.get('store','LM11')
     })
     save_leave_requests(LEAVE_REQUESTS)
     flash('Aapki leave request successfully submit ho gayi hai!', 'success')
@@ -2122,9 +2167,10 @@ def apply_leave():
 
 @app.route('/update_leave/<int:req_id>/<action>')
 def update_leave(req_id, action):
-    if session.get('role') not in ['admin', 'developer']: return redirect(url_for('login'))
+    if not session_has_permission('leave_management'): return redirect(url_for('login'))
     for req in LEAVE_REQUESTS:
         if req['id'] == req_id:
+            if session.get('role')!='developer' and req.get('store') not in get_user_stores(): flash('Aap is store ki leave approve nahi kar sakte.','danger'); return redirect(url_for('index'))
             if action == 'approve':
                 req['status'] = 'Approved'
                 flash(f"Leave request for {req['name']} approved successfully!", 'success')
@@ -2142,7 +2188,7 @@ def uploaded_file(filename):
 
 @app.route('/export')
 def export_excel():
-    if session.get('role') not in ['admin', 'developer']: return redirect(url_for('login'))
+    if not session_has_permission('payroll'): return redirect(url_for('login'))
     start_date = request.args.get('start_date', datetime.now().strftime('%Y-%m-%d'))
     end_date = request.args.get('end_date', datetime.now().strftime('%Y-%m-%d'))
     selected_emp = request.args.get('employee', 'ALL')
@@ -2167,7 +2213,7 @@ def export_excel():
 
 @app.route('/export_matrix')
 def export_matrix():
-    if session.get('role') not in ['admin', 'developer']: return redirect(url_for('login'))
+    if not session_has_permission('payroll'): return redirect(url_for('login'))
     start_date = request.args.get('start_date', datetime.now().strftime('%Y-%m-%d'))
     end_date = request.args.get('end_date', datetime.now().strftime('%Y-%m-%d'))
     store = session.get('store', 'LM11')
