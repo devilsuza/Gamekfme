@@ -47,12 +47,14 @@ USERS_DB_FILE = 'users_db.json'
 SALARY_SLIPS_FILE = 'salary_slips.json'
 MACHINES_DB_FILE = 'machines_db.json'
 PERMISSIONS = ['dashboard','roster','shift_approvals','password_management','calendar','leave_management','payroll','employees_info','attendance_edit','user_management','machine_management','profile']
+
+# FIX: Added 'payroll' permission to EMPLOYEE role
 ROLE_PRESETS = {
     'HR':['dashboard','leave_management','payroll','employees_info','profile'],
     'AREA MANAGER':['dashboard','attendance_edit','leave_management','roster','shift_approvals','employees_info','profile'],
     'OPERATION HEAD':['dashboard','attendance_edit','leave_management','roster','shift_approvals','payroll','employees_info','profile'],
     'STORE MANAGER':['dashboard','attendance_edit','leave_management','roster','shift_approvals','employees_info','profile'],
-    'EMPLOYEE':['dashboard','profile']
+    'EMPLOYEE':['dashboard','profile', 'payroll'] 
 }
 DEFAULT_MACHINES = dict(MACHINES)
 
@@ -1954,6 +1956,8 @@ def index():
         pending_resets_count = 0
     
     all_salary_slips = load_salary_slips()
+    
+    # FIX: List comprehension applied here to show only the logged-in employee's slips
     my_salary_slips = [s for s in all_salary_slips if s['user_id'] == logged_user_id] if role == 'employee' else all_salary_slips
     
     users_db=load_users_db() if role=='developer' else {}
