@@ -1059,10 +1059,14 @@ HTML_TEMPLATE = """
                     <span>💰</span>
                     <span>Payroll & Reports</span>
                 </a>{% endif %}
-                {% if session_has_permission('employees_info') %}<a href="#" onclick="toggleModal('roster-modal', true); return false;" class="flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 font-medium text-xs transition">
-                    <span>👥</span>
-                    <span>Employees Info</span>
-                </a>{% endif %}
+                
+                {% if session_has_permission('employees_info') %}
+                <!-- Updated Employees Info / ID Card Link -->
+                <a href="/employee_id/{{ session.get('user_id') }}" target="_blank" class="flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 font-medium text-xs transition">
+                    <span>🪪</span>
+                    <span>Employees Info (ID Card)</span>
+                </a>
+                {% endif %}
             </div>
         </div>
 
@@ -1712,6 +1716,96 @@ HTML_TEMPLATE = """
     <!-- Biometric Machine Management -->
     <div id="machine-mgmt-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[60] flex items-center justify-center hidden p-2"><div class="bg-white rounded-2xl shadow-2xl p-4 w-full max-w-5xl max-h-[90vh] overflow-auto"><div class="flex justify-between mb-3"><h3 class="font-bold">🖥️ Biometric Machines / Stores</h3><button onclick="toggleModal('machine-mgmt-modal',false)">✕</button></div><form action="/manage_machine" method="POST" class="grid grid-cols-1 md:grid-cols-5 gap-2 bg-slate-50 p-3 rounded-xl"><input name="code" placeholder="Store Code" required class="border rounded p-2 text-xs"><input name="name" placeholder="Portal Name" required class="border rounded p-2 text-xs"><input name="ip" placeholder="Machine IP" required class="border rounded p-2 text-xs"><input name="port" value="4370" required class="border rounded p-2 text-xs"><input name="admin" placeholder="Portal Admin User ID" class="border rounded p-2 text-xs"><button class="md:col-span-5 bg-indigo-600 text-white font-bold py-2 rounded text-xs">Save / Merge Machine</button></form><table class="w-full text-left text-xs mt-3"><thead class="bg-slate-100"><tr><th class="p-2">Store</th><th class="p-2">Portal</th><th class="p-2">Address</th><th class="p-2">Admin</th><th class="p-2">Status</th><th></th></tr></thead><tbody>{% for code,m in machines.items() %}<tr class="border-b"><td class="p-2 font-bold">{{code}}</td><td class="p-2">{{m.name}}</td><td class="p-2 font-mono">{{m.ip}}:{{m.port}}</td><td class="p-2">{{m.get('admin','-')}}</td><td class="p-2">{% if machine_status.get(code) %}<span class="text-emerald-600 font-bold">ONLINE</span>{% else %}<span class="text-rose-600 font-bold">OFFLINE</span>{% endif %}</td><td class="p-2">{% if code not in ['LM11','LF07','DEV'] %}<form action="/manage_machine" method="POST"><input type="hidden" name="code" value="{{code}}"><input type="hidden" name="action" value="delete"><button class="text-rose-600 font-bold" onclick="return confirm('Delete machine?')">Delete</button></form>{% endif %}</td></tr>{% endfor %}</tbody></table></div></div>
 
+</body>
+</html>
+"""
+
+ID_CARD_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Employee ID Card - {{ employee.name }}</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <style>
+        body { display: flex; justify-content: center; align-items: center; min-height: 100vh; background-color: #f1f5f9; margin: 0; font-family: Arial, sans-serif; flex-direction: column; }
+        .id-card {
+            width: 320px;
+            height: 500px;
+            border: 1px solid #e0e0e0;
+            border-radius: 12px;
+            padding: 20px 20px 0 20px;
+            text-align: center;
+            background-color: #fff;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+            position: relative;
+            overflow: hidden;
+            box-sizing: border-box;
+        }
+        .logo { max-width: 160px; margin-bottom: 20px; }
+        .photo-placeholder {
+            width: 130px; height: 150px; background-color: #f9f9f9; margin: 0 auto 15px auto;
+            display: flex; align-items: center; justify-content: center; overflow: hidden; border-radius: 8px; border: 1px solid #eee;
+        }
+        .photo-placeholder img { width: 100%; height: 100%; object-fit: cover; }
+        .emp-name { font-size: 20px; font-weight: bold; margin-bottom: 25px; text-transform: uppercase; color: #333; }
+        .details { text-align: left; font-size: 14px; line-height: 1.8; color: #000; padding: 0 5px; }
+        .details div { display: flex; }
+        .details div span:first-child { width: 135px; font-weight: normal; }
+        .details div span:last-child { font-weight: bold; }
+        .footer-container { position: absolute; bottom: 0; left: 0; width: 100%; }
+        .color-bar { height: 8px; background: linear-gradient(to right, #cddc39, #ffc107, #ff9800, #e91e63, #9c27b0, #00bcd4); }
+        .footer-address { background-color: #000; color: #fff; font-size: 11px; padding: 12px 10px; line-height: 1.4; text-align: center; }
+        .download-btn {
+            margin-top: 20px; padding: 12px 24px; background-color: #059669; color: white; border: none;
+            border-radius: 8px; font-weight: bold; cursor: pointer; box-shadow: 0 4px 6px rgba(0,0,0,0.1); font-size: 14px;
+        }
+        .download-btn:hover { background-color: #047857; }
+    </style>
+</head>
+<body>
+    <div class="id-card" id="id-card-element">
+        <img src="{{ url_for('static', filename='fresmart.png') }}" alt="Fresmart Logo" class="logo" onerror="this.style.display='none'">
+        
+        <div class="photo-placeholder">
+            {% if employee.profile_photo %}
+                <img src="/uploads/{{ employee.profile_photo }}" alt="Employee Photo">
+            {% endif %}
+        </div>
+
+        <div class="emp-name">{{ employee.name }}</div>
+
+        <div class="details">
+            <div><span>Nationality</span> <span>: Angola</span></div>
+            <div><span>HRMS Code</span> <span>: {{ employee.emp_code }}</span></div>
+            <div><span>Passport Number</span> <span>: </span></div>
+            <div><span>Date of Joining</span> <span>: </span></div>
+        </div>
+
+        <div class="footer-container">
+            <div class="color-bar"></div>
+            <div class="footer-address">
+                Kwame Nkrumah,<br>
+                Edifício Torre Imporáfrica B, 9º Andar,<br>
+                Município: Ingombota, Luanda<br>
+                www.newacogrupo.com
+            </div>
+        </div>
+    </div>
+
+    <button class="download-btn" onclick="downloadCard()">📥 Download ID Card</button>
+
+    <script>
+        function downloadCard() {
+            const card = document.getElementById('id-card-element');
+            html2canvas(card, {scale: 3, useCORS: true}).then(canvas => {
+                let link = document.createElement('a');
+                link.download = '{{ employee.emp_code }}_ID_Card.png';
+                link.href = canvas.toDataURL('image/png');
+                link.click();
+            });
+        }
+    </script>
 </body>
 </html>
 """
@@ -2396,6 +2490,29 @@ def sync_attendance():
         
         return {'status': 'success', 'message': f'{len(logs)} records synced ({added_count} new)'}, 200
     except Exception as e: return {'status': 'error', 'message': str(e)}, 500
+
+# === NAYA ID CARD ROUTE ===
+@app.route('/employee_id/<emp_code>')
+def view_employee_id(emp_code):
+    if not session.get('logged_in'):
+        return redirect(url_for('login'))
+    
+    # Security: Employee can only see their own ID, Admin/Developer can see anyone's
+    if session.get('role') == 'employee' and session.get('user_id') != emp_code:
+        return "Unauthorized Access", 403
+
+    db = load_users_db()
+    emp_data = db.get(emp_code)
+    
+    if not emp_data:
+        # Fallback agar user database me available nahi hai par session mein hai
+        if emp_code == session.get('user_id'):
+            emp_data = {'name': session.get('user_name', 'Employee'), 'profile_photo': ''}
+        else:
+            return "Employee not found", 404
+            
+    emp_data['emp_code'] = emp_code
+    return render_template_string(ID_CARD_TEMPLATE, employee=emp_data)
 
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 5000))
