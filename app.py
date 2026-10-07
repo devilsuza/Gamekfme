@@ -56,9 +56,9 @@ ROLE_PRESETS = {
 }
 DEFAULT_MACHINES = dict(MACHINES)
 
-
 SYNCED_ATTENDANCE_LOGS = []
-LAST_DEVICE_SYNC_TIME = None
+# Dictionary based device sync tracker for multiple stores
+LAST_DEVICE_SYNC_TIME = {}
 
 # Master Employees (Fallback / Default Setup)
 MASTER_EMPLOYEES = {
@@ -294,7 +294,10 @@ def check_device_connectivity(store_code):
             conn.disconnect()
             return True
     except Exception: pass
-    if LAST_DEVICE_SYNC_TIME and (datetime.now() - LAST_DEVICE_SYNC_TIME).total_seconds() < 300: return True
+    
+    # Store-specific sync tracking check
+    last_sync = LAST_DEVICE_SYNC_TIME.get(store_code)
+    if last_sync and (datetime.now() - last_sync).total_seconds() < 300: return True
     return False
 
 def fetch_attendance_data(start_date_str, end_date_str, filter_user_id, store_code):
@@ -1049,7 +1052,7 @@ HTML_TEMPLATE = """
                     {% endif %}
                 </a>{% endif %}
                 
-                <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-3 mt-6 mb-2">Team Management</p
+                <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-3 mt-6 mb-2">Team Management</p>
                 {% if session_has_permission('payroll') %}<a href="#" onclick="toggleModal('salary-modal', true); return false;" class="flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 font-medium text-xs transition border border-transparent hover:border-slate-200">
                     <span>💰</span>
                     <span>Payroll & Reports</span>
@@ -1391,6 +1394,33 @@ HTML_TEMPLATE = """
                         </button>
                     </form>
                 </div>
+
+                <!-- UPLOAD INDIVIDUAL SALARY SLIP (Admin/Dev) -->
+                <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
+                    <h4 class="text-xs sm:text-sm font-bold text-emerald-900 mb-3">Individual Slip Upload</h4>
+                    <form action="/upload_individual_salary" method="POST" enctype="multipart/form-data" class="flex flex-col sm:flex-row items-end gap-3">
+                        <div class="w-full sm:flex-1">
+                            <label class="block text-[10px] font-bold uppercase text-emerald-700 mb-1">Employee</label>
+                            <select name="emp_id" required class="w-full bg-white border border-emerald-300 rounded-lg px-2 py-2 text-xs focus:ring-2 focus:ring-emerald-500">
+                                <option value="">-- Select Employee --</option>
+                                {% for emp in all_users %}
+                                    <option value="{{ emp.user_id }}">{{ emp.name }} ({{ emp.user_id }})</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="w-full sm:flex-1">
+                            <label class="block text-[10px] font-bold uppercase text-emerald-700 mb-1">Month & Year</label>
+                            <input type="month" name="salary_month" required class="w-full bg-white border border-emerald-300 rounded-lg px-3 py-2 text-xs focus:ring-2 focus:ring-emerald-500">
+                        </div>
+                        <div class="w-full sm:flex-1">
+                            <label class="block text-[10px] font-bold uppercase text-emerald-700 mb-1">PDF File</label>
+                            <input type="file" name="individual_pdf" accept=".pdf" required class="w-full bg-white border border-emerald-300 rounded-lg px-2 py-1.5 text-[11px] focus:ring-2 focus:ring-emerald-500">
+                        </div>
+                        <button type="submit" class="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2 rounded-lg text-xs transition">
+                            Upload
+                        </button>
+                    </form>
+                </div>
                 {% endif %}
 
                 <!-- VIEW SALARY SLIPS (All) -->
@@ -1448,6 +1478,23 @@ HTML_TEMPLATE = """
                 <iframe id="pdf-viewer-frame" class="w-full h-full pointer-events-none" style="pointer-events: auto;" src=""></iframe>
             </div>
             <div class="text-center mt-2 text-[10px] text-slate-400 uppercase tracking-widest font-bold">Confidential Document</div>
+        </div>
+    </div>
+
+    <!-- Calendar & Rota Modal -->
+    <div id="calendar-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[60] flex items-center justify-center hidden p-2">
+        <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 p-5 w-full max-w-2xl mx-auto space-y-4 max-h-[90vh] flex flex-col">
+            <div class="flex justify-between items-center border-b border-slate-100 pb-2">
+                <h3 class="text-sm sm:text-lg font-bold text-slate-900">📅 Calendar & Rota Rotation</h3>
+                <button onclick="toggleModal('calendar-modal', false)" class="text-slate-400 hover:text-slate-600 font-bold text-lg">✕</button>
+            </div>
+            <div class="text-center py-8 text-slate-500 text-sm">
+                <p>Rota Rotation and Shift Schedules are fully integrated with your <strong>Roster Planner</strong> module.</p>
+                <p class="mt-2 text-xs">To update upcoming shifts, assign duties, or change weekly off rotations, please use the Roster Planner. All shifts and rotations assigned there will automatically reflect in the main Attendance Dashboard and Reports.</p>
+                {% if role in ['admin', 'developer'] %}
+                <button onclick="toggleModal('calendar-modal', false); toggleModal('roster-planner-modal', true)" class="mt-6 bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl font-bold transition shadow-md">Open Roster Planner</button>
+                {% endif %}
+            </div>
         </div>
     </div>
 
@@ -2014,6 +2061,58 @@ def upload_bulk_salary():
         flash(f'PDF Split Error: {str(e)}', 'danger')
     return redirect(url_for('index'))
 
+@app.route('/upload_individual_salary', methods=['POST'])
+def upload_individual_salary():
+    if not session_has_permission('payroll'):
+        return redirect(url_for('index'))
+
+    emp_id = request.form.get('emp_id')
+    salary_month = request.form.get('salary_month')
+    file = request.files.get('individual_pdf')
+
+    if not emp_id or not salary_month or not file or file.filename == '':
+        flash('Sabhi fields bharna zaroori hai!', 'danger')
+        return redirect(url_for('index'))
+
+    if not file.filename.lower().endswith('.pdf'):
+        flash('Sirf PDF files allowed hain!', 'danger')
+        return redirect(url_for('index'))
+
+    emp_info = get_emp_info(emp_id)
+    final_emp_code = emp_id if emp_id.startswith('NWC') else f'NWC{emp_id}'
+
+    file_id = str(uuid.uuid4())
+    secure_name = f'salary_{final_emp_code}_{salary_month}_{file_id}.pdf'
+    local_path = os.path.join(app.config['UPLOAD_FOLDER'], secure_name)
+    file.save(local_path)
+
+    slips = load_salary_slips()
+    # Remove old slip for same month and same user if it already exists
+    kept_slips = []
+    for old in slips:
+        if old.get('month') == salary_month and old.get('user_id') == final_emp_code:
+            old_path = os.path.join(app.config['UPLOAD_FOLDER'], old.get('filename', ''))
+            if os.path.isfile(old_path):
+                try: os.remove(old_path)
+                except OSError: pass
+        else:
+            kept_slips.append(old)
+    slips = kept_slips
+
+    slips.append({
+        'file_id': file_id,
+        'user_id': final_emp_code,
+        'emp_name': emp_info['name'],
+        'month': salary_month,
+        'filename': secure_name,
+        'page_count': len(PdfReader(local_path).pages) if os.path.exists(local_path) else 1,
+        'upload_date': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    })
+
+    save_salary_slips(slips)
+    flash(f'{emp_info["name"]} ki individual salary slip successfully upload ho gayi!', 'success')
+    return redirect(url_for('index'))
+
 @app.route('/salary_file/<file_id>')
 def salary_file(file_id):
     if not session.get('logged_in'):
@@ -2277,6 +2376,8 @@ def sync_attendance():
         data = request.get_json()
         if not data or 'logs' not in data: return {'status': 'error', 'message': 'No logs'}, 400
         logs = data['logs']
+        store_code = data.get('store_code', 'LM11')
+        
         existing_keys = {(str(item.get('user_id')), str(item.get('timestamp'))) for item in SYNCED_ATTENDANCE_LOGS}
         added_count = 0
         for log in logs:
@@ -2285,7 +2386,10 @@ def sync_attendance():
                 SYNCED_ATTENDANCE_LOGS.append(log)
                 existing_keys.add(key)
                 added_count += 1
-        LAST_DEVICE_SYNC_TIME = datetime.now()
+                
+        # Dictionary Update
+        LAST_DEVICE_SYNC_TIME[store_code] = datetime.now()
+        
         return {'status': 'success', 'message': f'{len(logs)} records synced ({added_count} new)'}, 200
     except Exception as e: return {'status': 'error', 'message': str(e)}, 500
 
