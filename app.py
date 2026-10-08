@@ -31,13 +31,24 @@ MACHINES = {
     'DEV': {'ip': '127.0.0.1', 'port': 4370, 'name': 'Fresmart'}
 }
 
-GITHUB_TOKEN = os.getenv('GITHUB_TOKEN', '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')
+GITHUB_TOKEN = os.getenv('GITHUB_TOKEN', '')
 GITHUB_REPO_NAME = os.getenv('GITHUB_REPO_NAME', 'devilsuza/Gamekfme')
 GITHUB_BRANCH = os.getenv('GITHUB_BRANCH', 'main')
 
 # Persistent Storage Files
 LEAVE_JSON_FILE = 'leave_requests.json'
 LEAVE_EXCEL_FILE = 'leave_records.xlsx'
+LEAVE_CODE_NAMES = {
+    'F01;1': 'Baixa Médica',
+    'F03;1': 'Falta Injustificada',
+    'F05;1': 'Licença sem vencimento',
+    'F10;1': 'Falta Justificada',
+    'F51;1': 'Casamento',
+    'F60;1': 'Nascimento',
+    'F61;1': 'Obito',
+    'F62;1': 'Gravidez',
+}
+
 ATTENDANCE_OVERRIDES_FILE = 'attendance_overrides.json'
 MANUAL_PUNCHES_FILE = 'manual_punches.json'
 ROSTER_JSON_FILE = 'roster.json' 
@@ -63,6 +74,8 @@ SYNCED_ATTENDANCE_LOGS = []
 LAST_DEVICE_SYNC_TIME = {}
 
 # Master Employees (Fallback / Default Setup)
+EMPLOYEE_IDENTITY_DATA = {'NWC8364': {'data_de_contrato': '07/15/26', 'identificacao': '0008858606UE045', 'numero_inss': '7493357'}, 'NWC2652': {'data_de_contrato': '04/02/21', 'identificacao': '0007320697UE040', 'numero_inss': '5268457'}, 'NWC4554': {'data_de_contrato': '07/27/23', 'identificacao': '0007010800KS048', 'numero_inss': '6065267'}, 'NWC3381': {'data_de_contrato': '10/07/22', 'identificacao': '001491835UE035', 'numero_inss': '5751543'}, 'NWC2788': {'data_de_contrato': '06/27/22', 'identificacao': '0003316212BA038', 'numero_inss': '5626434'}, 'NWC1010': {'data_de_contrato': '10/10/18', 'identificacao': '0003726506UE038', 'numero_inss': '1878707'}, 'NWC1983': {'data_de_contrato': '06/27/22', 'identificacao': '000841297LA033', 'numero_inss': '1497907'}, 'NWC5187': {'data_de_contrato': '06/04/24', 'identificacao': '0006083083LA043', 'numero_inss': '6213233'}, 'NWC1168': {'data_de_contrato': '03/19/19', 'identificacao': '0006278742BA042', 'numero_inss': '5045404'}, 'NWC1525': {'data_de_contrato': '06/24/21', 'identificacao': '0005957722LA049', 'numero_inss': '5390470'}, 'NWC1553': {'data_de_contrato': '07/01/21', 'identificacao': '0002518985LA039', 'numero_inss': '1160532'}, 'NWC3596': {'data_de_contrato': '10/14/22', 'identificacao': '002869217LA033', 'numero_inss': '5752922'}, 'NWC3127': {'data_de_contrato': '08/26/22', 'identificacao': '0009463847LA048', 'numero_inss': '5701199'}, 'NWC2005': {'data_de_contrato': '09/01/21', 'identificacao': '0009206303LA041', 'numero_inss': '5572171'}, 'NWC5168': {'data_de_contrato': '06/04/24', 'identificacao': '0003096236LA038', 'numero_inss': '1850285'}, 'NWC5713': {'data_de_contrato': '11/14/24', 'identificacao': '0001358868LA036', 'numero_inss': '6573015'}, 'NWC5186': {'data_de_contrato': '06/01/24', 'identificacao': '0001144465LA011', 'numero_inss': '6377667'}, 'NWC3318': {'data_de_contrato': '09/20/22', 'identificacao': '0009972719LA042', 'numero_inss': '5718715'}, 'NWC2300': {'data_de_contrato': '03/15/22', 'identificacao': '0003367879LA034', 'numero_inss': '5529307'}, 'NWC5830': {'data_de_contrato': '01/17/25', 'identificacao': '0005999061LA043', 'numero_inss': '5562439'}, 'NWC5529': {'data_de_contrato': '08/19/24', 'identificacao': '0002286363LA034', 'numero_inss': '6456975'}, 'NWC2624': {'data_de_contrato': '04/18/22', 'identificacao': '007833178LA049', 'numero_inss': '5587128'}, 'NWC5396': {'data_de_contrato': '06/20/24', 'identificacao': '000419510KN032', 'numero_inss': '1963315'}, 'NWC3711': {'data_de_contrato': '10/28/22', 'identificacao': '000137207LA032', 'numero_inss': '5754822'}, 'NWC2757': {'data_de_contrato': '05/16/22', 'identificacao': '0004945742LN043', 'numero_inss': '2048790'}, 'NWC3791': {'data_de_contrato': '11/17/22', 'identificacao': '0005968810CA047', 'numero_inss': '5776804'}, 'NWC4281': {'data_de_contrato': '03/10/23', 'identificacao': '000955344LA030', 'numero_inss': '1781558'}, 'NWC4481': {'data_de_contrato': '05/31/23', 'identificacao': '0004858352LA044', 'numero_inss': '5996466'}, 'NWC5222': {'data_de_contrato': '06/20/24', 'identificacao': '0004785268LA046', 'numero_inss': '1731037'}, 'NWC2981': {'data_de_contrato': '07/13/22', 'identificacao': '0005280299LA040', 'numero_inss': '5667046'}, 'NWC6661': {'data_de_contrato': '08/15/25', 'identificacao': '0005518818BA046', 'numero_inss': '6914818'}, 'NWC6444': {'data_de_contrato': '06/20/25', 'identificacao': '0003579623LA037', 'numero_inss': '6858477'}, 'NWC6638': {'data_de_contrato': '08/16/25', 'identificacao': '0007074038KS044', 'numero_inss': '5141214'}, 'NWC6702': {'data_de_contrato': '08/18/25', 'identificacao': '0009148747LA047', 'numero_inss': '5682990'}, 'NWC8362': {'data_de_contrato': '07/15/26', 'identificacao': '0006864584UE041', 'numero_inss': '4922086'}, 'NWC8328': {'data_de_contrato': '07/10/26', 'identificacao': '006246050LA048', 'numero_inss': '7493006'}, 'NWC8350': {'data_de_contrato': '07/15/26', 'identificacao': '0002789758LA031', 'numero_inss': '7493052'}, 'NWC6715': {'data_de_contrato': '08/18/25', 'identificacao': '006753746LA046', 'numero_inss': '6927538'}, 'NWC7347': {'data_de_contrato': '12/19/25', 'identificacao': '007247013HO044', 'numero_inss': '5853548'}, 'NWC8361': {'data_de_contrato': '07/15/26', 'identificacao': '0007046482ME043', 'numero_inss': '5283234'}}
+
 MASTER_EMPLOYEES = {
     'NWC2981': {'name': 'ANTONIO JOSE BANDOLA', 'off': 'SUNDAY', 'dept': 'ADMIN - MANAGER', 'shift': 'morning'},
     'NWC3127': {'name': 'MATEUS ANTONIO DA COSTA BALMIRO', 'off': 'FRIDAY', 'dept': 'ADMIN - MANAGER', 'shift': 'morning'},
@@ -155,6 +168,10 @@ def normalize_user_record(info):
         perms=preset[:] if preset else (PERMISSIONS[:] if info.get('role') in ['admin','developer'] else ROLE_PRESETS['EMPLOYEE'][:])
     info['permissions']=[p for p in perms if p in PERMISSIONS]
     info.setdefault('profile_photo',''); info.setdefault('off','SUNDAY'); info.setdefault('dept',info.get('designation','General')); info.setdefault('shift','morning')
+    statutory=EMPLOYEE_IDENTITY_DATA.get(str(info.get('emp_code','')).upper(),{})
+    info.setdefault('identificacao', statutory.get('identificacao',''))
+    info.setdefault('numero_inss', statutory.get('numero_inss',''))
+    info.setdefault('data_de_contrato', statutory.get('data_de_contrato',''))
     return info
 
 def user_has_permission(user_id, permission):
@@ -166,9 +183,14 @@ def session_has_permission(permission): return user_has_permission(session.get('
 
 def get_user_stores(user_id=None):
     user_id=user_id or session.get('user_id')
-    if session.get('role')=='developer' or user_id=='NCSA0608': return list(MACHINES.keys())
+    if session.get('role')=='developer' or user_id=='NCSA0608':
+        return [x for x in MACHINES.keys() if x != 'DEV']
     info=normalize_user_record(load_users_db().get(user_id,{}))
-    return [x for x in info.get('stores',[]) if x in MACHINES]
+    primary=(info.get('store') or session.get('store') or '').upper()
+    if primary in MACHINES and primary != 'DEV':
+        return [primary]
+    valid=[x for x in info.get('stores',[]) if x in MACHINES and x != 'DEV']
+    return valid[:1]
 
 def save_leave_requests(data): save_json_file(LEAVE_JSON_FILE,data)
 
@@ -851,68 +873,194 @@ HTML_TEMPLATE = """
             if (pwd) window.location.href = "/shutdown?pwd=" + encodeURIComponent(pwd);
         }
 
-        let rosterEmployees = [];
-        let rosterData = {};
-        function weekOfMonth(day) { return Math.min(5, Math.ceil(day / 7)); }
-        function rosterValue(empId, dateStr) { return (rosterData[empId] || {})[dateStr] || ''; }
-        function renderRosterGrid() {
-            const monthStr = document.getElementById('rp-month').value;
-            const tbody = document.getElementById('roster-planner-tbody');
-            const head = document.getElementById('roster-date-head');
-            if (!monthStr) { tbody.innerHTML='<tr><td class="p-6 text-center text-slate-400">Choose month</td></tr>'; return; }
-            const [year, month] = monthStr.split('-').map(Number);
-            const days = new Date(year, month, 0).getDate();
-            head.innerHTML = '<th class="p-2 sticky left-0 bg-slate-100 z-20">Sr.</th><th class="p-2 sticky left-10 bg-slate-100 z-20">Employee Code</th><th class="p-2 sticky left-36 bg-slate-100 z-20">Employee Name</th><th class="p-2 sticky left-80 bg-slate-100 z-20">Designation</th><th class="p-2">Reset</th>';
-            for(let d=1; d<=days; d++) { const dt=new Date(year,month-1,d); head.innerHTML += `<th class="p-1 text-center min-w-[86px]">${d}<br><span class="text-[8px] text-slate-400">${dt.toLocaleDateString('en-US',{weekday:'short'})}</span></th>`; }
-            tbody.innerHTML='';
-            rosterEmployees.forEach((emp,i)=>{
-                let cells='';
-                for(let d=1;d<=days;d++) { const dateStr=`${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`; const val=rosterValue(emp.user_id,dateStr); cells += `<td class="p-1 border"><select class="roster-cell w-full text-[10px] border rounded px-1 py-1 ${val==='Weekly Off'?'bg-rose-50':val?'bg-indigo-50':''}" data-emp="${emp.user_id}" data-date="${dateStr}"><option value="">-</option><option value="Shift A" ${val==='Shift A'?'selected':''}>Shift A</option><option value="Shift B" ${val==='Shift B'?'selected':''}>Shift B</option><option value="Weekly Off" ${val==='Weekly Off'?'selected':''}>Weekly Off</option></select></td>`; }
-                const tr=document.createElement('tr'); tr.innerHTML=`<td class="p-2 border text-center sticky left-0 bg-white">${i+1}</td><td class="p-2 border font-mono font-bold sticky left-10 bg-white">${emp.user_id}</td><td class="p-2 border font-bold sticky left-36 bg-white min-w-[176px]">${emp.name}</td><td class="p-2 border sticky left-80 bg-white min-w-[150px]">${emp.designation||emp.dept||''}</td><td class="p-2 border"><button type="button" onclick="resetRosterRow('${emp.user_id}')" class="text-rose-600 font-bold">Reset</button></td>${cells}`; tbody.appendChild(tr);
-            });
-            document.getElementById('save-roster-btn').classList.remove('hidden');
-            document.getElementById('export-roster-btn').classList.remove('hidden');
+        let rosterMatrixData = null;
+        function rosterValueClass(value) {
+            if (value === 'Shift A') return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+            if (value === 'Shift B') return 'bg-indigo-50 text-indigo-700 border-indigo-200';
+            if (value === 'Weekly Off') return 'bg-rose-50 text-rose-700 border-rose-200';
+            return 'bg-white text-slate-600 border-slate-200';
         }
         function loadRosterPlanner() {
-            const month=document.getElementById('rp-month').value; if(!month) return;
-            fetch(`/api/get_roster_month?month=${month}`).then(r=>r.json()).then(data=>{ rosterEmployees=data.employees||[]; rosterData=data.roster||{}; renderRosterGrid(); });
+            const monthStr = document.getElementById('rp-month').value;
+            const table = document.getElementById('roster-matrix-table');
+            if (!monthStr) { alert('Month select karein'); return; }
+            table.innerHTML = '<div class="py-12 text-center text-slate-400">Loading monthly roster...</div>';
+            fetch(`/api/roster_matrix?month=${encodeURIComponent(monthStr)}`)
+            .then(r => { if(!r.ok) throw new Error('Roster load failed'); return r.json(); })
+            .then(data => { rosterMatrixData=data; renderRosterMatrix(data); document.getElementById('save-roster-btn').classList.remove('hidden'); })
+            .catch(err => table.innerHTML=`<div class="py-12 text-center text-rose-600">${err.message}</div>`);
         }
-        function resetRosterRow(empId){ document.querySelectorAll(`.roster-cell[data-emp="${empId}"]`).forEach(x=>x.value=''); }
-        function applyRosterBulk(){
-            const value=document.getElementById('rp-bulk-value').value; const weeks=Array.from(document.querySelectorAll('input[name="rp-week"]:checked')).map(x=>Number(x.value)); const employees=Array.from(document.getElementById('rp-bulk-employees').selectedOptions).map(x=>x.value);
-            document.querySelectorAll('.roster-cell').forEach(x=>{ const d=Number(x.dataset.date.slice(-2)); if((!employees.length||employees.includes(x.dataset.emp)) && (!weeks.length||weeks.includes(weekOfMonth(d)))) x.value=value; });
+        function renderRosterMatrix(data) {
+            const host=document.getElementById('roster-matrix-table');
+            const dates=data.dates || [], employees=data.employees || [];
+            let html='<table class="min-w-max w-full text-[10px] border-collapse"><thead class="sticky top-0 z-20">';
+            html+='<tr class="bg-slate-900 text-white"><th class="sticky left-0 z-30 bg-slate-900 p-2 border border-slate-700 w-12">Sr.</th><th class="sticky left-12 z-30 bg-slate-900 p-2 border border-slate-700 min-w-[105px]">Employee Code</th><th class="sticky left-[153px] z-30 bg-slate-900 p-2 border border-slate-700 min-w-[190px]">Employee Name</th><th class="sticky left-[343px] z-30 bg-slate-900 p-2 border border-slate-700 min-w-[150px]">Designation</th>';
+            dates.forEach(d=>{html+=`<th class="p-2 border border-slate-700 min-w-[102px] text-center"><div class="text-sm font-black">${d.day}</div><div class="text-[9px] text-cyan-200">${d.weekday}</div></th>`});
+            html+='</tr><tr class="bg-slate-100 text-slate-700"><th colspan="4" class="sticky left-0 z-30 bg-slate-100 p-2 border border-slate-300 text-left">Daily manpower summary</th>';
+            dates.forEach(d=>{const c=data.summary[d.date]||{};html+=`<th class="p-1 border border-slate-300"><div class="grid gap-1 text-[9px]"><span id="sum-a-${d.date}" class="rounded bg-emerald-100 text-emerald-800 px-1">A: ${c.shift_a||0}</span><span id="sum-b-${d.date}" class="rounded bg-indigo-100 text-indigo-800 px-1">B: ${c.shift_b||0}</span><span id="sum-off-${d.date}" class="rounded bg-rose-100 text-rose-800 px-1">Off: ${c.weekly_off||0}</span></div></th>`});
+            html+='</tr></thead><tbody>';
+            employees.forEach((e,i)=>{html+=`<tr class="roster-employee-row hover:bg-slate-50" data-code="${e.user_id.toLowerCase()}" data-name="${e.name.toLowerCase()}" data-designation="${(e.designation||e.dept||'employee').toLowerCase()}"><td class="sticky left-0 z-10 bg-white p-2 border border-slate-200 text-center font-bold">${i+1}</td><td class="sticky left-12 z-10 bg-white p-2 border border-slate-200 font-mono font-bold">${e.user_id}</td><td class="sticky left-[153px] z-10 bg-white p-2 border border-slate-200 font-bold"><div class="flex items-center justify-between gap-2"><span class="truncate" title="${e.name}">${e.name}</span><button type="button" onclick="resetEmployeeRoster('${e.user_id}')" class="shrink-0 rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-[8px] font-black text-rose-700 hover:bg-rose-100" title="Reset this employee's selected month roster">Reset</button></div></td><td class="sticky left-[343px] z-10 bg-white p-2 border border-slate-200">${e.designation||e.dept||'Employee'}</td>`;
+                dates.forEach(d=>{const v=(e.roster&&e.roster[d.date])||'';html+=`<td class="p-1 border border-slate-200"><select data-emp="${e.user_id}" data-date="${d.date}" onchange="onRosterCellChange(this)" class="roster-matrix-select w-full rounded-lg border px-1 py-2 text-[9px] font-bold ${rosterValueClass(v)}"><option value="" ${!v?'selected':''}>Default</option><option value="Shift A" ${v==='Shift A'?'selected':''}>Shift A</option><option value="Shift B" ${v==='Shift B'?'selected':''}>Shift B</option><option value="Weekly Off" ${v==='Weekly Off'?'selected':''}>Weekly Off</option></select></td>`});
+                html+='</tr>'});
+            html+='</tbody></table>'; host.innerHTML=html; populateRosterDesignationFilter(); filterRosterRows();
         }
-        function saveRoster(){
-            const updates={}; document.querySelectorAll('.roster-cell').forEach(x=>{ if(!updates[x.dataset.emp]) updates[x.dataset.emp]={}; updates[x.dataset.emp][x.dataset.date]=x.value; });
-            fetch('/api/save_roster_bulk',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({month:document.getElementById('rp-month').value,updates})}).then(r=>r.json()).then(()=>alert('Monthly roster saved successfully.'));
+        let pendingRosterChange = null;
+        function onRosterCellChange(el) {
+            if(!rosterMatrixData) return;
+            const employee=rosterMatrixData.employees.find(e=>e.user_id===el.dataset.emp);
+            if(!employee) return;
+            const oldValue=(employee.roster&&employee.roster[el.dataset.date])||'';
+            const newValue=el.value;
+            if(!newValue) {
+                employee.roster[el.dataset.date]='';
+                el.className='roster-matrix-select w-full rounded-lg border px-1 py-2 text-[9px] font-bold '+rosterValueClass('');
+                updateRosterSummary(); filterRosterRows(); return;
+            }
+            pendingRosterChange={empId:el.dataset.emp,date:el.dataset.date,value:newValue,oldValue,element:el};
+            const empName=employee.name||employee.user_id;
+            document.getElementById('week-apply-title').textContent=`${empName} • ${newValue}`;
+            document.getElementById('week-apply-subtitle').textContent=`Selected date: ${el.dataset.date}. Same ${newValue} kin week ranges me apply karna hai? Multiple options select kar sakte hain.`;
+            document.querySelectorAll('input[name="week-apply-option"]').forEach(x=>x.checked=false);
+            document.querySelector('input[name="week-apply-option"][value="selected_date"]').checked=true;
+            updateWeekSelectionCount();
+            toggleModal('week-apply-modal',true);
         }
-        function exportRoster(){ window.location.href='/export_roster?month='+encodeURIComponent(document.getElementById('rp-month').value); }
-        function filterSalarySlips() {
-            let month = document.getElementById('salary-month-select').value;
-            let rows = document.querySelectorAll('.salary-row');
-            rows.forEach(row => {
-                if(month === '' || row.getAttribute('data-month') === month) {
-                    row.style.display = '';
-                } else {
-                    row.style.display = 'none';
-                }
+        function cancelRosterWeekApply() {
+            if(pendingRosterChange && pendingRosterChange.element) pendingRosterChange.element.value=pendingRosterChange.oldValue||'';
+            pendingRosterChange=null; toggleModal('week-apply-modal',false);
+        }
+        function getRosterWeekDates(mode, selectedDate) {
+            if(!rosterMatrixData) return [];
+            const dates=rosterMatrixData.dates.map(d=>d.date);
+            const selected=new Date(selectedDate+'T00:00:00');
+            if(mode==='selected_date') return [selectedDate];
+            if(mode==='same_weekday_all') {
+                const weekday=selected.getDay(); return dates.filter(dt=>new Date(dt+'T00:00:00').getDay()===weekday);
+            }
+            let startDay=1,endDay=7;
+            if(mode==='week_2'){startDay=8;endDay=14}
+            else if(mode==='week_3'){startDay=15;endDay=21}
+            else if(mode==='week_4'){startDay=22;endDay=28}
+            else if(mode==='last_week'){startDay=29;endDay=99}
+            return dates.filter(dt=>{const day=parseInt(dt.slice(-2));return day>=startDay&&day<=endDay});
+        }
+        function handleWeekOptionChange(changed) {
+            const selectedDate=document.querySelector('input[name="week-apply-option"][value="selected_date"]');
+            const sameWeekday=document.querySelector('input[name="week-apply-option"][value="same_weekday_all"]');
+            const weekBoxes=[...document.querySelectorAll('input[name="week-apply-option"]')].filter(x=>!['selected_date','same_weekday_all'].includes(x.value));
+            if(changed.value==='selected_date' && changed.checked) {
+                weekBoxes.forEach(x=>x.checked=false); sameWeekday.checked=false;
+            } else if(changed.value==='same_weekday_all' && changed.checked) {
+                weekBoxes.forEach(x=>x.checked=false); selectedDate.checked=false;
+            } else if(changed.checked) {
+                selectedDate.checked=false; sameWeekday.checked=false;
+            }
+            if(!document.querySelector('input[name="week-apply-option"]:checked')) selectedDate.checked=true;
+            updateWeekSelectionCount();
+        }
+        function updateWeekSelectionCount() {
+            const selected=[...document.querySelectorAll('input[name="week-apply-option"]:checked')];
+            const label=document.getElementById('week-selection-count');
+            if(label) label.textContent=selected.length===1?'1 option selected':`${selected.length} options selected`;
+        }
+        function toggleAllRosterWeeks(master) {
+            const values=['week_1','week_2','week_3','week_4','last_week'];
+            document.querySelectorAll('input[name="week-apply-option"]').forEach(x=>x.checked=values.includes(x.value)?master.checked:false);
+            updateWeekSelectionCount();
+        }
+        function applyRosterWeekChoice() {
+            if(!pendingRosterChange) return;
+            const modes=[...document.querySelectorAll('input[name="week-apply-option"]:checked')].map(x=>x.value);
+            if(!modes.length){alert('Kam se kam ek option select karein.');return;}
+            const employee=rosterMatrixData.employees.find(e=>e.user_id===pendingRosterChange.empId);
+            if(!employee) return;
+            const dateSet=new Set();
+            modes.forEach(mode=>getRosterWeekDates(mode,pendingRosterChange.date).forEach(dt=>dateSet.add(dt)));
+            dateSet.forEach(dt=>employee.roster[dt]=pendingRosterChange.value);
+            pendingRosterChange=null; toggleModal('week-apply-modal',false); renderRosterMatrix(rosterMatrixData); updateRosterSummary(); filterRosterRows();
+        }
+        function updateRosterSummary() {
+            if(!rosterMatrixData) return;
+            rosterMatrixData.dates.forEach(d=>{rosterMatrixData.summary[d.date]={shift_a:0,shift_b:0,weekly_off:0}});
+            rosterMatrixData.employees.forEach(e=>Object.entries(e.roster||{}).forEach(([dt,val])=>{
+                const c=rosterMatrixData.summary[dt]; if(!c) return;
+                if(val==='Shift A')c.shift_a++; else if(val==='Shift B')c.shift_b++; else if(val==='Weekly Off')c.weekly_off++;
+            }));
+            rosterMatrixData.dates.forEach(d=>{
+                const c=rosterMatrixData.summary[d.date]||{};
+                const a=document.getElementById('sum-a-'+d.date), b=document.getElementById('sum-b-'+d.date), o=document.getElementById('sum-off-'+d.date);
+                if(a)a.textContent='A: '+(c.shift_a||0); if(b)b.textContent='B: '+(c.shift_b||0); if(o)o.textContent='Off: '+(c.weekly_off||0);
             });
         }
-
-        function openPdfViewer(url) {
-            let viewer = document.getElementById('pdf-viewer-frame');
-            viewer.src = url;
-            toggleModal('pdf-viewer-modal', true);
+        function populateRosterDesignationFilter() {
+            const menu=document.getElementById('roster-designation-menu'); if(!menu || !rosterMatrixData) return;
+            const selected=new Set([...menu.querySelectorAll('input:checked')].map(x=>x.value));
+            const values=[...new Set(rosterMatrixData.employees.map(e=>e.designation||e.dept||'Employee'))].sort();
+            menu.innerHTML='<label class="flex gap-2 p-2 text-xs font-bold border-b"><input type="checkbox" id="designation-all" onchange="clearDesignationFilters()"> All Designations</label>'+values.map(v=>`<label class="flex gap-2 p-2 text-xs hover:bg-slate-50 rounded"><input class="roster-designation-check" type="checkbox" value="${v.toLowerCase()}" ${selected.has(v.toLowerCase())?'checked':''} onchange="filterRosterRows();updateDesignationButton()"> ${v}</label>`).join('');
+            updateDesignationButton();
         }
-
-        function uploadLoading() {
-            document.getElementById('upload-btn-text').innerText = 'Splitting... Please wait...';
-            document.getElementById('upload-btn').disabled = true;
-            document.getElementById('upload-btn').classList.add('opacity-75', 'cursor-wait');
+        function toggleDesignationMenu(){document.getElementById('roster-designation-menu').classList.toggle('hidden')}
+        document.addEventListener('click', function(event) {
+            const menu=document.getElementById('roster-designation-menu');
+            const button=document.getElementById('roster-designation-button');
+            if(!menu || !button || menu.classList.contains('hidden')) return;
+            if(!menu.contains(event.target) && !button.contains(event.target)) {
+                menu.classList.add('hidden');
+                filterRosterRows();
+            }
+        });
+        function selectedRosterDesignations(){return [...document.querySelectorAll('.roster-designation-check:checked')].map(x=>x.value)}
+        function clearDesignationFilters(){document.querySelectorAll('.roster-designation-check').forEach(x=>x.checked=false);filterRosterRows();updateDesignationButton()}
+        function updateDesignationButton(){const values=selectedRosterDesignations();const label=document.querySelector('#roster-designation-button span');if(label)label.textContent=values.length?`${values.length} Designations Selected`:'All Designations'}
+        function resetEmployeeRoster(empId) {
+            if(!rosterMatrixData) return;
+            const employee=rosterMatrixData.employees.find(e=>e.user_id===empId);
+            if(!employee) return;
+            const monthLabel=document.getElementById('rp-month')?.value||'selected month';
+            if(!confirm(`${employee.name} ka ${monthLabel} ka complete roster Default par reset karna hai?`)) return;
+            rosterMatrixData.dates.forEach(d=>employee.roster[d.date]='');
+            renderRosterMatrix(rosterMatrixData);
+            updateRosterSummary();
+            filterRosterRows();
+            const notice=document.getElementById('roster-unsaved-notice');
+            if(notice){notice.classList.remove('hidden');notice.textContent=`${employee.name} ka roster reset hua hai. Changes permanently save karne ke liye Save Monthly Roster click karein.`;}
+        }
+        function filterRosterRows() {
+            const q=(document.getElementById('roster-search')?.value||'').trim().toLowerCase();
+            const designations=selectedRosterDesignations();
+            const allocation=document.getElementById('roster-allocation-filter')?.value||'';
+            updateDesignationButton();
+            document.querySelectorAll('.roster-employee-row').forEach(row=>{
+                const matchesText=!q || row.dataset.code.includes(q) || row.dataset.name.includes(q);
+                const matchesDesignation=!designations.length || designations.includes(row.dataset.designation);
+                let matchesAllocation=true;
+                if(allocation) matchesAllocation=[...row.querySelectorAll('.roster-matrix-select')].some(x=>x.value===allocation);
+                row.style.display=matchesText && matchesDesignation && matchesAllocation ? '' : 'none';
+            });
+        }
+        function resetRosterFilters() {
+            document.getElementById('roster-search').value='';
+            document.querySelectorAll('.roster-designation-check').forEach(x=>x.checked=false); updateDesignationButton();
+            document.getElementById('roster-allocation-filter').value='';
+            filterRosterRows();
+        }
+        function exportRosterExcel() {
+            const month=document.getElementById('rp-month').value;
+            if(!month){alert('Month select karein');return;}
+            window.location.href='/export_roster_excel?month='+encodeURIComponent(month);
+        }
+        function saveRoster() {
+            const updates=[];
+            document.querySelectorAll('.roster-matrix-select').forEach(x=>updates.push({emp_id:x.dataset.emp,date:x.dataset.date,value:x.value}));
+            const btn=document.getElementById('save-roster-btn');btn.disabled=true;btn.textContent='Saving...';
+            fetch('/api/save_roster_matrix',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({updates})})
+            .then(r=>r.json()).then(res=>{alert(res.message||'Monthly roster saved');btn.disabled=false;btn.textContent='Save Monthly Roster';const notice=document.getElementById('roster-unsaved-notice');if(notice)notice.classList.add('hidden');loadRosterPlanner()})
+            .catch(e=>{alert(e.message);btn.disabled=false;btn.textContent='Save Monthly Roster'});
         }
 
         document.addEventListener('DOMContentLoaded', function() {
             startTimer();
+            const rpm=document.getElementById('rp-month'); if(rpm && !rpm.value) rpm.value=new Date().toISOString().slice(0,7);
             setInterval(updateLiveClock, 1000);
             updateLiveClock();
         });
@@ -949,6 +1097,11 @@ HTML_TEMPLATE = """
                     <span>Dashboard</span>
                 </a>
                 
+                {% if role in ['admin','developer'] %}
+                <a href="#" onclick="toggleModal('employee-list-modal', true); return false;" class="flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 font-medium text-xs transition border border-transparent hover:border-slate-200">
+                    <span>👥</span><span>Employees</span>
+                </a>
+                {% endif %}
                 {% if session_has_permission('roster') %}
                 <a href="#" onclick="toggleModal('roster-planner-modal', true); return false;" class="flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 font-medium text-xs transition border border-transparent hover:border-slate-200">
                     <span>🗓</span>
@@ -1014,11 +1167,14 @@ HTML_TEMPLATE = """
                     <span>Payroll & Reports</span>
                 </a>{% endif %}
                 
-                {% if session_has_permission('employees_info') %}
-                <!-- Updated Employees Info / ID Card Link -->
-                <a href="{{ '/employee_cards' if role in ['admin','developer'] else '/employee_id/' + session.get('user_id') }}" target="_blank" class="flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 font-medium text-xs transition">
+                {% if role == 'employee' %}
+                <a href="/employee_id/{{ session.get('user_id') }}" target="_blank" class="flex items-center space-x-3 px-3 py-2.5 rounded-xl text-emerald-700 bg-emerald-50 hover:bg-emerald-100 font-bold text-xs transition border border-emerald-200">
                     <span>🪪</span>
-                    <span>Employees Info (ID Card)</span>
+                    <span>{% if ui_language|default('en') == 'pt' %}Baixar Cartão de Identificação{% else %}Download ID Card{% endif %}</span>
+                </a>
+                {% elif session_has_permission('employees_info') %}
+                <a href="/employee_id/{{ session.get('user_id') }}" target="_blank" class="flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 font-medium text-xs transition">
+                    <span>🪪</span><span>Employees Info (ID Card)</span>
                 </a>
                 {% endif %}
             </div>
@@ -1054,6 +1210,11 @@ HTML_TEMPLATE = """
             </div>
 
             <div class="flex items-center gap-2 flex-wrap justify-end">
+                {% if role == 'employee' %}
+                <a href="/employee_id/{{ session.get('user_id') }}" target="_blank" class="bg-indigo-50 hover:bg-indigo-100 text-indigo-800 text-xs font-bold px-2 py-1.5 sm:px-3 sm:py-2 rounded-xl transition border border-indigo-200 flex items-center gap-1.5" title="{% if ui_language|default('en') == 'pt' %}Baixar Cartão de Identificação{% else %}Download ID Card{% endif %}">
+                    <span>🪪</span><span class="hidden lg:inline">{% if ui_language|default('en') == 'pt' %}Baixar Cartão{% else %}ID Card{% endif %}</span>
+                </a>
+                {% endif %}
                 <button onclick="toggleModal('leave-modal', true)" class="relative bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-bold px-2 py-1.5 sm:px-3 sm:py-2 rounded-xl transition border border-emerald-200 flex items-center space-x-1.5">
                     <span class="hidden sm:inline">🏖 Leave Portal</span>
                     <span class="sm:hidden">🏖 Leaves</span>
@@ -1443,25 +1604,99 @@ HTML_TEMPLATE = """
 
     <!-- Calendar & Rota Modal -->
     <div id="calendar-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[60] flex items-center justify-center hidden p-2">
-        <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 p-5 w-full max-w-2xl mx-auto space-y-4 max-h-[90vh] flex flex-col">
-            <div class="flex justify-between items-center border-b border-slate-100 pb-2">
-                <h3 class="text-sm sm:text-lg font-bold text-slate-900">📅 Calendar & Rota Rotation</h3>
+        <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 p-5 w-full {% if role=='employee' %}max-w-5xl{% else %}max-w-2xl{% endif %} mx-auto space-y-4 max-h-[92vh] flex flex-col">
+            <div class="flex justify-between items-center border-b border-slate-100 pb-3">
+                <div>
+                    <h3 class="text-sm sm:text-lg font-bold text-slate-900">📅 {% if role=='employee' %}{% if ui_language=='pt' %}Minha Escala Mensal{% else %}My Monthly Roster{% endif %}{% else %}Calendar & Rota Rotation{% endif %}</h3>
+                    {% if role=='employee' %}<p class="text-[11px] text-slate-500 mt-1">{{ employee_roster_month_label }} • {{ logged_user_name }}</p>{% endif %}
+                </div>
                 <button onclick="toggleModal('calendar-modal', false)" class="text-slate-400 hover:text-slate-600 font-bold text-lg">✕</button>
             </div>
-            <div class="text-center py-8 text-slate-500 text-sm">
-                <p>Rota Rotation and Shift Schedules are fully integrated with your <strong>Roster Planner</strong> module.</p>
-                <p class="mt-2 text-xs">To update upcoming shifts, assign duties, or change weekly off rotations, please use the Roster Planner. All shifts and rotations assigned there will automatically reflect in the main Attendance Dashboard and Reports.</p>
-                {% if role in ['admin', 'developer'] %}
-                <button onclick="toggleModal('calendar-modal', false); toggleModal('roster-planner-modal', true)" class="mt-6 bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl font-bold transition shadow-md">Open Roster Planner</button>
-                {% endif %}
+            {% if role == 'employee' %}
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <div class="rounded-xl bg-emerald-50 border border-emerald-200 p-3"><span class="text-[10px] text-emerald-700">{% if ui_language=='pt' %}Turno A{% else %}Shift A{% endif %}</span><b class="block text-xl text-emerald-800">{{ employee_roster_counts.shift_a }}</b></div>
+                <div class="rounded-xl bg-indigo-50 border border-indigo-200 p-3"><span class="text-[10px] text-indigo-700">{% if ui_language=='pt' %}Turno B{% else %}Shift B{% endif %}</span><b class="block text-xl text-indigo-800">{{ employee_roster_counts.shift_b }}</b></div>
+                <div class="rounded-xl bg-rose-50 border border-rose-200 p-3"><span class="text-[10px] text-rose-700">{% if ui_language=='pt' %}Folga Semanal{% else %}Weekly Off{% endif %}</span><b class="block text-xl text-rose-800">{{ employee_roster_counts.weekly_off }}</b></div>
+                <div class="rounded-xl bg-slate-100 border border-slate-200 p-3"><span class="text-[10px] text-slate-600">{% if ui_language=='pt' %}Padrão{% else %}Default{% endif %}</span><b class="block text-xl text-slate-800">{{ employee_roster_counts.default }}</b></div>
             </div>
+            <div class="overflow-auto border border-slate-200 rounded-xl flex-1">
+                <table class="w-full min-w-[720px] text-xs">
+                    <thead class="sticky top-0 bg-slate-900 text-white"><tr><th class="p-3 text-left">{% if ui_language=='pt' %}Data{% else %}Date{% endif %}</th><th class="p-3 text-left">{% if ui_language=='pt' %}Dia{% else %}Day{% endif %}</th><th class="p-3 text-left">{% if ui_language=='pt' %}Turno / Folga{% else %}Shift / Weekly Off{% endif %}</th><th class="p-3 text-left">{% if ui_language=='pt' %}Estado{% else %}Status{% endif %}</th></tr></thead>
+                    <tbody>{% for day in employee_month_roster %}<tr class="border-b hover:bg-slate-50 {% if day.is_today %}bg-cyan-50{% endif %}"><td class="p-3 font-mono">{{ day.display_date }}</td><td class="p-3 font-bold">{% if ui_language=='pt' %}{{ day.weekday_pt }}{% else %}{{ day.weekday_en }}{% endif %}</td><td class="p-3"><span class="inline-block rounded-full px-3 py-1 font-bold {% if day.value=='Shift A' %}bg-emerald-100 text-emerald-700{% elif day.value=='Shift B' %}bg-indigo-100 text-indigo-700{% elif day.value=='Weekly Off' %}bg-rose-100 text-rose-700{% else %}bg-slate-100 text-slate-600{% endif %}">{% if ui_language=='pt' %}{{ day.value_pt }}{% else %}{{ day.value_en }}{% endif %}</span></td><td class="p-3">{% if day.is_today %}<span class="text-cyan-700 font-bold">{% if ui_language=='pt' %}Hoje{% else %}Today{% endif %}</span>{% else %}<span class="text-slate-400">{% if ui_language=='pt' %}Programado{% else %}Scheduled{% endif %}</span>{% endif %}</td></tr>{% endfor %}</tbody>
+                </table>
+            </div>
+            <p class="text-[10px] text-slate-500">{% if ui_language=='pt' %}Esta escala mostra apenas os seus turnos e folgas do mês atual.{% else %}This roster shows only your shifts and weekly-off dates for the current month.{% endif %}</p>
+            {% else %}
+            <div class="text-center py-8 text-slate-500 text-sm"><p>Rota Rotation and Shift Schedules are integrated with the <strong>Roster Planner</strong>.</p><p class="mt-2 text-xs">Use Roster Planner to assign shifts and weekly-off rotations.</p><button onclick="toggleModal('calendar-modal', false); toggleModal('roster-planner-modal', true)" class="mt-6 bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl font-bold transition shadow-md">Open Roster Planner</button></div>
+            {% endif %}
         </div>
     </div>
 
+      <!-- Employee Card Directory Modal -->
+      <div id="employee-list-modal" class="fixed inset-0 bg-slate-950/75 backdrop-blur-sm z-[65] flex items-center justify-center hidden p-2 sm:p-4">
+          <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-7xl max-h-[94vh] flex flex-col overflow-hidden">
+              <div class="px-5 py-4 bg-gradient-to-r from-slate-950 via-slate-900 to-emerald-950 text-white flex justify-between items-center">
+                  <div><h3 class="text-lg font-black">Employee List</h3><p class="text-[11px] text-slate-300 mt-1">Search, review and maintain workforce profiles</p></div>
+                  <div class="flex items-center gap-2">
+                      <button onclick="resetEmployeeFilters()" class="h-9 w-9 rounded-lg bg-white/10 hover:bg-white/20">▦</button>
+                      <button onclick="toggleModal('add-employee-modal',true)" class="bg-rose-500 hover:bg-rose-600 text-white px-4 py-2 rounded-xl text-xs font-bold">＋ Add Employee</button>
+                      <button onclick="toggleModal('employee-list-modal',false)" class="h-9 w-9 rounded-lg bg-white/10 hover:bg-white/20 font-bold">✕</button>
+                  </div>
+              </div>
+              <div class="p-4 bg-slate-50 border-b border-slate-200 grid grid-cols-1 md:grid-cols-4 gap-3">
+                  <input id="emp-filter-id" oninput="filterEmployeeCards()" placeholder="Employee ID" class="border border-slate-300 rounded-xl px-3 py-2.5 text-xs">
+                  <input id="emp-filter-name" oninput="filterEmployeeCards()" placeholder="Employee Name" class="border border-slate-300 rounded-xl px-3 py-2.5 text-xs">
+                  <select id="emp-filter-designation" onchange="filterEmployeeCards()" class="border border-slate-300 rounded-xl px-3 py-2.5 text-xs"><option value="">Select Designation</option>{% for d in employee_designations %}<option value="{{ d|lower }}">{{ d }}</option>{% endfor %}</select>
+                  <button onclick="filterEmployeeCards()" class="bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-xs font-bold">Search</button>
+              </div>
+              <div class="p-4 overflow-y-auto bg-[#2b0907] flex-1">
+                  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4" id="employee-card-grid">
+                      {% for emp in employee_cards %}
+                      <article class="employee-directory-card relative bg-gradient-to-b from-[#53140e] to-[#3a0c09] text-white border border-[#84261d] rounded-2xl p-4 shadow-lg" data-id="{{ emp.user_id|lower }}" data-name="{{ emp.name|lower }}" data-designation="{{ emp.designation|lower }}">
+                          <div class="absolute right-3 top-3 text-xl cursor-default">⋮</div>
+                          <div class="flex justify-center mt-1">
+                              {% if emp.profile_photo %}<img src="/uploads/{{ emp.profile_photo }}" class="w-24 h-24 rounded-full object-cover border-4 border-white/30 shadow-xl">{% else %}<div class="w-24 h-24 rounded-full bg-gradient-to-br from-amber-300 to-rose-500 border-4 border-white/30 flex items-center justify-center text-2xl font-black">{{ emp.name[:2] }}</div>{% endif %}
+                          </div>
+                          <div class="text-center mt-3"><h4 class="font-bold text-sm">{{ emp.name }}</h4><p class="text-[10px] text-rose-100 mt-1">{{ emp.designation }}</p></div>
+                          <div class="mt-4 rounded-xl bg-[#f7d8d4] text-[#4c1510] p-3 space-y-2 text-[10px]">
+                              <div>✉ {{ emp.email or 'Email not added' }}</div><div>▣ {{ emp.user_id }}</div><div>🏢 {{ emp.dept }}</div><div>📍 {{ emp.stores|join(', ') }}</div>
+                          </div>
+                          <div class="mt-3 flex gap-2"><a href="/employee_id/{{ emp.user_id }}" target="_blank" class="flex-1 text-center bg-white/10 hover:bg-white/20 text-[10px] font-bold py-2 rounded-lg">ID Card</a><button onclick="toggleModal('user-mgmt-modal',true)" class="flex-1 bg-emerald-500 hover:bg-emerald-600 text-[10px] font-bold py-2 rounded-lg">Manage</button></div>
+                      </article>
+                      {% else %}<div class="col-span-full text-center text-white/70 py-12">No employees found.</div>{% endfor %}
+                  </div>
+              </div>
+          </div>
+      </div>
+      <!-- Add Employee Modal -->
+      <div id="add-employee-modal" class="fixed inset-0 bg-slate-950/75 backdrop-blur-sm z-[70] flex items-center justify-center hidden p-3">
+          <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl p-5">
+              <div class="flex justify-between items-center mb-4"><div><h3 class="font-black text-slate-900">Add Employee</h3><p class="text-xs text-slate-500">Create login and employee profile</p></div><button onclick="toggleModal('add-employee-modal',false)" class="text-xl">✕</button></div>
+              <form action="/manage_user" method="POST" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <input type="hidden" name="action" value="create"><input type="hidden" name="role" value="employee"><input type="hidden" name="status" value="active"><input type="hidden" name="job_role" value="EMPLOYEE">
+                  <input name="uid" placeholder="Employee ID, e.g. NWC9001" required class="border rounded-xl p-3 text-xs"><input name="name" placeholder="Full name" required class="border rounded-xl p-3 text-xs">
+                  <input name="designation" placeholder="Designation" required class="border rounded-xl p-3 text-xs"><input name="dept" placeholder="Department" required class="border rounded-xl p-3 text-xs">
+                  <input name="email" type="email" placeholder="Email address" class="border rounded-xl p-3 text-xs"><input name="identificacao" placeholder="Identificação / NIF" class="border rounded-xl p-3 text-xs"><input name="numero_inss" placeholder="Número do INSS" class="border rounded-xl p-3 text-xs"><input name="data_de_contrato" type="date" class="border rounded-xl p-3 text-xs"><input name="password" value="123" placeholder="Initial password" class="border rounded-xl p-3 text-xs">
+                  <div class="sm:col-span-2 border rounded-xl p-3"><p class="text-[10px] font-bold text-slate-500 mb-2">STORE ACCESS</p>{% for code,m in machines.items() if code!='DEV' %}<label class="mr-4 text-xs"><input type="checkbox" name="stores" value="{{code}}" {% if code==store %}checked{% endif %}> {{code}}</label>{% endfor %}</div>
+                  {% for p in role_presets.EMPLOYEE %}<input type="hidden" name="permissions" value="{{p}}">{% endfor %}
+                  <button class="sm:col-span-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-xl text-xs">Create Employee</button>
+              </form>
+          </div>
+      </div>
     <div id="profile-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[60] flex items-center justify-center hidden p-4"><div class="bg-white rounded-2xl shadow-2xl p-5 w-full max-w-md space-y-4"><div class="flex justify-between"><h3 class="font-bold">👤 My Profile</h3><button onclick="toggleModal('profile-modal',false)">✕</button></div><div class="text-center">{% if current_user.profile_photo %}<img src="/uploads/{{current_user.profile_photo}}" class="w-24 h-24 rounded-full object-cover mx-auto">{% else %}<div class="w-24 h-24 rounded-full bg-slate-100 flex items-center justify-center mx-auto text-3xl">👤</div>{% endif %}<p class="font-bold mt-2">{{logged_user_name}}</p><p class="text-xs text-slate-500">{{current_user.designation}} · {{current_user.job_role}}</p></div><form action="/upload_profile_photo" method="POST" enctype="multipart/form-data" class="space-y-2"><input type="file" name="profile_photo" accept=".jpg,.jpeg,.png,.webp" required class="w-full border rounded-lg p-2 text-xs"><button class="w-full bg-indigo-600 text-white py-2 rounded-lg font-bold text-xs">Upload / Change Photo</button></form>{% if current_user.profile_photo %}<form action="/remove_profile_photo" method="POST"><button class="w-full bg-rose-50 text-rose-700 py-2 rounded-lg font-bold text-xs">Remove Photo</button></form>{% endif %}</div></div>
 
     <!-- Leave Management Modal -->
-    <div id="leave-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[60] flex items-center justify-center hidden p-2"><div class="bg-white rounded-2xl shadow-2xl p-4 w-full max-w-5xl max-h-[90vh] flex flex-col space-y-4"><div class="flex justify-between"><h3 class="font-bold">🏖️ Leave Management</h3><button onclick="toggleModal('leave-modal',false)">✕</button></div>{% if role=='employee' %}<form action="/apply_leave" method="POST" enctype="multipart/form-data" class="grid grid-cols-1 sm:grid-cols-5 gap-2 bg-emerald-50 p-3 rounded-xl"><input type="date" name="start_date" required class="border rounded p-2 text-xs"><input type="date" name="end_date" required class="border rounded p-2 text-xs"><select name="leave_type" class="border rounded p-2 text-xs"><option>F10;1</option><option>F01;1</option><option>F03;1</option><option>F05;1</option><option>F51;1</option><option>F60;1</option><option>F61;1</option><option>F62;1</option></select><input type="file" name="supporting_doc" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" class="border rounded p-1 text-[10px] bg-white"><button class="bg-emerald-600 text-white font-bold rounded text-xs">Submit Leave</button></form>{% endif %}<div class="overflow-auto flex-1 border rounded-xl"><table class="w-full text-left min-w-[650px] text-[10px]"><thead class="bg-slate-100 font-bold"><tr><th class="p-2">Employee</th><th class="p-2">Dates</th><th class="p-2">Type</th><th class="p-2">Status</th><th class="p-2">Action</th></tr></thead><tbody>{% for req in leave_requests|reverse %}<tr class="border-b"><td class="p-2 font-bold">{{req.name}}<br><span class="text-slate-400">{{req.user_id}} · {{req.get('store','')}}</span></td><td class="p-2">{{req.start_date}} → {{req.end_date}}</td><td class="p-2">{{req.leave_type}}</td><td class="p-2">{{req.status}}</td><td class="p-2">{% if req.status=='Pending' and role in ['admin','developer'] %}<a href="/update_leave/{{req.id}}/approve" class="bg-emerald-500 text-white px-2 py-1 rounded mr-1">Approve</a><a href="/update_leave/{{req.id}}/reject" class="bg-rose-500 text-white px-2 py-1 rounded">Reject</a>{% else %}<span class="text-slate-400">Processed</span>{% endif %}</td></tr>{% else %}<tr><td colspan="5" class="p-6 text-center text-slate-400">No leave requests</td></tr>{% endfor %}</tbody></table></div></div></div>
+    <div id="leave-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[60] flex items-center justify-center hidden p-2"><div class="bg-white rounded-2xl shadow-2xl p-4 w-full max-w-5xl max-h-[90vh] flex flex-col space-y-4"><div class="flex justify-between"><h3 class="font-bold">🏖️ Leave Management</h3><button onclick="toggleModal('leave-modal',false)">✕</button></div>{% if role=='employee' %}<form action="/apply_leave" method="POST" enctype="multipart/form-data" class="grid grid-cols-1 sm:grid-cols-5 gap-2 bg-emerald-50 p-3 rounded-xl"><input type="date" name="start_date" required class="border rounded p-2 text-xs"><input type="date" name="end_date" required class="border rounded p-2 text-xs"><select name="leave_type" class="border rounded p-2 text-xs" required>
+<option value="">Select Leave Code / Motivo</option>
+<option value="F01;1">F01;1 — Baixa Médica</option>
+<option value="F03;1">F03;1 — Falta Injustificada</option>
+<option value="F05;1">F05;1 — Licença sem vencimento</option>
+<option value="F10;1">F10;1 — Falta Justificada</option>
+<option value="F51;1">F51;1 — Casamento</option>
+<option value="F60;1">F60;1 — Nascimento</option>
+<option value="F61;1">F61;1 — Obito</option>
+<option value="F62;1">F62;1 — Gravidez</option>
+</select><input type="file" name="supporting_doc" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" class="border rounded p-1 text-[10px] bg-white"><button class="bg-emerald-600 text-white font-bold rounded text-xs">Submit Leave</button></form>{% endif %}<div class="overflow-auto flex-1 border rounded-xl"><table class="w-full text-left min-w-[650px] text-[10px]"><thead class="bg-slate-100 font-bold"><tr><th class="p-2">Employee</th><th class="p-2">Dates</th><th class="p-2">Type</th><th class="p-2">Status</th><th class="p-2">Action</th></tr></thead><tbody>{% for req in leave_requests|reverse %}<tr class="border-b"><td class="p-2 font-bold">{{req.name}}<br><span class="text-slate-400">{{req.user_id}} · {{req.get('store','')}}</span></td><td class="p-2">{{req.start_date}} → {{req.end_date}}</td><td class="p-2"><b>{{ req.leave_type }}</b><br><span class="text-slate-500">{{ leave_code_names.get(req.leave_type, req.get('leave_reason', req.leave_type)) }}</span></td><td class="p-2">{{req.status}}</td><td class="p-2">{% if req.status=='Pending' and role in ['admin','developer'] %}<a href="/update_leave/{{req.id}}/approve" class="bg-emerald-500 text-white px-2 py-1 rounded mr-1">Approve</a><a href="/update_leave/{{req.id}}/reject" class="bg-rose-500 text-white px-2 py-1 rounded">Reject</a>{% else %}<span class="text-slate-400">Processed</span>{% endif %}</td></tr>{% else %}<tr><td colspan="5" class="p-6 text-center text-slate-400">No leave requests</td></tr>{% endfor %}</tbody></table></div></div></div>
 
     <!-- Password Resets Modal (Admin & Dev) -->
     <div id="reset-approvals-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[60] flex items-center justify-center hidden p-2">
@@ -1541,22 +1776,45 @@ HTML_TEMPLATE = """
         </div>
     </div>
 
-    <!-- Roster Planner Modal (Admin/Dev) -->
-    <div id="roster-planner-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[60] flex items-center justify-center hidden p-2">
-      <div class="bg-white rounded-2xl shadow-2xl p-4 w-full max-w-[98vw] h-[92vh] flex flex-col gap-3">
-        <div class="flex justify-between items-center"><h3 class="font-bold">🗓 Monthly Roster Planner</h3><button onclick="toggleModal('roster-planner-modal',false)">✕</button></div>
-        <div class="flex flex-wrap gap-3 items-end bg-slate-50 p-3 rounded-xl">
-          <div><label class="block text-[10px] font-bold">MONTH</label><input type="month" id="rp-month" class="border rounded p-2 text-xs"></div>
-          <button onclick="loadRosterPlanner()" class="bg-indigo-600 text-white px-4 py-2 rounded font-bold text-xs">Load</button>
-          <div><label class="block text-[10px] font-bold">SHIFT / OFF</label><select id="rp-bulk-value" class="border rounded p-2 text-xs"><option value="Shift A">Shift A</option><option value="Shift B">Shift B</option><option value="Weekly Off">Weekly Off</option><option value="">Clear</option></select></div>
-          <div><label class="block text-[10px] font-bold">EMPLOYEES (MULTIPLE)</label><select id="rp-bulk-employees" multiple class="border rounded p-1 text-[10px] h-16 min-w-[180px]">{% for emp in all_users %}<option value="{{emp.user_id}}">{{emp.name}}</option>{% endfor %}</select></div>
-          <div><label class="block text-[10px] font-bold">WEEKS (MULTIPLE)</label><div class="flex gap-2 text-[10px]">{% for w in [1,2,3,4,5] %}<label><input type="checkbox" name="rp-week" value="{{w}}"> {{ 'Last' if w==5 else w }}</label>{% endfor %}</div></div>
-          <button onclick="applyRosterBulk()" class="bg-amber-500 text-white px-4 py-2 rounded font-bold text-xs">Apply Multiple</button>
+    <!-- Monthly Roster Matrix Planner -->
+    <div id="roster-planner-modal" class="fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-[60] flex items-center justify-center hidden p-2">
+        <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 p-4 w-full max-w-[98vw] h-[94vh] flex flex-col gap-3">
+            <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b pb-3">
+                <div><h3 class="font-black text-lg">📅 Monthly Roster Matrix</h3><p class="text-[11px] text-slate-500">Employee-wise Shift A, Shift B and Weekly Off allocation</p><span class="inline-block mt-1 rounded-full bg-cyan-50 text-cyan-700 border border-cyan-200 px-2 py-1 text-[9px] font-bold">{% if role == 'developer' %}Developer View: All Stores{% else %}Store View: {{ store }} Only{% endif %}</span></div>
+                <div class="flex flex-wrap items-end gap-2"><div><label class="block text-[9px] font-bold uppercase text-slate-500">Month</label><input type="month" id="rp-month" class="border rounded-xl px-3 py-2 text-xs"></div><button onclick="loadRosterPlanner()" class="bg-indigo-600 text-white font-bold text-xs px-5 py-2.5 rounded-xl">Load Month</button><button id="save-roster-btn" onclick="saveRoster()" class="bg-emerald-600 text-white font-bold text-xs px-5 py-2.5 rounded-xl hidden">Save Monthly Roster</button><button onclick="exportRosterExcel()" class="bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs px-5 py-2.5 rounded-xl">Export Excel</button><button onclick="toggleModal('roster-planner-modal', false)" class="border px-4 py-2.5 rounded-xl text-xs font-bold">Close</button></div>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-4 gap-2 bg-slate-50 border border-slate-200 rounded-xl p-3">
+                <input id="roster-search" oninput="filterRosterRows()" placeholder="Search code or employee name" class="border rounded-xl px-3 py-2 text-xs">
+                <div class="relative">
+                    <button type="button" onclick="toggleDesignationMenu()" id="roster-designation-button" class="w-full border bg-white rounded-xl px-3 py-2 text-xs text-left flex justify-between"><span>All Designations</span><b>⌄</b></button>
+                    <div id="roster-designation-menu" class="hidden absolute z-50 mt-1 w-full max-h-56 overflow-auto bg-white border border-slate-200 rounded-xl shadow-xl p-2"></div>
+                </div>
+                <select id="roster-allocation-filter" onchange="filterRosterRows()" class="border rounded-xl px-3 py-2 text-xs"><option value="">All Allocations</option><option>Shift A</option><option>Shift B</option><option>Weekly Off</option></select>
+                <button onclick="resetRosterFilters()" class="border border-slate-300 bg-white hover:bg-slate-100 rounded-xl px-3 py-2 text-xs font-bold">Reset Filters</button>
+            </div>
+            <div id="roster-unsaved-notice" class="hidden rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-[10px] font-bold text-amber-800"></div>
+            <div id="roster-matrix-table" class="overflow-auto flex-1 border border-slate-200 rounded-xl"><div class="py-12 text-center text-slate-400">Month select karke Load Month click karein</div></div>
         </div>
-        <div class="overflow-auto flex-1 border rounded-xl"><table class="text-[10px] border-collapse min-w-max"><thead><tr id="roster-date-head" class="bg-slate-100 sticky top-0 z-10"></tr></thead><tbody id="roster-planner-tbody"></tbody></table></div>
-        <div class="flex justify-end gap-2"><button id="export-roster-btn" onclick="exportRoster()" class="hidden bg-emerald-100 text-emerald-700 px-5 py-2 rounded font-bold text-xs">Export Excel</button><button id="save-roster-btn" onclick="saveRoster()" class="hidden bg-emerald-600 text-white px-5 py-2 rounded font-bold text-xs">Save Roster</button></div>
-      </div>
     </div>
+
+    <!-- Apply Shift / Weekly Off to Week Range -->
+    <div id="week-apply-modal" class="fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-[80] flex items-center justify-center hidden p-3">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-5">
+            <div class="flex justify-between items-start"><div><h3 id="week-apply-title" class="font-black text-slate-900">Apply Roster</h3><p id="week-apply-subtitle" class="text-xs text-slate-500 mt-1"></p><span id="week-selection-count" class="inline-block mt-2 rounded-full bg-emerald-100 text-emerald-700 px-3 py-1 text-[10px] font-bold">1 option selected</span></div><button onclick="cancelRosterWeekApply()" class="text-xl">✕</button></div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-5 text-xs">
+                <label class="border rounded-xl p-3 hover:bg-slate-50"><input type="checkbox" name="week-apply-option" onchange="handleWeekOptionChange(this)" value="selected_date"> Selected Date Only</label>
+                <label class="border rounded-xl p-3 hover:bg-slate-50"><input type="checkbox" name="week-apply-option" onchange="handleWeekOptionChange(this)" value="week_1"> 1st Week (1-7)</label>
+                <label class="border rounded-xl p-3 hover:bg-slate-50"><input type="checkbox" name="week-apply-option" onchange="handleWeekOptionChange(this)" value="week_2"> 2nd Week (8-14)</label>
+                <label class="border rounded-xl p-3 hover:bg-slate-50"><input type="checkbox" name="week-apply-option" onchange="handleWeekOptionChange(this)" value="week_3"> 3rd Week (15-21)</label>
+                <label class="border rounded-xl p-3 hover:bg-slate-50"><input type="checkbox" name="week-apply-option" onchange="handleWeekOptionChange(this)" value="week_4"> 4th Week (22-28)</label>
+                <label class="border rounded-xl p-3 hover:bg-slate-50"><input type="checkbox" name="week-apply-option" onchange="handleWeekOptionChange(this)" value="last_week"> Last Week (29-End)</label>
+                <label class="border border-emerald-200 bg-emerald-50 rounded-xl p-3"><input type="checkbox" id="all-weeks-checkbox" onchange="toggleAllRosterWeeks(this)"> All Weeks (1-End)</label>
+                <label class="sm:col-span-2 border border-indigo-200 bg-indigo-50 rounded-xl p-3"><input type="checkbox" name="week-apply-option" onchange="handleWeekOptionChange(this)" value="same_weekday_all"> Same Weekday for Full Month</label>
+            </div>
+            <div class="flex justify-end gap-2 mt-5"><button onclick="cancelRosterWeekApply()" class="border rounded-xl px-4 py-2 text-xs font-bold">Cancel</button><button onclick="applyRosterWeekChoice()" class="bg-emerald-600 text-white rounded-xl px-5 py-2 text-xs font-bold">Apply</button></div>
+        </div>
+    </div>
+
     <!-- Employee Shift/Off Request Modal -->
     <div id="shift-request-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[60] flex items-center justify-center hidden p-4">
         <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 p-5 w-full max-w-md mx-auto space-y-4">
@@ -1638,7 +1896,7 @@ HTML_TEMPLATE = """
     </div>
 
     <!-- Developer User Management Modal -->
-    <div id="user-mgmt-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[60] flex items-center justify-center hidden p-2"><div class="bg-white rounded-2xl shadow-2xl p-4 w-full max-w-6xl max-h-[92vh] flex flex-col space-y-3"><div class="flex justify-between"><h3 class="font-bold">🪪 User / Role / Store Rights</h3><button onclick="toggleModal('user-mgmt-modal',false)">✕</button></div><form action="/manage_user" method="POST" class="grid grid-cols-1 md:grid-cols-4 gap-2 bg-slate-50 p-3 rounded-xl"><input type="hidden" name="action" value="create"><input name="uid" placeholder="User ID" required class="border rounded p-2 text-xs"><input name="name" placeholder="Name" required class="border rounded p-2 text-xs"><input name="password" placeholder="Password" class="border rounded p-2 text-xs"><input name="designation" placeholder="Designation" class="border rounded p-2 text-xs"><select name="role" class="border rounded p-2 text-xs"><option value="employee">Employee</option><option value="admin">Admin</option></select><input name="job_role" placeholder="HR / AREA MANAGER / OPERATION HEAD" class="border rounded p-2 text-xs"><input name="dept" placeholder="Department" class="border rounded p-2 text-xs"><select name="status" class="border rounded p-2 text-xs"><option value="active">Active</option><option value="blocked">Deactive / Blocked</option></select><div class="md:col-span-2"><b class="text-[10px]">Stores:</b>{% for code,m in machines.items() if code!='DEV' %}<label class="ml-2 text-[10px]"><input type="checkbox" name="stores" value="{{code}}">{{code}}</label>{% endfor %}<label class="ml-2 text-[10px] font-bold"><input type="checkbox" name="all_stores" value="1"> ALL</label></div><div class="md:col-span-2 grid grid-cols-2 sm:grid-cols-3 gap-1 max-h-16 overflow-auto">{% for p in permission_list %}<label class="text-[9px]"><input type="checkbox" name="permissions" value="{{p}}">{{p|replace('_',' ')|title}}</label>{% endfor %}</div><button class="md:col-span-4 bg-emerald-600 text-white font-bold py-2 rounded text-xs">Create / Update</button></form><div class="overflow-auto flex-1 border rounded-xl"><table class="w-full min-w-[950px] text-left text-[10px]"><thead class="bg-slate-100 sticky top-0"><tr><th class="p-2">ID / Name</th><th>Designation / Role</th><th>Stores</th><th>Status</th><th>Permissions</th><th>Action</th></tr></thead><tbody>{% for uid,info in users_db.items() %}<tr class="border-b"><td class="p-2 font-bold">{{uid}}<br>{{info.name}}</td><td class="p-2">{{info.designation}}<br>{{info.job_role}} / {{info.role}}</td><td class="p-2">{{info.stores|join(', ')}}</td><td class="p-2">{{info.status|upper}}</td><td class="p-2">{{info.permissions|join(', ')}}</td><td class="p-2"><div class="flex gap-1"><form action="/manage_user" method="POST"><input type="hidden" name="uid" value="{{uid}}"><input type="hidden" name="action" value="toggle_status"><button class="bg-amber-100 text-amber-700 px-2 py-1 rounded">Toggle</button></form><form action="/manage_user" method="POST" onsubmit="return confirm('Delete this user?')"><input type="hidden" name="uid" value="{{uid}}"><input type="hidden" name="action" value="delete"><button class="bg-rose-100 text-rose-700 px-2 py-1 rounded">Del</button></form></div></td></tr>{% endfor %}</tbody></table></div></div></div>
+    <div id="user-mgmt-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[60] flex items-center justify-center hidden p-2"><div class="bg-white rounded-2xl shadow-2xl p-4 w-full max-w-6xl max-h-[92vh] flex flex-col space-y-3"><div class="flex justify-between"><h3 class="font-bold">🪪 User / Role / Store Rights</h3><button onclick="toggleModal('user-mgmt-modal',false)">✕</button></div><form action="/manage_user" method="POST" class="grid grid-cols-1 md:grid-cols-4 gap-2 bg-slate-50 p-3 rounded-xl"><input type="hidden" name="action" value="create"><input name="uid" placeholder="User ID" required class="border rounded p-2 text-xs"><input name="name" placeholder="Name" required class="border rounded p-2 text-xs"><input name="password" placeholder="Password" class="border rounded p-2 text-xs"><input name="designation" placeholder="Designation" class="border rounded p-2 text-xs"><input name="identificacao" placeholder="Identificação / NIF" class="border rounded p-2 text-xs"><input name="numero_inss" placeholder="Número do INSS" class="border rounded p-2 text-xs"><input name="data_de_contrato" type="date" class="border rounded p-2 text-xs"><select name="role" class="border rounded p-2 text-xs"><option value="employee">Employee</option><option value="admin">Admin</option></select><input name="job_role" placeholder="HR / AREA MANAGER / OPERATION HEAD" class="border rounded p-2 text-xs"><input name="dept" placeholder="Department" class="border rounded p-2 text-xs"><select name="status" class="border rounded p-2 text-xs"><option value="active">Active</option><option value="blocked">Deactive / Blocked</option></select><div class="md:col-span-2"><b class="text-[10px]">Stores:</b>{% for code,m in machines.items() if code!='DEV' %}<label class="ml-2 text-[10px]"><input type="checkbox" name="stores" value="{{code}}">{{code}}</label>{% endfor %}<label class="ml-2 text-[10px] font-bold"><input type="checkbox" name="all_stores" value="1"> ALL</label></div><div class="md:col-span-2 grid grid-cols-2 sm:grid-cols-3 gap-1 max-h-16 overflow-auto">{% for p in permission_list %}<label class="text-[9px]"><input type="checkbox" name="permissions" value="{{p}}">{{p|replace('_',' ')|title}}</label>{% endfor %}</div><button class="md:col-span-4 bg-emerald-600 text-white font-bold py-2 rounded text-xs">Create / Update</button></form><div class="overflow-auto flex-1 border rounded-xl"><table class="w-full min-w-[950px] text-left text-[10px]"><thead class="bg-slate-100 sticky top-0"><tr><th class="p-2">ID / Name</th><th>Designation / Role</th><th>Stores</th><th>Status</th><th>Permissions</th><th>Action</th></tr></thead><tbody>{% for uid,info in users_db.items() %}<tr class="border-b"><td class="p-2 font-bold">{{uid}}<br>{{info.name}}</td><td class="p-2">{{info.designation}}<br>{{info.job_role}} / {{info.role}}</td><td class="p-2">{{info.stores|join(', ')}}</td><td class="p-2">{{info.status|upper}}</td><td class="p-2">{{info.permissions|join(', ')}}</td><td class="p-2"><div class="flex gap-1"><form action="/manage_user" method="POST"><input type="hidden" name="uid" value="{{uid}}"><input type="hidden" name="action" value="toggle_status"><button class="bg-amber-100 text-amber-700 px-2 py-1 rounded">Toggle</button></form><form action="/manage_user" method="POST" onsubmit="return confirm('Delete this user?')"><input type="hidden" name="uid" value="{{uid}}"><input type="hidden" name="action" value="delete"><button class="bg-rose-100 text-rose-700 px-2 py-1 rounded">Del</button></form></div></td></tr>{% endfor %}</tbody></table></div></div></div>
 
     <!-- Biometric Machine Management -->
     <div id="machine-mgmt-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[60] flex items-center justify-center hidden p-2"><div class="bg-white rounded-2xl shadow-2xl p-4 w-full max-w-5xl max-h-[90vh] overflow-auto"><div class="flex justify-between mb-3"><h3 class="font-bold">🖥️ Biometric Machines / Stores</h3><button onclick="toggleModal('machine-mgmt-modal',false)">✕</button></div><form action="/manage_machine" method="POST" class="grid grid-cols-1 md:grid-cols-5 gap-2 bg-slate-50 p-3 rounded-xl"><input name="code" placeholder="Store Code" required class="border rounded p-2 text-xs"><input name="name" placeholder="Portal Name" required class="border rounded p-2 text-xs"><input name="ip" placeholder="Machine IP" required class="border rounded p-2 text-xs"><input name="port" value="4370" required class="border rounded p-2 text-xs"><input name="admin" placeholder="Portal Admin User ID" class="border rounded p-2 text-xs"><button class="md:col-span-5 bg-indigo-600 text-white font-bold py-2 rounded text-xs">Save / Merge Machine</button></form><table class="w-full text-left text-xs mt-3"><thead class="bg-slate-100"><tr><th class="p-2">Store</th><th class="p-2">Portal</th><th class="p-2">Address</th><th class="p-2">Admin</th><th class="p-2">Status</th><th></th></tr></thead><tbody>{% for code,m in machines.items() %}<tr class="border-b"><td class="p-2 font-bold">{{code}}</td><td class="p-2">{{m.name}}</td><td class="p-2 font-mono">{{m.ip}}:{{m.port}}</td><td class="p-2">{{m.get('admin','-')}}</td><td class="p-2">{% if machine_status.get(code) %}<span class="text-emerald-600 font-bold">ONLINE</span>{% else %}<span class="text-rose-600 font-bold">OFFLINE</span>{% endif %}</td><td class="p-2">{% if code not in ['LM11','LF07','DEV'] %}<form action="/manage_machine" method="POST"><input type="hidden" name="code" value="{{code}}"><input type="hidden" name="action" value="delete"><button class="text-rose-600 font-bold" onclick="return confirm('Delete machine?')">Delete</button></form>{% endif %}</td></tr>{% endfor %}</tbody></table></div></div>
@@ -1657,11 +1915,11 @@ ID_CARD_TEMPLATE = """
     <style>
         body { display: flex; justify-content: center; align-items: center; min-height: 100vh; background-color: #f1f5f9; margin: 0; font-family: Arial, sans-serif; flex-direction: column; }
         .id-card {
-            width: 320px;
-            height: 500px;
+            width: 340px;
+            height: 485px;
             border: 1px solid #e0e0e0;
             border-radius: 12px;
-            padding: 20px 20px 0 20px;
+            padding: 14px 22px 0 22px;
             text-align: center;
             background-color: #fff;
             box-shadow: 0 10px 25px rgba(0,0,0,0.1);
@@ -1669,22 +1927,24 @@ ID_CARD_TEMPLATE = """
             overflow: hidden;
             box-sizing: border-box;
         }
-        .logo { max-width: 160px; margin-bottom: 20px; }
+        .logo-wrap { width: 100%; display: flex; justify-content: center; align-items: center; margin: 0 auto 8px; min-height: 42px; }
+        .logo { display: block; width: 175px; max-width: 82%; height: 46px; object-fit: contain; object-position: center; border-radius: 4px; }
         .photo-placeholder {
-            width: 130px; height: 150px; background-color: #f9f9f9; margin: 0 auto 15px auto;
+            width: 122px; height: 138px; background-color: #f9f9f9; margin: 0 auto 8px auto;
             display: flex; align-items: center; justify-content: center; overflow: hidden; border-radius: 8px; border: 1px solid #eee;
         }
         .photo-placeholder img { width: 100%; height: 100%; object-fit: cover; }
-        .emp-name { font-size: 20px; font-weight: bold; margin-bottom: 25px; text-transform: uppercase; color: #333; }
-        .details { text-align: left; font-size: 14px; line-height: 1.8; color: #000; padding: 0 5px; }
-        .details div { display: flex; }
-        .details div span:first-child { width: 135px; font-weight: normal; }
-        .details div span:last-child { font-weight: bold; }
+        .emp-name { font-size: 19px; font-weight: bold; margin: 0 auto 12px; line-height: 1.18; text-transform: uppercase; color: #333; max-width: 285px; }
+        .details { text-align: left; font-size: 12px; line-height: 1.42; color: #000; padding: 0 5px 64px; width: 100%; box-sizing: border-box; }
+        .details div { display: grid; grid-template-columns: 126px minmax(0, 1fr); align-items: center; column-gap: 4px; min-height: 20px; white-space: nowrap; }
+        .details div span:first-child { width: auto; min-width: 0; font-weight: normal; white-space: nowrap; }
+        .details div span:last-child { min-width: 0; font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 11px; }
+        .details .designation-value { font-size: 10.5px; letter-spacing: -0.15px; }
         .footer-container { position: absolute; bottom: 0; left: 0; width: 100%; }
         .color-bar { height: 8px; background: linear-gradient(to right, #cddc39, #ffc107, #ff9800, #e91e63, #9c27b0, #00bcd4); }
-        .footer-address { background-color: #000; color: #fff; font-size: 11px; padding: 12px 10px; line-height: 1.4; text-align: center; }
+        .footer-address { background-color: #000; color: #fff; font-size: 10px; padding: 8px 10px; line-height: 1.25; text-align: center; }
         .download-btn {
-            margin-top: 20px; padding: 12px 24px; background-color: #059669; color: white; border: none;
+            margin-top: 14px; padding: 12px 24px; background-color: #059669; color: white; border: none;
             border-radius: 8px; font-weight: bold; cursor: pointer; box-shadow: 0 4px 6px rgba(0,0,0,0.1); font-size: 14px;
         }
         .download-btn:hover { background-color: #047857; }
@@ -1692,7 +1952,7 @@ ID_CARD_TEMPLATE = """
 </head>
 <body>
     <div class="id-card" id="id-card-element">
-        <img src="{{ url_for('static', filename='fresmart.png') }}" alt="Fresmart Logo" class="logo" onerror="this.style.display='none'">
+        <div class="logo-wrap"><img src="{{ url_for('static', filename='fresmart.png') }}" alt="Fresmart Logo" class="logo"></div>
         
         <div class="photo-placeholder">
             {% if employee.profile_photo %}
@@ -1705,8 +1965,10 @@ ID_CARD_TEMPLATE = """
         <div class="details">
             <div><span>Nationality</span> <span>: Angola</span></div>
             <div><span>HRMS Code</span> <span>: {{ employee.emp_code }}</span></div>
-            <div><span>Passport Number</span> <span>: </span></div>
-            <div><span>Date of Joining</span> <span>: </span></div>
+            <div><span>Designation</span> <span class="designation-value">: {{ employee.designation or employee.dept or 'Employee' }}</span></div>
+            <div><span>Identificação</span> <span>: {{ employee.identificacao or '-' }}</span></div>
+            <div><span>Número do INSS</span> <span>: {{ employee.numero_inss or '-' }}</span></div>
+            <div><span>Data de Contrato</span> <span>: {{ employee.data_de_contrato or '-' }}</span></div>
         </div>
 
         <div class="footer-container">
@@ -1720,8 +1982,7 @@ ID_CARD_TEMPLATE = """
         </div>
     </div>
 
-    {% if can_edit_photo %}<form action="/upload_id_photo/{{ employee.emp_code }}" method="POST" enctype="multipart/form-data" style="margin-top:18px;text-align:center"><input type="file" name="profile_photo" accept=".jpg,.jpeg,.png,.webp" required><button class="download-btn" type="submit">Change ID Card Photo</button></form>{% endif %}
-    <button class="download-btn" onclick="downloadCard()">📥 Download ID Card</button>
+    <button class="download-btn" onclick="downloadCard()">📥 Baixar / Download ID Card</button>
 
     <script>
         function downloadCard() {
@@ -1761,7 +2022,8 @@ def login():
                 return render_template_string(LOGIN_TEMPLATE, error="Account is Suspended/Blocked. Contact Developer.")
             
             if pwd == user_data.get('password'):
-                session.update({'logged_in': True, 'role': user_data['role'], 'user_id': emp_key, 'user_name': user_data['name'], 'store': user_data.get('store','LM11'), 'stores': user_data.get('stores',[user_data.get('store','LM11')]), 'designation':user_data.get('designation',''), 'job_role':user_data.get('job_role',user_data.get('role','employee')), 'permissions':user_data.get('permissions',[])})
+                primary_store=user_data.get('store','LM11')
+                session.update({'logged_in': True, 'role': user_data['role'], 'user_id': emp_key, 'user_name': user_data['name'], 'store': primary_store, 'stores': [primary_store], 'designation':user_data.get('designation',''), 'job_role':user_data.get('job_role',user_data.get('role','employee')), 'permissions':user_data.get('permissions',[])})
                 session['failed_attempts'] = 0
                 return redirect(url_for('index'))
                 
@@ -1878,7 +2140,7 @@ def dev_force_reset():
 
 @app.route('/manage_user', methods=['POST'])
 def manage_user():
-    if session.get('role')!='developer': return redirect(url_for('login'))
+    if session.get('role') not in ['admin','developer']: return redirect(url_for('login'))
     db=load_users_db(); action=request.form.get('action','create'); raw=(request.form.get('uid') or '').strip().upper()
     uid=raw if raw in ['LM11','LF07'] or raw.startswith('NWC') else f'NWC{raw}'
     if action=='create':
@@ -1886,10 +2148,15 @@ def manage_user():
         job=(request.form.get('job_role') or ('ADMIN' if role=='admin' else 'EMPLOYEE')).strip().upper()
         stores=[x.upper() for x in request.form.getlist('stores') if x.upper() in MACHINES and x.upper()!='DEV']
         if request.form.get('all_stores')=='1': stores=[x for x in MACHINES if x!='DEV']
+        if session.get('role') == 'admin':
+            role='employee'; job='EMPLOYEE'
+            allowed_admin_stores=get_user_stores()
+            stores=[x for x in stores if x in allowed_admin_stores] or allowed_admin_stores[:1]
+
         if not stores: stores=old.get('stores') or [request.form.get('store','LM11').upper()]
         perms=[x for x in request.form.getlist('permissions') if x in PERMISSIONS]
         if not perms: perms=ROLE_PRESETS.get(job,ROLE_PRESETS['EMPLOYEE'])[:]
-        db[uid]=normalize_user_record({**old,'name':(request.form.get('name') or old.get('name') or uid).strip(),'password':(request.form.get('password') or old.get('password') or '123').strip(),'role':role if role in ['admin','employee'] else 'employee','designation':(request.form.get('designation') or old.get('designation') or 'Employee').strip(),'job_role':job,'stores':stores,'store':stores[0],'permissions':perms,'status':request.form.get('status','active'),'dept':(request.form.get('dept') or old.get('dept') or 'General').strip()})
+        db[uid]=normalize_user_record({**old,'name':(request.form.get('name') or old.get('name') or uid).strip(),'password':(request.form.get('password') or old.get('password') or '123').strip(),'role':role if role in ['admin','employee'] else 'employee','designation':(request.form.get('designation') or old.get('designation') or 'Employee').strip(),'email':(request.form.get('email') or old.get('email') or '').strip(),'identificacao':(request.form.get('identificacao') or old.get('identificacao') or '').strip(),'numero_inss':(request.form.get('numero_inss') or old.get('numero_inss') or '').strip(),'data_de_contrato':(request.form.get('data_de_contrato') or old.get('data_de_contrato') or '').strip(),'job_role':job,'stores':stores,'store':stores[0],'permissions':perms,'status':request.form.get('status','active'),'dept':(request.form.get('dept') or old.get('dept') or 'General').strip()})
         flash(f'User {uid} created/updated successfully.','success')
     elif action=='toggle_status' and uid in db:
         db[uid]=normalize_user_record(db[uid]); db[uid]['status']='blocked' if db[uid].get('status')=='active' else 'active'; flash(f'User {uid} status changed to {db[uid]["status"]}.','success')
@@ -1960,6 +2227,32 @@ def index():
     
     pending_leaves_count = sum(1 for req in LEAVE_REQUESTS if req['status'] == 'Pending')
     current_user_leave_requests = [req for req in LEAVE_REQUESTS if req['user_id'] == logged_user_id] if role == 'employee' else LEAVE_REQUESTS
+    roster_first=datetime.now().replace(day=1)
+    roster_next=(roster_first.replace(day=28)+timedelta(days=4)).replace(day=1)
+    roster_days=(roster_next-roster_first).days
+    employee_saved_roster=load_roster().get(logged_user_id,{}) if role=='employee' else {}
+    employee_default_shift=current_user.get('shift','morning') if role=='employee' else 'morning'
+    employee_default_off=str(current_user.get('off','')).upper() if role=='employee' else ''
+    pt_weekdays=['Segunda-feira','Terça-feira','Quarta-feira','Quinta-feira','Sexta-feira','Sábado','Domingo']
+    employee_month_roster=[]
+    employee_roster_counts={'shift_a':0,'shift_b':0,'weekly_off':0,'default':0}
+    for roster_i in range(roster_days):
+        roster_date=roster_first+timedelta(days=roster_i)
+        roster_date_str=roster_date.strftime('%Y-%m-%d')
+        roster_value=employee_saved_roster.get(roster_date_str,'')
+        if not roster_value:
+            if roster_date.strftime('%A').upper()==employee_default_off:
+                roster_value='Weekly Off'
+            elif employee_default_shift=='second':
+                roster_value='Shift B'
+            else:
+                roster_value='Shift A'
+        if roster_value=='Shift A': employee_roster_counts['shift_a']+=1
+        elif roster_value=='Shift B': employee_roster_counts['shift_b']+=1
+        elif roster_value=='Weekly Off': employee_roster_counts['weekly_off']+=1
+        else: employee_roster_counts['default']+=1
+        employee_month_roster.append({'date':roster_date_str,'display_date':roster_date.strftime('%d/%m/%Y'),'weekday_en':roster_date.strftime('%A'),'weekday_pt':pt_weekdays[roster_date.weekday()],'value':roster_value,'value_en':roster_value or 'Default','value_pt':{'Shift A':'Turno A','Shift B':'Turno B','Weekly Off':'Folga Semanal'}.get(roster_value,'Padrão'),'is_today':roster_date.date()==datetime.now().date()})
+    employee_roster_month_label=roster_first.strftime('%B %Y')
         
     shift_reqs = load_shift_requests()
     pending_shifts_count = sum(1 for req in shift_reqs if req.get('status') == 'Pending')
@@ -1983,6 +2276,15 @@ def index():
     my_salary_slips = [s for s in all_salary_slips if s['user_id'] == logged_user_id] if role == 'employee' else all_salary_slips
     
     users_db=load_users_db() if role=='developer' else {}
+    employee_cards=[]
+    for emp_id, emp_info_raw in db_all.items():
+        emp_info=normalize_user_record(emp_info_raw)
+        if emp_info.get('role')!='employee': continue
+        if role!='developer' and not any(st in accessible_stores for st in emp_info.get('stores',[])): continue
+        employee_cards.append({'user_id':emp_id,'name':emp_info.get('name',emp_id),'designation':emp_info.get('designation') or emp_info.get('dept','Employee'),'dept':emp_info.get('dept','General'),'email':emp_info.get('email',''),'profile_photo':emp_info.get('profile_photo',''),'stores':emp_info.get('stores',[])})
+    employee_cards.sort(key=lambda x:x['name'])
+    employee_designations=sorted({x['designation'] for x in employee_cards if x['designation']})
+
     machine_status={code:check_device_connectivity(code) for code in accessible_stores if code in MACHINES}
     current_machine=MACHINES.get(store,{})
     
@@ -1994,7 +2296,7 @@ def index():
         leave_requests=current_user_leave_requests, pending_leaves_count=pending_leaves_count,
         shift_requests=my_shift_reqs, pending_shifts_count=pending_shifts_count,
         reset_requests=reset_requests, pending_resets_count=pending_resets_count,
-        salary_slips=my_salary_slips, users_db=users_db, store=store, accessible_stores=accessible_stores, current_user=current_user, machine_status=machine_status, current_machine=current_machine, machines=MACHINES, permission_list=PERMISSIONS, role_presets=ROLE_PRESETS
+        salary_slips=my_salary_slips, users_db=users_db, store=store, accessible_stores=accessible_stores, current_user=current_user, machine_status=machine_status, current_machine=current_machine, machines=MACHINES, permission_list=PERMISSIONS, role_presets=ROLE_PRESETS, employee_cards=employee_cards, employee_designations=employee_designations, employee_month_roster=employee_month_roster, employee_roster_counts=employee_roster_counts, employee_roster_month_label=employee_roster_month_label, leave_code_names=LEAVE_CODE_NAMES
     )
 
 # --- BULK SALARY SLIP APIs ---
@@ -2174,6 +2476,91 @@ def delete_salary(file_id):
         flash('Salary slip successfully deleted.', 'success')
     return redirect(url_for('index'))
 
+# --- MONTHLY ROSTER MATRIX APIs ---
+@app.route('/api/roster_matrix')
+def api_roster_matrix():
+    if not session_has_permission('roster'): return jsonify({'error':'Unauthorized'}), 403
+    month=request.args.get('month',datetime.now().strftime('%Y-%m'))
+    try: first=datetime.strptime(month+'-01','%Y-%m-%d')
+    except ValueError: return jsonify({'error':'Invalid month'}),400
+    next_month=(first.replace(day=28)+timedelta(days=4)).replace(day=1)
+    days=(next_month-first).days
+    dates=[{'date':(first+timedelta(days=i)).strftime('%Y-%m-%d'),'day':i+1,'weekday':(first+timedelta(days=i)).strftime('%a')} for i in range(days)]
+    all_roster=load_roster(); db=load_users_db(); stores=get_user_stores(); role=session.get('role')
+    employees=[]; summary={d['date']:{'shift_a':0,'shift_b':0,'weekly_off':0} for d in dates}
+    for uid,raw in db.items():
+        info=normalize_user_record(raw)
+        if info.get('role')!='employee' or info.get('status')=='blocked': continue
+        if role!='developer' and (not stores or stores[0] not in info.get('stores',[])): continue
+        r={d['date']:all_roster.get(uid,{}).get(d['date'],'') for d in dates}
+        for dt,val in r.items():
+            if val=='Shift A': summary[dt]['shift_a']+=1
+            elif val=='Shift B': summary[dt]['shift_b']+=1
+            elif val=='Weekly Off': summary[dt]['weekly_off']+=1
+        employees.append({'user_id':uid,'name':info.get('name',uid),'designation':info.get('designation') or info.get('dept','Employee'),'dept':info.get('dept','General'),'roster':r})
+    employees.sort(key=lambda x:x['name'])
+    return jsonify({'month':month,'dates':dates,'employees':employees,'summary':summary})
+
+@app.route('/api/save_roster_matrix',methods=['POST'])
+def api_save_roster_matrix():
+    if not session_has_permission('roster'): return jsonify({'error':'Unauthorized'}),403
+    payload=request.get_json(silent=True) or {}; updates=payload.get('updates',[]); roster=load_roster(); db=load_users_db(); stores=get_user_stores(); role=session.get('role'); saved=0
+    for item in updates:
+        uid=str(item.get('emp_id','')).upper(); dt=str(item.get('date','')); val=str(item.get('value',''))
+        info=normalize_user_record(db.get(uid,{}))
+        if not info or (role!='developer' and not any(x in stores for x in info.get('stores',[]))): continue
+        if val not in ['','Shift A','Shift B','Weekly Off']: continue
+        roster.setdefault(uid,{})
+        if val: roster[uid][dt]=val
+        else: roster[uid].pop(dt,None)
+        saved+=1
+    save_roster(roster)
+    return jsonify({'status':'success','message':f'{saved} roster cells saved'})
+
+@app.route('/export_roster_excel')
+def export_roster_excel():
+    if not session_has_permission('roster'): return redirect(url_for('login'))
+    month=request.args.get('month',datetime.now().strftime('%Y-%m'))
+    try: first=datetime.strptime(month+'-01','%Y-%m-%d')
+    except ValueError: return 'Invalid month',400
+    next_month=(first.replace(day=28)+timedelta(days=4)).replace(day=1); days=(next_month-first).days
+    dates=[first+timedelta(days=i) for i in range(days)]
+    roster=load_roster(); db=load_users_db(); stores=get_user_stores(); role=session.get('role')
+    employees=[]
+    for uid,raw in db.items():
+        info=normalize_user_record(raw)
+        if info.get('role')!='employee' or info.get('status')=='blocked': continue
+        if role!='developer' and (not stores or stores[0] not in info.get('stores',[])): continue
+        employees.append((uid,info))
+    employees.sort(key=lambda x:x[1].get('name',x[0]))
+    wb=openpyxl.Workbook(); ws=wb.active; ws.title=f'Roster {month}'
+    ws.sheet_view.showGridLines=False; ws.freeze_panes='E4'
+    last_col=4+len(dates)
+    ws.merge_cells(start_row=1,start_column=1,end_row=1,end_column=last_col)
+    ws.cell(1,1,f'Monthly Roster Planner - {first.strftime("%B %Y")}')
+    ws.cell(1,1).font=Font(size=16,bold=True,color='FFFFFF'); ws.cell(1,1).fill=PatternFill('solid',fgColor='17365D'); ws.cell(1,1).alignment=Alignment(horizontal='center')
+    headers=['Sr. Number','Employee Code','Employee Name','Designation']+[f'{d.day}\n{d.strftime("%a")}' for d in dates]
+    for col,val in enumerate(headers,1):
+        c=ws.cell(3,col,val); c.font=Font(bold=True,color='FFFFFF'); c.fill=PatternFill('solid',fgColor='1F4E78'); c.alignment=Alignment(horizontal='center',vertical='center',wrap_text=True)
+    counts={d.strftime('%Y-%m-%d'):{'Shift A':0,'Shift B':0,'Weekly Off':0} for d in dates}
+    for row_idx,(uid,info) in enumerate(employees,4):
+        ws.cell(row_idx,1,row_idx-3); ws.cell(row_idx,2,uid); ws.cell(row_idx,3,info.get('name',uid)); ws.cell(row_idx,4,info.get('designation') or info.get('dept','Employee'))
+        for j,d in enumerate(dates,5):
+            dt=d.strftime('%Y-%m-%d'); val=roster.get(uid,{}).get(dt,'Default') or 'Default'; ws.cell(row_idx,j,val); ws.cell(row_idx,j).alignment=Alignment(horizontal='center')
+            if val in counts[dt]: counts[dt][val]+=1
+            color={'Shift A':'C6EFCE','Shift B':'D9EAF7','Weekly Off':'FFC7CE'}.get(val,'FFFFFF'); ws.cell(row_idx,j).fill=PatternFill('solid',fgColor=color)
+    summary_row=4+len(employees)+1
+    ws.merge_cells(start_row=summary_row,start_column=1,end_row=summary_row,end_column=4); ws.cell(summary_row,1,'Daily Summary: A / B / Off'); ws.cell(summary_row,1).font=Font(bold=True)
+    for j,d in enumerate(dates,5):
+        c=counts[d.strftime('%Y-%m-%d')]; ws.cell(summary_row,j,f"{c['Shift A']} / {c['Shift B']} / {c['Weekly Off']}"); ws.cell(summary_row,j).font=Font(bold=True); ws.cell(summary_row,j).alignment=Alignment(horizontal='center')
+    ws.column_dimensions['A'].width=12; ws.column_dimensions['B'].width=16; ws.column_dimensions['C'].width=30; ws.column_dimensions['D'].width=22
+    for j in range(5,last_col+1): ws.column_dimensions[openpyxl.utils.get_column_letter(j)].width=13
+    thin=Side(style='thin',color='D9E2F3')
+    for row in ws.iter_rows(min_row=3,max_row=summary_row,min_col=1,max_col=last_col):
+        for c in row: c.border=Border(left=thin,right=thin,top=thin,bottom=thin); c.alignment=Alignment(vertical='center',wrap_text=True,horizontal=c.alignment.horizontal or 'left')
+    output=io.BytesIO(); wb.save(output); output.seek(0)
+    return send_file(output,as_attachment=True,download_name=f'Roster_{month}.xlsx',mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
 # --- ROSTER PLANNER APIs ---
 @app.route('/api/get_roster', methods=['GET'])
 def api_get_roster():
@@ -2271,6 +2658,10 @@ def apply_leave():
     start_date = request.form.get('start_date')
     end_date = request.form.get('end_date')
     leave_type = request.form.get('leave_type', 'F10;1')
+    if leave_type not in LEAVE_CODE_NAMES:
+        flash('Invalid leave code selected.', 'danger')
+        return redirect(url_for('index'))
+    leave_reason = LEAVE_CODE_NAMES[leave_type]
     filename = None
     file = request.files.get('supporting_doc')
     if file and file.filename != '':
@@ -2284,7 +2675,7 @@ def apply_leave():
     save_leave_to_excel(user_id, name, start_date, end_date, leave_type, filename if filename else "No Document")
     LEAVE_REQUESTS.append({
         'id': len(LEAVE_REQUESTS) + 1, 'user_id': user_id, 'name': name, 'start_date': start_date,
-        'end_date': end_date, 'leave_type': leave_type, 'filename': filename, 'status': 'Pending', 'store': session.get('store','LM11')
+        'end_date': end_date, 'leave_type': leave_type, 'leave_reason': leave_reason, 'filename': filename, 'status': 'Pending', 'store': session.get('store','LM11')
     })
     save_leave_requests(LEAVE_REQUESTS)
     flash('Aapki leave request successfully submit ho gayi hai!', 'success')
@@ -2439,71 +2830,10 @@ def view_employee_id(emp_code):
         else:
             return "Employee not found", 404
             
-    emp_data = dict(emp_data)
+    emp_data = normalize_user_record(dict(emp_data))
     emp_data['emp_code'] = emp_code
-    can_edit = session.get('role') in ['admin','developer'] or session.get('user_id') == emp_code
-    return render_template_string(ID_CARD_TEMPLATE, employee=emp_data, can_edit_photo=can_edit)
-
-
-@app.route('/employee_cards')
-def employee_cards():
-    if not session.get('logged_in'): return redirect(url_for('login'))
-    if session.get('role') not in ['admin','developer']: return redirect(url_for('view_employee_id', emp_code=session.get('user_id')))
-    db=load_users_db(); stores=set(get_user_stores())
-    employees=[(uid,info) for uid,info in db.items() if info.get('role')=='employee']
-    html="""<!doctype html><html><head><script src="https://cdn.tailwindcss.com"></script><title>Employee ID Cards</title></head><body class="bg-slate-100 p-6"><div class="max-w-5xl mx-auto"><h1 class="text-2xl font-bold mb-4">Employee ID Cards</h1><div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">{% for uid,info in employees %}<a target="_blank" href="/employee_id/{{uid}}" class="bg-white border rounded-xl p-4 hover:border-emerald-500"><b>{{info.name}}</b><div class="text-xs text-slate-500">{{uid}} · {{info.designation}}</div></a>{% endfor %}</div></div></body></html>"""
-    return render_template_string(html,employees=employees)
-
-@app.route('/upload_id_photo/<emp_code>', methods=['POST'])
-def upload_id_photo(emp_code):
-    if not session.get('logged_in'): return redirect(url_for('login'))
-    if session.get('role')=='employee' and session.get('user_id')!=emp_code: return 'Unauthorized Access',403
-    if session.get('role') not in ['employee','admin','developer']: return 'Unauthorized Access',403
-    db=load_users_db(); info=db.get(emp_code)
-    if not info: return 'Employee not found',404
-    if session.get('role')=='admin' and info.get('store') not in get_user_stores(): return 'Unauthorized Access',403
-    f=request.files.get('profile_photo'); ext=os.path.splitext(f.filename or '')[1].lower() if f else ''
-    if not f or ext not in ['.png','.jpg','.jpeg','.webp']: flash('Valid photo select karein.','danger'); return redirect(url_for('view_employee_id',emp_code=emp_code))
-    old=info.get('profile_photo',''); filename=secure_filename(f'profile_{emp_code}_{uuid.uuid4().hex}{ext}'); f.save(os.path.join(app.config['UPLOAD_FOLDER'],filename))
-    if old and os.path.isfile(os.path.join(app.config['UPLOAD_FOLDER'],old)):
-        try: os.remove(os.path.join(app.config['UPLOAD_FOLDER'],old))
-        except OSError: pass
-    info['profile_photo']=filename; db[emp_code]=normalize_user_record(info); save_json_file(USERS_DB_FILE,db)
-    return redirect(url_for('view_employee_id',emp_code=emp_code))
-
-@app.route('/api/get_roster_month')
-def api_get_roster_month():
-    if not session_has_permission('roster'): return {},403
-    month=request.args.get('month',''); db=load_users_db(); stores=set(get_user_stores())
-    employees=[{'user_id':uid,'name':v.get('name',uid),'designation':v.get('designation',''),'dept':v.get('dept','')} for uid,v in db.items() if v.get('role')=='employee' and (session.get('role')=='developer' or v.get('store') in stores)]
-    employees.sort(key=lambda x:x['name']); roster=load_roster(); filtered={uid:{d:v for d,v in days.items() if d.startswith(month)} for uid,days in roster.items()}
-    return jsonify({'employees':employees,'roster':filtered})
-
-@app.route('/api/save_roster_bulk', methods=['POST'])
-def api_save_roster_bulk():
-    if not session_has_permission('roster'): return {},403
-    data=request.get_json(silent=True) or {}; month=data.get('month',''); updates=data.get('updates',{}); roster=load_roster()
-    for emp,days in updates.items():
-        roster.setdefault(emp,{})
-        for dt,val in days.items():
-            if not dt.startswith(month): continue
-            if val in ['Shift A','Shift B','Weekly Off']: roster[emp][dt]=val
-            else: roster[emp].pop(dt,None)
-    save_roster(roster); return jsonify({'status':'success'})
-
-@app.route('/export_roster')
-def export_roster():
-    if not session_has_permission('roster'): return redirect(url_for('login'))
-    month=request.args.get('month',datetime.now().strftime('%Y-%m')); year,mon=map(int,month.split('-')); days=(datetime(year+(mon==12),(mon%12)+1,1)-timedelta(days=1)).day
-    db=load_users_db(); stores=set(get_user_stores()); roster=load_roster(); wb=openpyxl.Workbook(); ws=wb.active; ws.title='Monthly Roster'
-    headers=['Sr. No.','Employee Code','Employee Name','Designation','Reset']
-    for d in range(1,days+1): headers.append(f"{d} {datetime(year,mon,d).strftime('%a')}")
-    ws.append([f'Monthly Roster - {month}']); ws.append(headers)
-    emps=[(uid,v) for uid,v in db.items() if v.get('role')=='employee' and (session.get('role')=='developer' or v.get('store') in stores)]
-    for i,(uid,v) in enumerate(sorted(emps,key=lambda x:x[1].get('name','')),1): ws.append([i,uid,v.get('name',''),v.get('designation',v.get('dept','')),'']+[roster.get(uid,{}).get(f'{month}-{d:02d}','') for d in range(1,days+1)])
-    for cell in ws[2]: cell.font=Font(bold=True); cell.fill=PatternFill('solid',fgColor='DCE6F1'); cell.alignment=Alignment(horizontal='center',vertical='center',wrap_text=True)
-    ws.freeze_panes='F3'; out=io.BytesIO(); wb.save(out); out.seek(0)
-    return send_file(out,mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',as_attachment=True,download_name=f'Roster_{month}.xlsx')
+    emp_data.update(EMPLOYEE_IDENTITY_DATA.get(emp_code.upper(), {}))
+    return render_template_string(ID_CARD_TEMPLATE, employee=emp_data)
 
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 5000))
