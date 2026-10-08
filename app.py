@@ -851,88 +851,42 @@ HTML_TEMPLATE = """
             if (pwd) window.location.href = "/shutdown?pwd=" + encodeURIComponent(pwd);
         }
 
+        let rosterEmployees = [];
+        let rosterData = {};
+        function weekOfMonth(day) { return Math.min(5, Math.ceil(day / 7)); }
+        function rosterValue(empId, dateStr) { return (rosterData[empId] || {})[dateStr] || ''; }
+        function renderRosterGrid() {
+            const monthStr = document.getElementById('rp-month').value;
+            const tbody = document.getElementById('roster-planner-tbody');
+            const head = document.getElementById('roster-date-head');
+            if (!monthStr) { tbody.innerHTML='<tr><td class="p-6 text-center text-slate-400">Choose month</td></tr>'; return; }
+            const [year, month] = monthStr.split('-').map(Number);
+            const days = new Date(year, month, 0).getDate();
+            head.innerHTML = '<th class="p-2 sticky left-0 bg-slate-100 z-20">Sr.</th><th class="p-2 sticky left-10 bg-slate-100 z-20">Employee Code</th><th class="p-2 sticky left-36 bg-slate-100 z-20">Employee Name</th><th class="p-2 sticky left-80 bg-slate-100 z-20">Designation</th><th class="p-2">Reset</th>';
+            for(let d=1; d<=days; d++) { const dt=new Date(year,month-1,d); head.innerHTML += `<th class="p-1 text-center min-w-[86px]">${d}<br><span class="text-[8px] text-slate-400">${dt.toLocaleDateString('en-US',{weekday:'short'})}</span></th>`; }
+            tbody.innerHTML='';
+            rosterEmployees.forEach((emp,i)=>{
+                let cells='';
+                for(let d=1;d<=days;d++) { const dateStr=`${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`; const val=rosterValue(emp.user_id,dateStr); cells += `<td class="p-1 border"><select class="roster-cell w-full text-[10px] border rounded px-1 py-1 ${val==='Weekly Off'?'bg-rose-50':val?'bg-indigo-50':''}" data-emp="${emp.user_id}" data-date="${dateStr}"><option value="">-</option><option value="Shift A" ${val==='Shift A'?'selected':''}>Shift A</option><option value="Shift B" ${val==='Shift B'?'selected':''}>Shift B</option><option value="Weekly Off" ${val==='Weekly Off'?'selected':''}>Weekly Off</option></select></td>`; }
+                const tr=document.createElement('tr'); tr.innerHTML=`<td class="p-2 border text-center sticky left-0 bg-white">${i+1}</td><td class="p-2 border font-mono font-bold sticky left-10 bg-white">${emp.user_id}</td><td class="p-2 border font-bold sticky left-36 bg-white min-w-[176px]">${emp.name}</td><td class="p-2 border sticky left-80 bg-white min-w-[150px]">${emp.designation||emp.dept||''}</td><td class="p-2 border"><button type="button" onclick="resetRosterRow('${emp.user_id}')" class="text-rose-600 font-bold">Reset</button></td>${cells}`; tbody.appendChild(tr);
+            });
+            document.getElementById('save-roster-btn').classList.remove('hidden');
+            document.getElementById('export-roster-btn').classList.remove('hidden');
+        }
         function loadRosterPlanner() {
-            let empId = document.getElementById('rp-emp').value;
-            let monthStr = document.getElementById('rp-month').value;
-            let tbody = document.getElementById('roster-planner-tbody');
-            if(!empId || !monthStr) {
-                tbody.innerHTML = '<tr><td colspan="2" class="text-center py-8 text-slate-400">Employee & Month select karein</td></tr>';
-                return;
-            }
-            
-            tbody.innerHTML = '<tr><td colspan="2" class="text-center py-8 text-slate-500">Loading roster...</td></tr>';
-            
-            fetch(`/api/get_roster?emp_id=${empId}`)
-            .then(r => r.json())
-            .then(data => {
-                let parts = monthStr.split('-');
-                let year = parseInt(parts[0]);
-                let month = parseInt(parts[1]);
-                let daysInMonth = new Date(year, month, 0).getDate();
-                
-                tbody.innerHTML = '';
-                for(let i=1; i<=daysInMonth; i++) {
-                    let dateStr = `${year}-${String(month).padStart(2,'0')}-${String(i).padStart(2,'0')}`;
-                    let dateObj = new Date(year, month-1, i);
-                    let dayName = dateObj.toLocaleDateString('en-US', {weekday:'long'});
-                    let val = data[dateStr] || '';
-
-                    let tr = document.createElement('tr');
-                    tr.className = "hover:bg-slate-50";
-                    tr.innerHTML = `
-                        <td class="py-2.5 px-3 border-b border-slate-200 font-mono text-xs text-slate-600">${dateStr} <strong class="ml-2 text-indigo-500">${dayName}</strong></td>
-                        <td class="py-2.5 px-3 border-b border-slate-200">
-                            <select class="roster-select w-full bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-xs font-bold focus:ring-2 focus:ring-indigo-500" data-date="${dateStr}" data-day="${dayName}" onchange="checkAutoReflect(this)">
-                                <option value="" class="text-slate-400">-- Default --</option>
-                                <option value="Shift A" ${val=='Shift A'?'selected':''} class="text-blue-600">Shift A (06:00)</option>
-                                <option value="Shift B" ${val=='Shift B'?'selected':''} class="text-indigo-600">Shift B (10:00+)</option>
-                                <option value="Weekly Off" ${val=='Weekly Off'?'selected':''} class="text-rose-600">Weekly Off</option>
-                            </select>
-                        </td>
-                    `;
-                    tbody.appendChild(tr);
-                }
-                document.getElementById('save-roster-btn').classList.remove('hidden');
-            });
+            const month=document.getElementById('rp-month').value; if(!month) return;
+            fetch(`/api/get_roster_month?month=${month}`).then(r=>r.json()).then(data=>{ rosterEmployees=data.employees||[]; rosterData=data.roster||{}; renderRosterGrid(); });
         }
-
-        function checkAutoReflect(selectEl) {
-            let val = selectEl.value;
-            let dayName = selectEl.getAttribute('data-day');
-            let dateStr = selectEl.getAttribute('data-date');
-            if(val === 'Weekly Off') {
-                if(confirm(`Kya aap iske aage ke sabhi "${dayName}" ko Weekly Off set karna chahte hain?`)) {
-                    let selects = document.querySelectorAll('.roster-select');
-                    selects.forEach(sel => {
-                        let selDate = sel.getAttribute('data-date');
-                        let selDay = sel.getAttribute('data-day');
-                        if(selDay === dayName && selDate > dateStr) {
-                            sel.value = 'Weekly Off';
-                        }
-                    });
-                }
-            }
+        function resetRosterRow(empId){ document.querySelectorAll(`.roster-cell[data-emp="${empId}"]`).forEach(x=>x.value=''); }
+        function applyRosterBulk(){
+            const value=document.getElementById('rp-bulk-value').value; const weeks=Array.from(document.querySelectorAll('input[name="rp-week"]:checked')).map(x=>Number(x.value)); const employees=Array.from(document.getElementById('rp-bulk-employees').selectedOptions).map(x=>x.value);
+            document.querySelectorAll('.roster-cell').forEach(x=>{ const d=Number(x.dataset.date.slice(-2)); if((!employees.length||employees.includes(x.dataset.emp)) && (!weeks.length||weeks.includes(weekOfMonth(d)))) x.value=value; });
         }
-
-        function saveRoster() {
-            let empId = document.getElementById('rp-emp').value;
-            let selects = document.querySelectorAll('.roster-select');
-            let payload = {emp_id: empId, updates: {}};
-            selects.forEach(sel => {
-                if(sel.value !== '') {
-                    payload.updates[sel.getAttribute('data-date')] = sel.value;
-                }
-            });
-            fetch('/api/save_roster', {
-                method: 'POST', headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify(payload)
-            }).then(r=>r.json()).then(res=>{
-                alert('Roster (Weekly Off & Shifts) successfully save ho gaya hai!');
-                toggleModal('roster-planner-modal', false);
-                window.location.reload();
-            });
+        function saveRoster(){
+            const updates={}; document.querySelectorAll('.roster-cell').forEach(x=>{ if(!updates[x.dataset.emp]) updates[x.dataset.emp]={}; updates[x.dataset.emp][x.dataset.date]=x.value; });
+            fetch('/api/save_roster_bulk',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({month:document.getElementById('rp-month').value,updates})}).then(r=>r.json()).then(()=>alert('Monthly roster saved successfully.'));
         }
-
+        function exportRoster(){ window.location.href='/export_roster?month='+encodeURIComponent(document.getElementById('rp-month').value); }
         function filterSalarySlips() {
             let month = document.getElementById('salary-month-select').value;
             let rows = document.querySelectorAll('.salary-row');
@@ -1062,7 +1016,7 @@ HTML_TEMPLATE = """
                 
                 {% if session_has_permission('employees_info') %}
                 <!-- Updated Employees Info / ID Card Link -->
-                <a href="/employee_id/{{ session.get('user_id') }}" target="_blank" class="flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 font-medium text-xs transition">
+                <a href="{{ '/employee_cards' if role in ['admin','developer'] else '/employee_id/' + session.get('user_id') }}" target="_blank" class="flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 font-medium text-xs transition">
                     <span>🪪</span>
                     <span>Employees Info (ID Card)</span>
                 </a>
@@ -1589,47 +1543,20 @@ HTML_TEMPLATE = """
 
     <!-- Roster Planner Modal (Admin/Dev) -->
     <div id="roster-planner-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[60] flex items-center justify-center hidden p-2">
-        <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 p-4 w-full max-w-4xl mx-auto space-y-4 max-h-[90vh] flex flex-col">
-            <div class="flex justify-between items-center border-b border-slate-100 pb-2">
-                <h3 class="text-sm sm:text-lg font-bold text-slate-900">🗓️ Roster Planner</h3>
-                <button onclick="toggleModal('roster-planner-modal', false)" class="text-slate-400 hover:text-slate-600 font-bold text-lg">✕</button>
-            </div>
-            <div class="flex flex-col sm:flex-row gap-2 items-end">
-                <div class="w-full sm:flex-1">
-                    <label class="block text-[10px] font-bold uppercase text-slate-500 mb-1">Employee</label>
-                    <select id="rp-emp" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-2 py-1.5 text-xs">
-                        <option value="">-- Choose --</option>
-                        {% for emp in all_users %}
-                            <option value="{{ emp.user_id }}">{{ emp.name }} ({{ emp.user_id }})</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <div class="w-full sm:flex-1">
-                    <label class="block text-[10px] font-bold uppercase text-slate-500 mb-1">Month</label>
-                    <input type="month" id="rp-month" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-2 py-1.5 text-xs">
-                </div>
-                <button onclick="loadRosterPlanner()" class="w-full sm:w-auto bg-indigo-600 text-white font-bold text-[10px] sm:text-xs uppercase px-4 py-2 rounded-xl">Load</button>
-            </div>
-            
-            <div class="overflow-y-auto flex-1 border border-slate-200 rounded-xl">
-                <table class="w-full text-left">
-                    <thead class="bg-slate-100 text-slate-600 uppercase text-[9px] sm:text-[10px] font-bold sticky top-0">
-                        <tr>
-                            <th class="py-2 px-3">Date & Day</th>
-                            <th class="py-2 px-3">Shift Allocation</th>
-                        </tr>
-                    </thead>
-                    <tbody id="roster-planner-tbody" class="divide-y divide-slate-100">
-                        <tr><td colspan="2" class="text-center py-6 text-slate-400 text-xs">Select Employee & Month</td></tr>
-                    </tbody>
-                </table>
-            </div>
-            <div class="pt-2 flex justify-end gap-2">
-                <button id="save-roster-btn" onclick="saveRoster()" class="w-full sm:w-auto px-5 py-2 bg-emerald-600 text-white text-xs font-bold uppercase rounded-xl hidden">Save</button>
-            </div>
+      <div class="bg-white rounded-2xl shadow-2xl p-4 w-full max-w-[98vw] h-[92vh] flex flex-col gap-3">
+        <div class="flex justify-between items-center"><h3 class="font-bold">🗓 Monthly Roster Planner</h3><button onclick="toggleModal('roster-planner-modal',false)">✕</button></div>
+        <div class="flex flex-wrap gap-3 items-end bg-slate-50 p-3 rounded-xl">
+          <div><label class="block text-[10px] font-bold">MONTH</label><input type="month" id="rp-month" class="border rounded p-2 text-xs"></div>
+          <button onclick="loadRosterPlanner()" class="bg-indigo-600 text-white px-4 py-2 rounded font-bold text-xs">Load</button>
+          <div><label class="block text-[10px] font-bold">SHIFT / OFF</label><select id="rp-bulk-value" class="border rounded p-2 text-xs"><option value="Shift A">Shift A</option><option value="Shift B">Shift B</option><option value="Weekly Off">Weekly Off</option><option value="">Clear</option></select></div>
+          <div><label class="block text-[10px] font-bold">EMPLOYEES (MULTIPLE)</label><select id="rp-bulk-employees" multiple class="border rounded p-1 text-[10px] h-16 min-w-[180px]">{% for emp in all_users %}<option value="{{emp.user_id}}">{{emp.name}}</option>{% endfor %}</select></div>
+          <div><label class="block text-[10px] font-bold">WEEKS (MULTIPLE)</label><div class="flex gap-2 text-[10px]">{% for w in [1,2,3,4,5] %}<label><input type="checkbox" name="rp-week" value="{{w}}"> {{ 'Last' if w==5 else w }}</label>{% endfor %}</div></div>
+          <button onclick="applyRosterBulk()" class="bg-amber-500 text-white px-4 py-2 rounded font-bold text-xs">Apply Multiple</button>
         </div>
+        <div class="overflow-auto flex-1 border rounded-xl"><table class="text-[10px] border-collapse min-w-max"><thead><tr id="roster-date-head" class="bg-slate-100 sticky top-0 z-10"></tr></thead><tbody id="roster-planner-tbody"></tbody></table></div>
+        <div class="flex justify-end gap-2"><button id="export-roster-btn" onclick="exportRoster()" class="hidden bg-emerald-100 text-emerald-700 px-5 py-2 rounded font-bold text-xs">Export Excel</button><button id="save-roster-btn" onclick="saveRoster()" class="hidden bg-emerald-600 text-white px-5 py-2 rounded font-bold text-xs">Save Roster</button></div>
+      </div>
     </div>
-
     <!-- Employee Shift/Off Request Modal -->
     <div id="shift-request-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[60] flex items-center justify-center hidden p-4">
         <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 p-5 w-full max-w-md mx-auto space-y-4">
@@ -1793,6 +1720,7 @@ ID_CARD_TEMPLATE = """
         </div>
     </div>
 
+    {% if can_edit_photo %}<form action="/upload_id_photo/{{ employee.emp_code }}" method="POST" enctype="multipart/form-data" style="margin-top:18px;text-align:center"><input type="file" name="profile_photo" accept=".jpg,.jpeg,.png,.webp" required><button class="download-btn" type="submit">Change ID Card Photo</button></form>{% endif %}
     <button class="download-btn" onclick="downloadCard()">📥 Download ID Card</button>
 
     <script>
@@ -2511,8 +2439,71 @@ def view_employee_id(emp_code):
         else:
             return "Employee not found", 404
             
+    emp_data = dict(emp_data)
     emp_data['emp_code'] = emp_code
-    return render_template_string(ID_CARD_TEMPLATE, employee=emp_data)
+    can_edit = session.get('role') in ['admin','developer'] or session.get('user_id') == emp_code
+    return render_template_string(ID_CARD_TEMPLATE, employee=emp_data, can_edit_photo=can_edit)
+
+
+@app.route('/employee_cards')
+def employee_cards():
+    if not session.get('logged_in'): return redirect(url_for('login'))
+    if session.get('role') not in ['admin','developer']: return redirect(url_for('view_employee_id', emp_code=session.get('user_id')))
+    db=load_users_db(); stores=set(get_user_stores())
+    employees=[(uid,info) for uid,info in db.items() if info.get('role')=='employee']
+    html="""<!doctype html><html><head><script src="https://cdn.tailwindcss.com"></script><title>Employee ID Cards</title></head><body class="bg-slate-100 p-6"><div class="max-w-5xl mx-auto"><h1 class="text-2xl font-bold mb-4">Employee ID Cards</h1><div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">{% for uid,info in employees %}<a target="_blank" href="/employee_id/{{uid}}" class="bg-white border rounded-xl p-4 hover:border-emerald-500"><b>{{info.name}}</b><div class="text-xs text-slate-500">{{uid}} · {{info.designation}}</div></a>{% endfor %}</div></div></body></html>"""
+    return render_template_string(html,employees=employees)
+
+@app.route('/upload_id_photo/<emp_code>', methods=['POST'])
+def upload_id_photo(emp_code):
+    if not session.get('logged_in'): return redirect(url_for('login'))
+    if session.get('role')=='employee' and session.get('user_id')!=emp_code: return 'Unauthorized Access',403
+    if session.get('role') not in ['employee','admin','developer']: return 'Unauthorized Access',403
+    db=load_users_db(); info=db.get(emp_code)
+    if not info: return 'Employee not found',404
+    if session.get('role')=='admin' and info.get('store') not in get_user_stores(): return 'Unauthorized Access',403
+    f=request.files.get('profile_photo'); ext=os.path.splitext(f.filename or '')[1].lower() if f else ''
+    if not f or ext not in ['.png','.jpg','.jpeg','.webp']: flash('Valid photo select karein.','danger'); return redirect(url_for('view_employee_id',emp_code=emp_code))
+    old=info.get('profile_photo',''); filename=secure_filename(f'profile_{emp_code}_{uuid.uuid4().hex}{ext}'); f.save(os.path.join(app.config['UPLOAD_FOLDER'],filename))
+    if old and os.path.isfile(os.path.join(app.config['UPLOAD_FOLDER'],old)):
+        try: os.remove(os.path.join(app.config['UPLOAD_FOLDER'],old))
+        except OSError: pass
+    info['profile_photo']=filename; db[emp_code]=normalize_user_record(info); save_json_file(USERS_DB_FILE,db)
+    return redirect(url_for('view_employee_id',emp_code=emp_code))
+
+@app.route('/api/get_roster_month')
+def api_get_roster_month():
+    if not session_has_permission('roster'): return {},403
+    month=request.args.get('month',''); db=load_users_db(); stores=set(get_user_stores())
+    employees=[{'user_id':uid,'name':v.get('name',uid),'designation':v.get('designation',''),'dept':v.get('dept','')} for uid,v in db.items() if v.get('role')=='employee' and (session.get('role')=='developer' or v.get('store') in stores)]
+    employees.sort(key=lambda x:x['name']); roster=load_roster(); filtered={uid:{d:v for d,v in days.items() if d.startswith(month)} for uid,days in roster.items()}
+    return jsonify({'employees':employees,'roster':filtered})
+
+@app.route('/api/save_roster_bulk', methods=['POST'])
+def api_save_roster_bulk():
+    if not session_has_permission('roster'): return {},403
+    data=request.get_json(silent=True) or {}; month=data.get('month',''); updates=data.get('updates',{}); roster=load_roster()
+    for emp,days in updates.items():
+        roster.setdefault(emp,{})
+        for dt,val in days.items():
+            if not dt.startswith(month): continue
+            if val in ['Shift A','Shift B','Weekly Off']: roster[emp][dt]=val
+            else: roster[emp].pop(dt,None)
+    save_roster(roster); return jsonify({'status':'success'})
+
+@app.route('/export_roster')
+def export_roster():
+    if not session_has_permission('roster'): return redirect(url_for('login'))
+    month=request.args.get('month',datetime.now().strftime('%Y-%m')); year,mon=map(int,month.split('-')); days=(datetime(year+(mon==12),(mon%12)+1,1)-timedelta(days=1)).day
+    db=load_users_db(); stores=set(get_user_stores()); roster=load_roster(); wb=openpyxl.Workbook(); ws=wb.active; ws.title='Monthly Roster'
+    headers=['Sr. No.','Employee Code','Employee Name','Designation','Reset']
+    for d in range(1,days+1): headers.append(f"{d} {datetime(year,mon,d).strftime('%a')}")
+    ws.append([f'Monthly Roster - {month}']); ws.append(headers)
+    emps=[(uid,v) for uid,v in db.items() if v.get('role')=='employee' and (session.get('role')=='developer' or v.get('store') in stores)]
+    for i,(uid,v) in enumerate(sorted(emps,key=lambda x:x[1].get('name','')),1): ws.append([i,uid,v.get('name',''),v.get('designation',v.get('dept','')),'']+[roster.get(uid,{}).get(f'{month}-{d:02d}','') for d in range(1,days+1)])
+    for cell in ws[2]: cell.font=Font(bold=True); cell.fill=PatternFill('solid',fgColor='DCE6F1'); cell.alignment=Alignment(horizontal='center',vertical='center',wrap_text=True)
+    ws.freeze_panes='F3'; out=io.BytesIO(); wb.save(out); out.seek(0)
+    return send_file(out,mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',as_attachment=True,download_name=f'Roster_{month}.xlsx')
 
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 5000))
