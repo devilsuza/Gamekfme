@@ -1,0 +1,1 @@
+Leave dropdown and history show code with Portuguese remark: F01;1 Baixa Medica, F03;1 Falta Injustificada, F05;1 Licenca sem vencimento, F10;1 Falta Justificada, F51;1 Casamento, F60;1 Nascimento, F61;1 Obito, F62;1 Gravidez.

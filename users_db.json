@@ -1,0 +1,908 @@
+{
+    "NWC2981": {
+        "name": "ANTONIO JOSE BANDOLA",
+        "password": "123",
+        "store": "LM11",
+        "status": "active",
+        "role": "employee",
+        "off": "SUNDAY",
+        "dept": "ADMIN - MANAGER",
+        "shift": "morning",
+        "designation": "ADMIN - MANAGER",
+        "job_role": "EMPLOYEE",
+        "stores": [
+            "LM11"
+        ],
+        "permissions": [
+            "dashboard",
+            "profile",
+            "payroll"
+        ],
+        "profile_photo": "",
+        "identificacao": "",
+        "numero_inss": "",
+        "data_de_contrato": ""
+    },
+    "NWC3127": {
+        "name": "MATEUS ANTONIO DA COSTA BALMIRO",
+        "password": "123",
+        "store": "LM11",
+        "status": "active",
+        "role": "employee",
+        "off": "FRIDAY",
+        "dept": "ADMIN - MANAGER",
+        "shift": "morning",
+        "designation": "ADMIN - MANAGER",
+        "job_role": "EMPLOYEE",
+        "stores": [
+            "LM11"
+        ],
+        "permissions": [
+            "dashboard",
+            "profile",
+            "payroll"
+        ],
+        "profile_photo": "",
+        "identificacao": "",
+        "numero_inss": "",
+        "data_de_contrato": ""
+    },
+    "NWC1525": {
+        "name": "ETY JOSÉ BANDUA MONTEIRO",
+        "password": "123",
+        "store": "LM11",
+        "status": "active",
+        "role": "employee",
+        "off": "MONDAY",
+        "dept": "ADMIN - MANAGER",
+        "shift": "morning",
+        "designation": "ADMIN - MANAGER",
+        "job_role": "EMPLOYEE",
+        "stores": [
+            "LM11"
+        ],
+        "permissions": [
+            "dashboard",
+            "profile",
+            "payroll"
+        ],
+        "profile_photo": "",
+        "identificacao": "",
+        "numero_inss": "",
+        "data_de_contrato": ""
+    },
+    "NWC8328": {
+        "name": "JOAO MATIAS DOMINGOS",
+        "password": "123",
+        "store": "LM11",
+        "status": "active",
+        "role": "employee",
+        "off": "SATURDAY",
+        "dept": "ADMIN - CCTV",
+        "shift": "morning",
+        "designation": "ADMIN - CCTV",
+        "job_role": "EMPLOYEE",
+        "stores": [
+            "LM11"
+        ],
+        "permissions": [
+            "dashboard",
+            "profile",
+            "payroll"
+        ],
+        "profile_photo": "",
+        "identificacao": "",
+        "numero_inss": "",
+        "data_de_contrato": ""
+    },
+    "NWC6661": {
+        "name": "FRANCISCO MUNDELE CHIVELA",
+        "password": "123",
+        "store": "LM11",
+        "status": "active",
+        "role": "employee",
+        "off": "WEDNESDAY",
+        "dept": "ADMIN - CCTV",
+        "shift": "morning",
+        "designation": "ADMIN - CCTV",
+        "job_role": "EMPLOYEE",
+        "stores": [
+            "LM11"
+        ],
+        "permissions": [
+            "dashboard",
+            "profile",
+            "payroll"
+        ],
+        "profile_photo": "",
+        "identificacao": "",
+        "numero_inss": "",
+        "data_de_contrato": ""
+    },
+    "NWC1553": {
+        "name": "TIAGO SANDALA CHISSANHA",
+        "password": "123",
+        "store": "LM11",
+        "status": "active",
+        "role": "employee",
+        "off": "SUNDAY",
+        "dept": "ADMIN - AUDITOR",
+        "shift": "morning",
+        "designation": "ADMIN - AUDITOR",
+        "job_role": "EMPLOYEE",
+        "stores": [
+            "LM11"
+        ],
+        "permissions": [
+            "dashboard",
+            "profile",
+            "payroll"
+        ],
+        "profile_photo": "",
+        "identificacao": "",
+        "numero_inss": "",
+        "data_de_contrato": ""
+    },
+    "NWC8350": {
+        "name": "LOLIVALDO ALBERTO MADEIRA",
+        "password": "123",
+        "store": "LM11",
+        "status": "active",
+        "role": "employee",
+        "off": "SUNDAY",
+        "dept": "ADMIN - EDP",
+        "shift": "morning",
+        "designation": "ADMIN - EDP",
+        "job_role": "EMPLOYEE",
+        "stores": [
+            "LM11"
+        ],
+        "permissions": [
+            "dashboard",
+            "profile",
+            "payroll"
+        ],
+        "profile_photo": "",
+        "identificacao": "",
+        "numero_inss": "",
+        "data_de_contrato": ""
+    },
+    "NWC5187": {
+        "name": "VICTOR NSOSI JOAO",
+        "password": "123",
+        "store": "LM11",
+        "status": "active",
+        "role": "employee",
+        "off": "MONDAY",
+        "dept": "CASH - HEAD",
+        "shift": "morning",
+        "designation": "CASH - HEAD",
+        "job_role": "EMPLOYEE",
+        "stores": [
+            "LM11"
+        ],
+        "permissions": [
+            "dashboard",
+            "profile",
+            "payroll"
+        ],
+        "profile_photo": "",
+        "identificacao": "",
+        "numero_inss": "",
+        "data_de_contrato": ""
+    },
+    "NWC1168": {
+        "name": "ADELIA MBALOMBO CHIPEPI",
+        "password": "123",
+        "store": "LM11",
+        "status": "active",
+        "role": "employee",
+        "off": "SUNDAY",
+        "dept": "CASH - HEAD",
+        "shift": "morning",
+        "designation": "CASH - HEAD",
+        "job_role": "EMPLOYEE",
+        "stores": [
+            "LM11"
+        ],
+        "permissions": [
+            "dashboard",
+            "profile",
+            "payroll"
+        ],
+        "profile_photo": "",
+        "identificacao": "",
+        "numero_inss": "",
+        "data_de_contrato": ""
+    },
+    "NWC2652": {
+        "name": "DULCE DOROTEIA GARCIA LUSITANO",
+        "password": "123",
+        "store": "LM11",
+        "status": "active",
+        "role": "employee",
+        "off": "MONDAY",
+        "dept": "CASH - HEAD",
+        "shift": "morning",
+        "designation": "CASH - HEAD",
+        "job_role": "EMPLOYEE",
+        "stores": [
+            "LM11"
+        ],
+        "permissions": [
+            "dashboard",
+            "profile",
+            "payroll"
+        ],
+        "profile_photo": "",
+        "identificacao": "",
+        "numero_inss": "",
+        "data_de_contrato": ""
+    },
+    "NWC3381": {
+        "name": "ANDRE DE JESUS NGOLA JOSE",
+        "password": "123",
+        "store": "LM11",
+        "status": "active",
+        "role": "employee",
+        "off": "TUESDAY",
+        "dept": "CASH",
+        "shift": "morning",
+        "designation": "CASH",
+        "job_role": "EMPLOYEE",
+        "stores": [
+            "LM11"
+        ],
+        "permissions": [
+            "dashboard",
+            "profile",
+            "payroll"
+        ],
+        "profile_photo": "",
+        "identificacao": "",
+        "numero_inss": "",
+        "data_de_contrato": ""
+    },
+    "NWC1983": {
+        "name": "PATRICIA SOLANGE FRANCISCO",
+        "password": "123",
+        "store": "LM11",
+        "status": "active",
+        "role": "employee",
+        "off": "THURSDAY",
+        "dept": "CASH",
+        "shift": "second",
+        "designation": "CASH",
+        "job_role": "EMPLOYEE",
+        "stores": [
+            "LM11"
+        ],
+        "permissions": [
+            "dashboard",
+            "profile",
+            "payroll"
+        ],
+        "profile_photo": "",
+        "identificacao": "",
+        "numero_inss": "",
+        "data_de_contrato": ""
+    },
+    "NWC8364": {
+        "name": "DIELUMBAKA AUGUSTO",
+        "password": "123",
+        "store": "LM11",
+        "status": "active",
+        "role": "employee",
+        "off": "WEDNESDAY",
+        "dept": "CASH",
+        "shift": "second",
+        "designation": "CASH",
+        "job_role": "EMPLOYEE",
+        "stores": [
+            "LM11"
+        ],
+        "permissions": [
+            "dashboard",
+            "profile",
+            "payroll"
+        ],
+        "profile_photo": "",
+        "identificacao": "",
+        "numero_inss": "",
+        "data_de_contrato": ""
+    },
+    "NWC2788": {
+        "name": "INES NACHINGOLO FELICIANO NAMBELO",
+        "password": "123",
+        "store": "LM11",
+        "status": "active",
+        "role": "employee",
+        "off": "TUESDAY",
+        "dept": "CASH",
+        "shift": "morning",
+        "designation": "CASH",
+        "job_role": "EMPLOYEE",
+        "stores": [
+            "LM11"
+        ],
+        "permissions": [
+            "dashboard",
+            "profile",
+            "payroll"
+        ],
+        "profile_photo": "",
+        "identificacao": "",
+        "numero_inss": "",
+        "data_de_contrato": ""
+    },
+    "NWC1010": {
+        "name": "TERESA PEDRO LEAO",
+        "password": "123",
+        "store": "LM11",
+        "status": "active",
+        "role": "employee",
+        "off": "FRIDAY",
+        "dept": "CASH",
+        "shift": "morning",
+        "designation": "CASH",
+        "job_role": "EMPLOYEE",
+        "stores": [
+            "LM11"
+        ],
+        "permissions": [
+            "dashboard",
+            "profile",
+            "payroll"
+        ],
+        "profile_photo": "",
+        "identificacao": "",
+        "numero_inss": "",
+        "data_de_contrato": ""
+    },
+    "NWC6638": {
+        "name": "CLAUDIO JANUARIO MANUEL AVELINO",
+        "password": "123",
+        "store": "LM11",
+        "status": "active",
+        "role": "employee",
+        "off": "SUNDAY",
+        "dept": "TALHO",
+        "shift": "morning",
+        "designation": "TALHO",
+        "job_role": "EMPLOYEE",
+        "stores": [
+            "LM11"
+        ],
+        "permissions": [
+            "dashboard",
+            "profile",
+            "payroll"
+        ],
+        "profile_photo": "",
+        "identificacao": "",
+        "numero_inss": "",
+        "data_de_contrato": ""
+    },
+    "NWC5830": {
+        "name": "REGINA DE FATIMA VIDAL",
+        "password": "123",
+        "store": "LM11",
+        "status": "active",
+        "role": "employee",
+        "off": "MONDAY",
+        "dept": "TALHO",
+        "shift": "morning",
+        "designation": "TALHO",
+        "job_role": "EMPLOYEE",
+        "stores": [
+            "LM11"
+        ],
+        "permissions": [
+            "dashboard",
+            "profile",
+            "payroll"
+        ],
+        "profile_photo": "",
+        "identificacao": "",
+        "numero_inss": "",
+        "data_de_contrato": ""
+    },
+    "NWC5529": {
+        "name": "ALEXANDRE LUIS CORREIA",
+        "password": "123",
+        "store": "LM11",
+        "status": "active",
+        "role": "employee",
+        "off": "FRIDAY",
+        "dept": "TALHO",
+        "shift": "morning",
+        "designation": "TALHO",
+        "job_role": "EMPLOYEE",
+        "stores": [
+            "LM11"
+        ],
+        "permissions": [
+            "dashboard",
+            "profile",
+            "payroll"
+        ],
+        "profile_photo": "",
+        "identificacao": "",
+        "numero_inss": "",
+        "data_de_contrato": ""
+    },
+    "NWC5713": {
+        "name": "ROSA GARNEIRA BUMBA",
+        "password": "123",
+        "store": "LM11",
+        "status": "active",
+        "role": "employee",
+        "off": "WEDNESDAY",
+        "dept": "TALHO",
+        "shift": "morning",
+        "designation": "TALHO",
+        "job_role": "EMPLOYEE",
+        "stores": [
+            "LM11"
+        ],
+        "permissions": [
+            "dashboard",
+            "profile",
+            "payroll"
+        ],
+        "profile_photo": "",
+        "identificacao": "",
+        "numero_inss": "",
+        "data_de_contrato": ""
+    },
+    "NWC5396": {
+        "name": "COSTA BEBIANO HEBO",
+        "password": "123",
+        "store": "LM11",
+        "status": "active",
+        "role": "employee",
+        "off": "THURSDAY",
+        "dept": "TALHO",
+        "shift": "morning",
+        "designation": "TALHO",
+        "job_role": "EMPLOYEE",
+        "stores": [
+            "LM11"
+        ],
+        "permissions": [
+            "dashboard",
+            "profile",
+            "payroll"
+        ],
+        "profile_photo": "",
+        "identificacao": "",
+        "numero_inss": "",
+        "data_de_contrato": ""
+    },
+    "NWC8361": {
+        "name": "AGOSTINHO JOAQUIM KUANGO DA COSTA",
+        "password": "123",
+        "store": "LM11",
+        "status": "active",
+        "role": "employee",
+        "off": "SUNDAY",
+        "dept": "SECU",
+        "shift": "morning",
+        "designation": "SECU",
+        "job_role": "EMPLOYEE",
+        "stores": [
+            "LM11"
+        ],
+        "permissions": [
+            "dashboard",
+            "profile",
+            "payroll"
+        ],
+        "profile_photo": "",
+        "identificacao": "",
+        "numero_inss": "",
+        "data_de_contrato": ""
+    },
+    "NWC2300": {
+        "name": "JOANA CARDOSO JOAQUIM AFONSO",
+        "password": "123",
+        "store": "LM11",
+        "status": "active",
+        "role": "employee",
+        "off": "MONDAY",
+        "dept": "SECU",
+        "shift": "morning",
+        "designation": "SECU",
+        "job_role": "EMPLOYEE",
+        "stores": [
+            "LM11"
+        ],
+        "permissions": [
+            "dashboard",
+            "profile",
+            "payroll"
+        ],
+        "profile_photo": "",
+        "identificacao": "",
+        "numero_inss": "",
+        "data_de_contrato": ""
+    },
+    "NWC5168": {
+        "name": "JOAO NVUNDA DALA",
+        "password": "123",
+        "store": "LM11",
+        "status": "active",
+        "role": "employee",
+        "off": "THURSDAY",
+        "dept": "F & V",
+        "shift": "morning",
+        "designation": "F & V",
+        "job_role": "EMPLOYEE",
+        "stores": [
+            "LM11"
+        ],
+        "permissions": [
+            "dashboard",
+            "profile",
+            "payroll"
+        ],
+        "profile_photo": "",
+        "identificacao": "",
+        "numero_inss": "",
+        "data_de_contrato": ""
+    },
+    "NWC3711": {
+        "name": "ANGELA MARIA BUMBA",
+        "password": "123",
+        "store": "LM11",
+        "status": "active",
+        "role": "employee",
+        "off": "FRIDAY",
+        "dept": "F & V",
+        "shift": "morning",
+        "designation": "F & V",
+        "job_role": "EMPLOYEE",
+        "stores": [
+            "LM11"
+        ],
+        "permissions": [
+            "dashboard",
+            "profile",
+            "payroll"
+        ],
+        "profile_photo": "",
+        "identificacao": "",
+        "numero_inss": "",
+        "data_de_contrato": ""
+    },
+    "NWC5186": {
+        "name": "HELIA DOMINGOS DE CARVALHO",
+        "password": "123",
+        "store": "LM11",
+        "status": "active",
+        "role": "employee",
+        "off": "WEDNESDAY",
+        "dept": "SECU",
+        "shift": "morning",
+        "designation": "SECU",
+        "job_role": "EMPLOYEE",
+        "stores": [
+            "LM11"
+        ],
+        "permissions": [
+            "dashboard",
+            "profile",
+            "payroll"
+        ],
+        "profile_photo": "",
+        "identificacao": "",
+        "numero_inss": "",
+        "data_de_contrato": ""
+    },
+    "NWC6702": {
+        "name": "DOMINGOS GAMA PEREIRA",
+        "password": "123",
+        "store": "LM11",
+        "status": "active",
+        "role": "employee",
+        "off": "FRIDAY",
+        "dept": "SECU",
+        "shift": "morning",
+        "designation": "SECU",
+        "job_role": "EMPLOYEE",
+        "stores": [
+            "LM11"
+        ],
+        "permissions": [
+            "dashboard",
+            "profile",
+            "payroll"
+        ],
+        "profile_photo": "",
+        "identificacao": "",
+        "numero_inss": "",
+        "data_de_contrato": ""
+    },
+    "NWC3596": {
+        "name": "ALDAIR FERNANDES FERREIRA",
+        "password": "123",
+        "store": "LM11",
+        "status": "active",
+        "role": "employee",
+        "off": "TUESDAY",
+        "dept": "SECU",
+        "shift": "morning",
+        "designation": "SECU",
+        "job_role": "EMPLOYEE",
+        "stores": [
+            "LM11"
+        ],
+        "permissions": [
+            "dashboard",
+            "profile",
+            "payroll"
+        ],
+        "profile_photo": "",
+        "identificacao": "",
+        "numero_inss": "",
+        "data_de_contrato": ""
+    },
+    "NWC2757": {
+        "name": "JOSEFA KUELUNGA MUASSOKA",
+        "password": "123",
+        "store": "LM11",
+        "status": "active",
+        "role": "employee",
+        "off": "THURSDAY",
+        "dept": "SECU",
+        "shift": "morning",
+        "designation": "SECU",
+        "job_role": "EMPLOYEE",
+        "stores": [
+            "LM11"
+        ],
+        "permissions": [
+            "dashboard",
+            "profile",
+            "payroll"
+        ],
+        "profile_photo": "",
+        "identificacao": "",
+        "numero_inss": "",
+        "data_de_contrato": ""
+    },
+    "NWC4554": {
+        "name": "DOMINGOS ANTONIO FERNANDO",
+        "password": "123",
+        "store": "LM11",
+        "status": "active",
+        "role": "employee",
+        "off": "THURSDAY",
+        "dept": "CASH",
+        "shift": "morning",
+        "designation": "CASH",
+        "job_role": "EMPLOYEE",
+        "stores": [
+            "LM11"
+        ],
+        "permissions": [
+            "dashboard",
+            "profile",
+            "payroll"
+        ],
+        "profile_photo": "",
+        "identificacao": "",
+        "numero_inss": "",
+        "data_de_contrato": ""
+    },
+    "NWC2624": {
+        "name": "CECILIA JORGE FAMOSO",
+        "password": "123",
+        "store": "LM11",
+        "status": "active",
+        "role": "employee",
+        "off": "FRIDAY",
+        "dept": "CASH",
+        "shift": "morning",
+        "designation": "CASH",
+        "job_role": "EMPLOYEE",
+        "stores": [
+            "LM11"
+        ],
+        "permissions": [
+            "dashboard",
+            "profile",
+            "payroll"
+        ],
+        "profile_photo": "",
+        "identificacao": "",
+        "numero_inss": "",
+        "data_de_contrato": ""
+    },
+    "NWC3318": {
+        "name": "JOSE MANUEL KAZOLA",
+        "password": "123",
+        "store": "LM11",
+        "status": "active",
+        "role": "employee",
+        "off": "SUNDAY",
+        "dept": "FRESCO",
+        "shift": "morning",
+        "designation": "FRESCO",
+        "job_role": "EMPLOYEE",
+        "stores": [
+            "LM11"
+        ],
+        "permissions": [
+            "dashboard",
+            "profile",
+            "payroll"
+        ],
+        "profile_photo": "",
+        "identificacao": "",
+        "numero_inss": "",
+        "data_de_contrato": ""
+    },
+    "NWC7347": {
+        "name": "ARMANDO CHICOVO SAMBA",
+        "password": "123",
+        "store": "LM11",
+        "status": "active",
+        "role": "employee",
+        "off": "TUESDAY",
+        "dept": "FRESCO",
+        "shift": "morning",
+        "designation": "FRESCO",
+        "job_role": "EMPLOYEE",
+        "stores": [
+            "LM11"
+        ],
+        "permissions": [
+            "dashboard",
+            "profile",
+            "payroll"
+        ],
+        "profile_photo": "",
+        "identificacao": "",
+        "numero_inss": "",
+        "data_de_contrato": ""
+    },
+    "NWC8362": {
+        "name": "ARAUJO PAULOMENDES",
+        "password": "123",
+        "store": "LM11",
+        "status": "active",
+        "role": "employee",
+        "off": "FRIDAY",
+        "dept": "STOCK",
+        "shift": "morning",
+        "designation": "STOCK",
+        "job_role": "EMPLOYEE",
+        "stores": [
+            "LM11"
+        ],
+        "permissions": [
+            "dashboard",
+            "profile",
+            "payroll"
+        ],
+        "profile_photo": "",
+        "identificacao": "",
+        "numero_inss": "",
+        "data_de_contrato": ""
+    },
+    "NWC6715": {
+        "name": "RIBEIRO ANTONIO FRANCISCO",
+        "password": "123",
+        "store": "LM11",
+        "status": "active",
+        "role": "employee",
+        "off": "THURSDAY",
+        "dept": "STOCK",
+        "shift": "morning",
+        "designation": "STOCK",
+        "job_role": "EMPLOYEE",
+        "stores": [
+            "LM11"
+        ],
+        "permissions": [
+            "dashboard",
+            "profile",
+            "payroll"
+        ],
+        "profile_photo": "",
+        "identificacao": "",
+        "numero_inss": "",
+        "data_de_contrato": ""
+    },
+    "NWC6444": {
+        "name": "HENRIQUES BRANDAO",
+        "password": "123",
+        "store": "LM11",
+        "status": "active",
+        "role": "employee",
+        "off": "WEDNESDAY",
+        "dept": "STOCK",
+        "shift": "morning",
+        "designation": "STOCK",
+        "job_role": "EMPLOYEE",
+        "stores": [
+            "LM11"
+        ],
+        "permissions": [
+            "dashboard",
+            "profile",
+            "payroll"
+        ],
+        "profile_photo": "",
+        "identificacao": "",
+        "numero_inss": "",
+        "data_de_contrato": ""
+    },
+    "LM11": {
+        "name": "Admin (LM11)",
+        "password": "Gamek@789",
+        "store": "LM11",
+        "status": "active",
+        "role": "admin",
+        "off": "SUNDAY",
+        "dept": "Admin",
+        "shift": "morning",
+        "designation": "Store Admin",
+        "job_role": "ADMIN",
+        "stores": [
+            "LM11"
+        ],
+        "permissions": [
+            "dashboard",
+            "roster",
+            "shift_approvals",
+            "password_management",
+            "calendar",
+            "leave_management",
+            "payroll",
+            "employees_info",
+            "attendance_edit",
+            "user_management",
+            "machine_management",
+            "profile"
+        ],
+        "profile_photo": "",
+        "identificacao": "",
+        "numero_inss": "",
+        "data_de_contrato": ""
+    },
+    "LF07": {
+        "name": "Admin (LF07)",
+        "password": "123",
+        "store": "LF07",
+        "status": "active",
+        "role": "admin",
+        "off": "SUNDAY",
+        "dept": "Admin",
+        "shift": "morning",
+        "designation": "Store Admin",
+        "job_role": "ADMIN",
+        "stores": [
+            "LF07"
+        ],
+        "permissions": [
+            "dashboard",
+            "roster",
+            "shift_approvals",
+            "password_management",
+            "calendar",
+            "leave_management",
+            "payroll",
+            "employees_info",
+            "attendance_edit",
+            "user_management",
+            "machine_management",
+            "profile"
+        ],
+        "profile_photo": "",
+        "identificacao": "",
+        "numero_inss": "",
+        "data_de_contrato": ""
+    }
+}

@@ -1,0 +1,17 @@
+{
+    "LM11": {
+        "ip": "192.168.1.153",
+        "port": 4370,
+        "name": "Gamek HRMS"
+    },
+    "LF07": {
+        "ip": "192.168.88.16",
+        "port": 4370,
+        "name": "Benfica LF07 HRMS"
+    },
+    "DEV": {
+        "ip": "127.0.0.1",
+        "port": 4370,
+        "name": "Fresmart"
+    }
+}
