@@ -8,20 +8,24 @@ import re
 import unicodedata
 import uuid
 from datetime import datetime, time, timedelta
+from pathlib import Path
 from flask import Flask, render_template_string, request, Response, send_file, session, redirect, url_for, flash, send_from_directory, jsonify
 from github import Github
 import openpyxl
+import qrcode
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from werkzeug.utils import secure_filename
 from zk import ZK, const
 from pypdf import PdfReader, PdfWriter
 
 app = Flask(__name__)
+APP_BUILD = '2026-10-09-OFFER-PERIODS-V2'
 app.secret_key = os.getenv('SECRET_KEY', 'gamek_fresmart_secret_key_sonu')
 
 UPLOAD_FOLDER = os.getenv('UPLOAD_FOLDER', 'uploads')
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+app.config['MAX_CONTENT_LENGTH'] = int(os.getenv('MAX_UPLOAD_MB','50')) * 1024 * 1024
 ALLOWED_EXTENSIONS = {'pdf', 'png', 'jpg', 'jpeg', 'doc', 'docx'}
 
 # Machine Configurations with Multiple Stores
@@ -51,21 +55,46 @@ LEAVE_CODE_NAMES = {
 
 ATTENDANCE_OVERRIDES_FILE = 'attendance_overrides.json'
 MANUAL_PUNCHES_FILE = 'manual_punches.json'
-ROSTER_JSON_FILE = 'roster.json' 
+DUPLICATE_PUNCHES_FILE = 'duplicate_punches.json'
+DUPLICATE_PUNCH_WINDOW_SECONDS = 60
+ROSTER_JSON_FILE = 'roster.json'
+CORRECTIONS_FILE = 'attendance_corrections.json'
+LEAVE_BALANCES_FILE = 'leave_balances.json'
+DOCUMENTS_FILE = 'employee_documents.json'
+PROMOTION_DOCUMENTS_FILE = 'promotion_documents.json'
+PROMOTION_PERIODS_FILE = 'promotion_periods.json'
+KVI_POWER_DOCUMENTS_FILE = 'kvi_power_documents.json'
+KVI_POWER_DATA_FILE = 'kvi_power_data.json'
+BUSINESS_DOC_FOLDER = os.path.join(UPLOAD_FOLDER, 'business_documents')
+os.makedirs(BUSINESS_DOC_FOLDER, exist_ok=True)
+
+SYNC_HISTORY_FILE = 'sync_history.json'
+STAFFING_RULES_FILE = 'staffing_rules.json'
+NOTIFICATIONS_FILE = 'notifications.json'
+OVERTIME_APPROVALS_FILE = 'overtime_approvals.json'
+OVERTIME_MIN_MINUTES = int(os.getenv('OVERTIME_MIN_MINUTES', '15'))
+
+AUDIT_LOG_FILE = 'audit_log.json'
+EMPLOYEE_DOC_FOLDER = os.path.join(UPLOAD_FOLDER, 'employee_documents')
+os.makedirs(EMPLOYEE_DOC_FOLDER, exist_ok=True)
+ 
 SHIFT_REQUESTS_FILE = 'shift_requests.json' 
 PASSWORD_RESETS_FILE = 'password_resets.json'
 USERS_DB_FILE = 'users_db.json'
 SALARY_SLIPS_FILE = 'salary_slips.json'
 MACHINES_DB_FILE = 'machines_db.json'
-PERMISSIONS = ['dashboard','roster','shift_approvals','password_management','calendar','leave_management','payroll','employees_info','attendance_edit','user_management','machine_management','profile']
+PERMISSIONS = ['dashboard','attendance_view','attendance_edit','employee_id_cards','employee_manage','roster','shift_approvals','overtime_approval','overtime_history','password_management','calendar','leave_management','payroll','employee_documents','attendance_corrections','notifications','workforce_hub','all_stores_attendance','biometric_sync','leave_balances','roster_copy','staffing_rules','audit_log','qr_directory','user_management','machine_management','profile']
+PERMISSION_LABELS = {
+ 'dashboard':'Dashboard','attendance_view':'Attendance View','attendance_edit':'Edit Attendance Times','employee_id_cards':'Employee ID Cards','employee_manage':'Add / Manage Employees','roster':'Roster Planner','shift_approvals':'Shift Approvals','overtime_approval':'Overtime Approval','overtime_history':'Overtime History','password_management':'Password Management','calendar':'Calendar & Rota','leave_management':'Leave Management','payroll':'Payroll & Reports','employee_documents':'Employee Documents','attendance_corrections':'Attendance Corrections','notifications':'Notifications','workforce_hub':'Workforce Automation Hub','all_stores_attendance':'All Stores Attendance','biometric_sync':'Biometric Sync History','leave_balances':'Leave Balances','roster_copy':'Roster Copy','staffing_rules':'Staffing Rules','audit_log':'Audit Log','qr_directory':'Employee QR Directory','user_management':'User Management','machine_management':'Machine Management','profile':'My Profile'
+}
 
 # FIX: Added 'payroll' permission to EMPLOYEE role
 ROLE_PRESETS = {
-    'HR':['dashboard','leave_management','payroll','employees_info','profile'],
-    'AREA MANAGER':['dashboard','attendance_edit','leave_management','roster','shift_approvals','employees_info','profile'],
-    'OPERATION HEAD':['dashboard','attendance_edit','leave_management','roster','shift_approvals','payroll','employees_info','profile'],
-    'STORE MANAGER':['dashboard','attendance_edit','leave_management','roster','shift_approvals','employees_info','profile'],
-    'EMPLOYEE':['dashboard','profile', 'payroll'] 
+    'HR':['dashboard','attendance_view','leave_management','payroll','employee_id_cards','employee_documents','notifications','profile'],
+    'AREA MANAGER':['dashboard','attendance_view','attendance_edit','employee_id_cards','employee_manage','leave_management','roster','shift_approvals','overtime_approval','overtime_history','calendar','notifications','profile'],
+    'OPERATION HEAD':['dashboard','attendance_view','attendance_edit','employee_id_cards','employee_manage','leave_management','roster','shift_approvals','overtime_approval','overtime_history','payroll','calendar','employee_documents','attendance_corrections','notifications','workforce_hub','profile'],
+    'STORE MANAGER':['dashboard','attendance_view','attendance_edit','employee_id_cards','employee_manage','leave_management','roster','shift_approvals','overtime_approval','overtime_history','calendar','notifications','profile'],
+    'EMPLOYEE':['dashboard','attendance_view','calendar','payroll','employee_documents','attendance_corrections','notifications','profile']
 }
 DEFAULT_MACHINES = dict(MACHINES)
 
@@ -74,7 +103,7 @@ SYNCED_ATTENDANCE_LOGS = []
 LAST_DEVICE_SYNC_TIME = {}
 
 # Master Employees (Fallback / Default Setup)
-EMPLOYEE_IDENTITY_DATA = {'NWC8364': {'data_de_contrato': '07/15/26', 'identificacao': '0008858606UE045', 'numero_inss': '7493357'}, 'NWC2652': {'data_de_contrato': '04/02/21', 'identificacao': '0007320697UE040', 'numero_inss': '5268457'}, 'NWC4554': {'data_de_contrato': '07/27/23', 'identificacao': '0007010800KS048', 'numero_inss': '6065267'}, 'NWC3381': {'data_de_contrato': '10/07/22', 'identificacao': '001491835UE035', 'numero_inss': '5751543'}, 'NWC2788': {'data_de_contrato': '06/27/22', 'identificacao': '0003316212BA038', 'numero_inss': '5626434'}, 'NWC1010': {'data_de_contrato': '10/10/18', 'identificacao': '0003726506UE038', 'numero_inss': '1878707'}, 'NWC1983': {'data_de_contrato': '06/27/22', 'identificacao': '000841297LA033', 'numero_inss': '1497907'}, 'NWC5187': {'data_de_contrato': '06/04/24', 'identificacao': '0006083083LA043', 'numero_inss': '6213233'}, 'NWC1168': {'data_de_contrato': '03/19/19', 'identificacao': '0006278742BA042', 'numero_inss': '5045404'}, 'NWC1525': {'data_de_contrato': '06/24/21', 'identificacao': '0005957722LA049', 'numero_inss': '5390470'}, 'NWC1553': {'data_de_contrato': '07/01/21', 'identificacao': '0002518985LA039', 'numero_inss': '1160532'}, 'NWC3596': {'data_de_contrato': '10/14/22', 'identificacao': '002869217LA033', 'numero_inss': '5752922'}, 'NWC3127': {'data_de_contrato': '08/26/22', 'identificacao': '0009463847LA048', 'numero_inss': '5701199'}, 'NWC2005': {'data_de_contrato': '09/01/21', 'identificacao': '0009206303LA041', 'numero_inss': '5572171'}, 'NWC5168': {'data_de_contrato': '06/04/24', 'identificacao': '0003096236LA038', 'numero_inss': '1850285'}, 'NWC5713': {'data_de_contrato': '11/14/24', 'identificacao': '0001358868LA036', 'numero_inss': '6573015'}, 'NWC5186': {'data_de_contrato': '06/01/24', 'identificacao': '0001144465LA011', 'numero_inss': '6377667'}, 'NWC3318': {'data_de_contrato': '09/20/22', 'identificacao': '0009972719LA042', 'numero_inss': '5718715'}, 'NWC2300': {'data_de_contrato': '03/15/22', 'identificacao': '0003367879LA034', 'numero_inss': '5529307'}, 'NWC5830': {'data_de_contrato': '01/17/25', 'identificacao': '0005999061LA043', 'numero_inss': '5562439'}, 'NWC5529': {'data_de_contrato': '08/19/24', 'identificacao': '0002286363LA034', 'numero_inss': '6456975'}, 'NWC2624': {'data_de_contrato': '04/18/22', 'identificacao': '007833178LA049', 'numero_inss': '5587128'}, 'NWC5396': {'data_de_contrato': '06/20/24', 'identificacao': '000419510KN032', 'numero_inss': '1963315'}, 'NWC3711': {'data_de_contrato': '10/28/22', 'identificacao': '000137207LA032', 'numero_inss': '5754822'}, 'NWC2757': {'data_de_contrato': '05/16/22', 'identificacao': '0004945742LN043', 'numero_inss': '2048790'}, 'NWC3791': {'data_de_contrato': '11/17/22', 'identificacao': '0005968810CA047', 'numero_inss': '5776804'}, 'NWC4281': {'data_de_contrato': '03/10/23', 'identificacao': '000955344LA030', 'numero_inss': '1781558'}, 'NWC4481': {'data_de_contrato': '05/31/23', 'identificacao': '0004858352LA044', 'numero_inss': '5996466'}, 'NWC5222': {'data_de_contrato': '06/20/24', 'identificacao': '0004785268LA046', 'numero_inss': '1731037'}, 'NWC2981': {'data_de_contrato': '07/13/22', 'identificacao': '0005280299LA040', 'numero_inss': '5667046'}, 'NWC6661': {'data_de_contrato': '08/15/25', 'identificacao': '0005518818BA046', 'numero_inss': '6914818'}, 'NWC6444': {'data_de_contrato': '06/20/25', 'identificacao': '0003579623LA037', 'numero_inss': '6858477'}, 'NWC6638': {'data_de_contrato': '08/16/25', 'identificacao': '0007074038KS044', 'numero_inss': '5141214'}, 'NWC6702': {'data_de_contrato': '08/18/25', 'identificacao': '0009148747LA047', 'numero_inss': '5682990'}, 'NWC8362': {'data_de_contrato': '07/15/26', 'identificacao': '0006864584UE041', 'numero_inss': '4922086'}, 'NWC8328': {'data_de_contrato': '07/10/26', 'identificacao': '006246050LA048', 'numero_inss': '7493006'}, 'NWC8350': {'data_de_contrato': '07/15/26', 'identificacao': '0002789758LA031', 'numero_inss': '7493052'}, 'NWC6715': {'data_de_contrato': '08/18/25', 'identificacao': '006753746LA046', 'numero_inss': '6927538'}, 'NWC7347': {'data_de_contrato': '12/19/25', 'identificacao': '007247013HO044', 'numero_inss': '5853548'}, 'NWC8361': {'data_de_contrato': '07/15/26', 'identificacao': '0007046482ME043', 'numero_inss': '5283234'}}
+EMPLOYEE_IDENTITY_DATA = {'NWC8364': {'data_de_contrato': '07/15/26', 'identificacao': '0008858606UE045'}, 'NWC2652': {'data_de_contrato': '04/02/21', 'identificacao': '0007320697UE040'}, 'NWC4554': {'data_de_contrato': '07/27/23', 'identificacao': '0007010800KS048'}, 'NWC3381': {'data_de_contrato': '10/07/22', 'identificacao': '001491835UE035'}, 'NWC2788': {'data_de_contrato': '06/27/22', 'identificacao': '0003316212BA038'}, 'NWC1010': {'data_de_contrato': '10/10/18', 'identificacao': '0003726506UE038'}, 'NWC1983': {'data_de_contrato': '06/27/22', 'identificacao': '000841297LA033'}, 'NWC5187': {'data_de_contrato': '06/04/24', 'identificacao': '0006083083LA043'}, 'NWC1168': {'data_de_contrato': '03/19/19', 'identificacao': '0006278742BA042'}, 'NWC1525': {'data_de_contrato': '06/24/21', 'identificacao': '0005957722LA049'}, 'NWC1553': {'data_de_contrato': '07/01/21', 'identificacao': '0002518985LA039'}, 'NWC3596': {'data_de_contrato': '10/14/22', 'identificacao': '002869217LA033'}, 'NWC3127': {'data_de_contrato': '08/26/22', 'identificacao': '0009463847LA048'}, 'NWC2005': {'data_de_contrato': '09/01/21', 'identificacao': '0009206303LA041'}, 'NWC5168': {'data_de_contrato': '06/04/24', 'identificacao': '0003096236LA038'}, 'NWC5713': {'data_de_contrato': '11/14/24', 'identificacao': '0001358868LA036'}, 'NWC5186': {'data_de_contrato': '06/01/24', 'identificacao': '0001144465LA011'}, 'NWC3318': {'data_de_contrato': '09/20/22', 'identificacao': '0009972719LA042'}, 'NWC2300': {'data_de_contrato': '03/15/22', 'identificacao': '0003367879LA034'}, 'NWC5830': {'data_de_contrato': '01/17/25', 'identificacao': '0005999061LA043'}, 'NWC5529': {'data_de_contrato': '08/19/24', 'identificacao': '0002286363LA034'}, 'NWC2624': {'data_de_contrato': '04/18/22', 'identificacao': '007833178LA049'}, 'NWC5396': {'data_de_contrato': '06/20/24', 'identificacao': '000419510KN032'}, 'NWC3711': {'data_de_contrato': '10/28/22', 'identificacao': '000137207LA032'}, 'NWC2757': {'data_de_contrato': '05/16/22', 'identificacao': '0004945742LN043'}, 'NWC3791': {'data_de_contrato': '11/17/22', 'identificacao': '0005968810CA047'}, 'NWC4281': {'data_de_contrato': '03/10/23', 'identificacao': '000955344LA030'}, 'NWC4481': {'data_de_contrato': '05/31/23', 'identificacao': '0004858352LA044'}, 'NWC5222': {'data_de_contrato': '06/20/24', 'identificacao': '0004785268LA046'}, 'NWC2981': {'data_de_contrato': '07/13/22', 'identificacao': '0005280299LA040'}, 'NWC6661': {'data_de_contrato': '08/15/25', 'identificacao': '0005518818BA046'}, 'NWC6444': {'data_de_contrato': '06/20/25', 'identificacao': '0003579623LA037'}, 'NWC6638': {'data_de_contrato': '08/16/25', 'identificacao': '0007074038KS044'}, 'NWC6702': {'data_de_contrato': '08/18/25', 'identificacao': '0009148747LA047'}, 'NWC8362': {'data_de_contrato': '07/15/26', 'identificacao': '0006864584UE041'}, 'NWC8328': {'data_de_contrato': '07/10/26', 'identificacao': '006246050LA048'}, 'NWC8350': {'data_de_contrato': '07/15/26', 'identificacao': '0002789758LA031'}, 'NWC6715': {'data_de_contrato': '08/18/25', 'identificacao': '006753746LA046'}, 'NWC7347': {'data_de_contrato': '12/19/25', 'identificacao': '007247013HO044'}, 'NWC8361': {'data_de_contrato': '07/15/26', 'identificacao': '0007046482ME043'}}
 
 MASTER_EMPLOYEES = {
     'NWC2981': {'name': 'ANTONIO JOSE BANDOLA', 'off': 'SUNDAY', 'dept': 'ADMIN - MANAGER', 'shift': 'morning'},
@@ -165,12 +194,11 @@ def normalize_user_record(info):
     perms=info.get('permissions')
     if not isinstance(perms,list):
         preset=ROLE_PRESETS.get(str(info.get('job_role','')).upper())
-        perms=preset[:] if preset else (PERMISSIONS[:] if info.get('role') in ['admin','developer'] else ROLE_PRESETS['EMPLOYEE'][:])
+        perms=(PERMISSIONS[:] if info.get('role') in ['admin','developer'] else (preset[:] if preset else ROLE_PRESETS['EMPLOYEE'][:]))
     info['permissions']=[p for p in perms if p in PERMISSIONS]
     info.setdefault('profile_photo',''); info.setdefault('off','SUNDAY'); info.setdefault('dept',info.get('designation','General')); info.setdefault('shift','morning')
     statutory=EMPLOYEE_IDENTITY_DATA.get(str(info.get('emp_code','')).upper(),{})
     info.setdefault('identificacao', statutory.get('identificacao',''))
-    info.setdefault('numero_inss', statutory.get('numero_inss',''))
     info.setdefault('data_de_contrato', statutory.get('data_de_contrato',''))
     return info
 
@@ -234,6 +262,37 @@ def load_shift_requests(): return load_json_file(SHIFT_REQUESTS_FILE) if isinsta
 def save_shift_requests(data): save_json_file(SHIFT_REQUESTS_FILE, data)
 def load_salary_slips(): return load_json_file(SALARY_SLIPS_FILE) if isinstance(load_json_file(SALARY_SLIPS_FILE), list) else []
 def save_salary_slips(data): save_json_file(SALARY_SLIPS_FILE, data)
+
+def load_overtime_approvals():
+    data=load_json_file(OVERTIME_APPROVALS_FILE)
+    return data if isinstance(data,list) else []
+
+def save_overtime_approvals(data):
+    save_json_file(OVERTIME_APPROVALS_FILE,data)
+
+def overtime_record(user_id,date_str):
+    return next((x for x in load_overtime_approvals() if x.get('user_id')==user_id and x.get('date')==date_str),None)
+
+def ensure_overtime_request(user_id,name,store,date_str,minutes,actual_seconds,target_seconds):
+    rows=load_overtime_approvals()
+    rec=next((x for x in rows if x.get('user_id')==user_id and x.get('date')==date_str),None)
+    now=datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    if rec:
+        # Do not reopen a rejected item until punches are edited to a different overtime amount.
+        old_minutes=int(rec.get('minutes',0))
+        if rec.get('status')=='Rejected' and old_minutes==minutes:return rec
+        if rec.get('status')=='Rejected' and old_minutes!=minutes:
+            rec.update({'status':'Pending','minutes':minutes,'actual_seconds':actual_seconds,'target_seconds':target_seconds,'updated_at':now,'reviewed_by':'','reviewed_at':''})
+        elif rec.get('status')=='Pending':
+            rec.update({'minutes':minutes,'actual_seconds':actual_seconds,'target_seconds':target_seconds,'updated_at':now})
+        save_overtime_approvals(rows)
+        return rec
+    rec={'id':uuid.uuid4().hex,'user_id':user_id,'name':name,'store':store,'date':date_str,'minutes':minutes,'actual_seconds':actual_seconds,'target_seconds':target_seconds,'status':'Pending','created_at':now,'updated_at':now,'reviewed_by':'','reviewed_at':''}
+    rows.append(rec);save_overtime_approvals(rows)
+    # Store-targeted notification appears in that store admin portal; developers also see it.
+    suite_notify(store,'Overtime approval required',f'{name} ({user_id}) worked {minutes} extra minutes on {date_str}.',store)
+    return rec
+
 
 
 def _normalize_salary_text(value):
@@ -371,6 +430,10 @@ def fetch_attendance_data(start_date_str, end_date_str, filter_user_id, store_co
             attendance_records.append({'user_id': str(mp['user_id']), 'timestamp': ts})
         except Exception: continue
 
+    # Process chronologically so the earliest punch is retained and later punches within 60 seconds are duplicates.
+    attendance_records.sort(key=lambda x: x.get('timestamp') or datetime.min)
+    last_accepted_punch = {}
+    duplicate_batch = []
     for att in attendance_records:
         att_ts = att['timestamp']
         att_date_str = att_ts.strftime('%Y-%m-%d')
@@ -393,12 +456,27 @@ def fetch_attendance_data(start_date_str, end_date_str, filter_user_id, store_co
 
             if filter_user_id and filter_user_id != 'ALL' and emp_code != filter_user_id and raw_uid != filter_user_id:
                 continue
-            
+
+            punch_key = (emp_code, att_date_str)
+            previous_accepted = last_accepted_punch.get(punch_key)
+            if previous_accepted is not None:
+                gap_seconds = int((att_ts - previous_accepted).total_seconds())
+                if 0 <= gap_seconds <= DUPLICATE_PUNCH_WINDOW_SECONDS:
+                    duplicate_batch.append({'id':f'{store_code}|{emp_code}|{att_ts.strftime("%Y-%m-%d %H:%M:%S")}', 'store':store_code, 'user_id':emp_code, 'name':emp_name, 'date':att_date_str, 'duplicate_time':att_ts.strftime('%H:%M:%S'), 'kept_time':previous_accepted.strftime('%H:%M:%S'), 'gap_seconds':gap_seconds, 'reason':'Second punch within 1 minute', 'detected_at':datetime.now().strftime('%Y-%m-%d %H:%M:%S')})
+                    continue
+            last_accepted_punch[punch_key] = att_ts
             raw_punches_list.append({'date': att_date_str, 'time': att_ts.strftime('%H:%M:%S'), 'user_id': emp_code, 'name': emp_name, 'timestamp': att_ts})
             if att_date_str not in period_data: period_data[att_date_str] = {}
             if emp_code not in period_data[att_date_str]: period_data[att_date_str][emp_code] = {'name': emp_name, 'timestamps': []}
             period_data[att_date_str][emp_code]['timestamps'].append(att_ts)
             
+    if duplicate_batch:
+        existing_duplicates = load_json_file(DUPLICATE_PUNCHES_FILE)
+        if not isinstance(existing_duplicates,list): existing_duplicates=[]
+        known_ids={x.get('id') for x in existing_duplicates}
+        existing_duplicates.extend(x for x in duplicate_batch if x.get('id') not in known_ids)
+        save_json_file(DUPLICATE_PUNCHES_FILE,existing_duplicates[-10000:])
+
     users_list = []
     for k, v in db.items():
         if v.get('role') == 'employee' and (store_code == 'DEV' or v.get('store') == store_code):
@@ -509,23 +587,45 @@ def fetch_attendance_data(start_date_str, end_date_str, filter_user_id, store_co
                     total_lunch_str = f"{l_hrs[0]}h {l_hrs[1]//60}m"
                 else: total_lunch_str = "-"
                 
-                net_duration_seconds = max(0, (s_out - s_in) - lunch_seconds) if (s_in is not None and s_out is not None and s_out > s_in) else 0
-                total_duration_seconds += net_duration_seconds
-                total_hours_str = f"{divmod(net_duration_seconds, 3600)[0]}h {divmod(net_duration_seconds, 3600)[1]//60}m" if s_in is not None and s_out is not None else "-"
-                
+                # Working time is always first punch to last punch minus a valid lunch interval.
+                # The old calculation incorrectly used a 7-hour target when lunch punches were absent.
+                actual_net_seconds = max(0, (s_out - s_in) - lunch_seconds) if (s_in is not None and s_out is not None and s_out > s_in) else 0
+                target_seconds = (8 * 3600) if has_lunch_punches else (7 * 3600)
+                net_duration_seconds = actual_net_seconds
                 net_variance_str, variance_type = "-", "neutral"
+                overtime_status = "None"
+                overtime_minutes = 0
                 if s_in is not None and s_out is not None:
-                    target_seconds = (8 * 3600) if has_lunch_punches else (7 * 3600)
-                    diff = net_duration_seconds - target_seconds
-                    total_net_variance_seconds += diff
-                    if diff > (45 * 60):
-                        extra_hours_val = math.floor(diff / 3600) or 1
-                        code_prefix = 'H07' if is_weekend else 'H06'
-                        net_variance_str, variance_type = f"{code_prefix};{extra_hours_val}", 'positive'
+                    diff = actual_net_seconds - target_seconds
+                    if diff >= 45 * 60:
+                        raw_overtime_minutes = diff // 60
+                        # 45m-1h44m => 1 credited OT hour; 1h45m-2h44m => 2 hours, etc.
+                        overtime_hours = max(1, int((diff + 15 * 60) // 3600))
+                        overtime_minutes = overtime_hours * 60
+                        rec = ensure_overtime_request(final_emp_code,emp_name,emp_info.get('store',store_code),date_str,overtime_minutes,actual_net_seconds,target_seconds)
+                        rec['raw_minutes'] = raw_overtime_minutes
+                        overtime_status = rec.get('status','Pending')
+                        if overtime_status == 'Approved':
+                            net_duration_seconds = target_seconds + overtime_minutes * 60
+                            net_variance_str, variance_type = f"Approved OT {overtime_minutes//60}h {overtime_minutes%60}m", 'positive'
+                        elif session.get('role') == 'employee':
+                            # Employees only see overtime after approval. Pending/rejected extra time is hidden and not credited.
+                            net_duration_seconds = min(actual_net_seconds,target_seconds)
+                            net_variance_str, variance_type = "0h 0m", "neutral"
+                        elif overtime_status == 'Rejected':
+                            # Admin/developer retain complete history; rejected time is not credited.
+                            net_duration_seconds = min(actual_net_seconds,target_seconds)
+                            net_variance_str, variance_type = f"Rejected OT {overtime_minutes//60}h {overtime_minutes%60}m", "rejected"
+                        else:
+                            net_variance_str, variance_type = f"Pending OT {overtime_minutes//60}h {overtime_minutes%60}m", 'pending'
                     elif diff < 0:
-                        s_hrs = divmod(abs(diff), 3600)
-                        net_variance_str, variance_type = f"-{s_hrs[0]}h {s_hrs[1]//60}m", 'negative'
-                    else: net_variance_str, variance_type = "0h 0m", 'neutral'
+                        short=abs(diff);s_hrs=divmod(short,3600)
+                        net_variance_str,variance_type=f"-{s_hrs[0]}h {s_hrs[1]//60}m",'negative'
+                    else:
+                        net_variance_str,variance_type="0h 0m",'neutral'
+                total_duration_seconds += net_duration_seconds
+                total_net_variance_seconds += (net_duration_seconds-target_seconds) if (s_in is not None and s_out is not None) else 0
+                total_hours_str = f"{divmod(net_duration_seconds, 3600)[0]}h {divmod(net_duration_seconds, 3600)[1]//60}m" if s_in is not None and s_out is not None else "-"
                 
                 if s_in is not None and s_out is None:
                     status, mis_punch_count = 'Mis Punch', mis_punch_count + 1
@@ -538,7 +638,7 @@ def fetch_attendance_data(start_date_str, end_date_str, filter_user_id, store_co
                     'store_in': store_in, 'lunch_out': lunch_out, 'lunch_in': lunch_in, 'out_time': out_time, 
                     'total_lunch': total_lunch_str, 'lunch_seconds': lunch_seconds, 'net_duration_seconds': net_duration_seconds, 
                     'total_hours': total_hours_str, 'net_variance': net_variance_str, 'variance_type': variance_type,
-                    'status': status, 'is_late': 'Yes' if is_late else 'No', 'shift_type': shift_type
+                    'status': status, 'is_late': 'Yes' if is_late else 'No', 'shift_type': shift_type, 'overtime_status': overtime_status, 'overtime_minutes': overtime_minutes
                 }
                 if status == 'Weekly Off': off_records.append(record)
                 elif status == 'Mis Punch': mispunch_records.append(record)
@@ -591,7 +691,7 @@ LOGIN_TEMPLATE = """
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>body { font-family: 'Inter', sans-serif; }</style>
 </head>
-<body class="bg-slate-900 min-h-screen flex items-center justify-center p-4">
+<body class="bg-slate-900 min-h-screen flex items-center justify-center p-4 relative"><div class="absolute top-4 right-4"><select onchange="location.href='/set_language/'+this.value" class="bg-white text-slate-900 text-xs font-bold rounded-xl px-3 py-2"><option value="en" {% if session.get('ui_language','en')=='en' %}selected{% endif %}>English</option><option value="pt" {% if session.get('ui_language')=='pt' %}selected{% endif %}>Português</option></select></div>
     <div class="bg-white/95 backdrop-blur-md rounded-3xl shadow-2xl border border-slate-200/50 p-8 w-full max-w-md space-y-6">
         <div class="text-center space-y-2">
             <div class="inline-flex bg-[#78b13f] px-5 py-3 rounded-2xl shadow-lg mb-2 items-center justify-center">
@@ -619,7 +719,17 @@ LOGIN_TEMPLATE = """
             </div>
         </form>
     </div>
-</body>
+<script>window.HRMS_LANGUAGE={{ session.get('ui_language','en')|tojson }};window.HRMS_PT={'Save Changes':'Guardar Alterações','Manage Pictures':'Gerir Imagens','Upload More Pictures':'Carregar Mais Imagens','Delete Picture':'Eliminar Imagem','Edit / Upload':'Editar / Carregar','Select offer period':'Seleccionar período de oferta','Upload Pictures to Offer Period':'Carregar Imagens para o Período de Oferta','Create Offer Period':'Criar Período de Oferta','Create Offer Period Link':'Criar Ligação do Período de Oferta','Offer Period Links':'Ligações dos Períodos de Oferta','Select at least one article.':'Seleccione pelo menos um artigo.','Select all visible rows':'Seleccionar todas as linhas visíveis','Deletion is permanent.':'A eliminação é permanente.','Delete All Existing Data':'Eliminar Todos os Dados Existentes','Delete Selected':'Eliminar Seleccionados','Click to sort':'Clique para ordenar','Other':'Outro','Search article code or name':'Pesquisar código ou nome do artigo','All Article Types':'Todos os Tipos de Artigo','Automatic one-minute duplicate filtering':'Filtragem automática de duplicados no intervalo de um minuto','No duplicate punches found.':'Nenhuma marcação duplicada encontrada.','Gap':'Intervalo','Duplicate Punch':'Marcação Duplicada','Kept Punch':'Marcação Mantida','Duplicate Punches':'Marcações Duplicadas','Select one or more documents first.':'Seleccione primeiro um ou mais documentos.','file(s) selected':'ficheiro(s) seleccionado(s)','You can select multiple files at once.':'Pode seleccionar vários ficheiros ao mesmo tempo.','No Excel data imported yet.':'Ainda não foram importados dados do Excel.','Supporting Documents':'Documentos de Suporte','Upload & Import Excel':'Carregar e Importar Excel','Import Article Excel':'Importar Excel de Artigos','Article Name':'Nome do Artigo','Article Code':'Código do Artigo','Article Type':'Tipo de Artigo','Power SKU':'SKU de Potência','Total Articles':'Total de Artigos','Available Promotion Documents':'Documentos de Promoção Disponíveis','Upload Document':'Carregar Documento','KVI + Power SKU':'KVI + SKU de Potência','Promotion':'Promoção','Credited Overtime':'Horas Extra Creditadas','Credited Working Hours':'Horas de Trabalho Creditadas','Export Last 6 Months':'Exportar Últimos 6 Meses','Add / Manage Employees':'Adicionar / Gerir Trabalhadores','Edit Attendance Times':'Editar Horas de Assiduidade','Attendance View':'Ver Assiduidade','Portal Options for New User':'Opções do Portal para Novo Utilizador','Clear All':'Limpar Tudo','Select All':'Seleccionar Tudo','Store Access':'Acesso à Loja','Save Rights':'Guardar Direitos','Developer can allow or hide every portal option for existing and new users.':'O programador pode permitir ou ocultar cada opção do portal para utilizadores existentes e novos.','Portal Rights Control':'Controlo de Direitos do Portal','Identification':'Identificação','Contract Date':'Data de Contrato','Open / Download ID Card':'Abrir / Baixar Cartão de Identificação','All employee identification cards in one place':'Todos os cartões de identificação dos trabalhadores num único local','Employee ID Cards':'Cartões de Identificação dos Trabalhadores','No overtime history':'Sem histórico de horas extra','No pending overtime requests':'Sem pedidos de horas extra pendentes','Reviewed At':'Revisto Em','Detected Extra':'Tempo Extra Detectado','All Status':'Todos os Estados','Complete employee-wise Pending, Approved and Rejected history.':'Histórico completo por trabalhador: Pendente, Aprovado e Rejeitado.','Only pending overtime requests are shown here.':'Apenas os pedidos de horas extra pendentes são apresentados aqui.','Overtime History':'Histórico de Horas Extra','Overtime Approval':'Aprovação de Horas Extra','Rejected OT':'HE Rejeitada','Search employee name or code':'Pesquisar nome ou código do trabalhador','Photo updated':'Fotografia actualizada','Change Photo':'Alterar Fotografia','Latest ID Card':'Cartão de Identificação Actual','Approved OT':'HE Aprovada','Pending OT':'HE Pendente','No overtime records':'Sem registos de horas extra','Reviewed By':'Revisto Por','Extra Time':'Tempo Extra','Approve or reject automatically detected extra working time.':'Aprovar ou rejeitar horas extra detectadas automaticamente.','Overtime Approvals':'Aprovações de Horas Extra','Correction Rejected':'Correcção Rejeitada','Correction Approved':'Correcção Aprovada','Correction Request':'Pedido de Correcção','New Document':'Novo Documento','was Rejected':'foi rejeitada','was Approved':'foi aprovada','Your correction':'A sua correcção','Your roster':'A sua escala','Month select karke Load Month click karein':'Seleccione o mês e clique em Carregar Mês','Employee-wise Shift A, Shift B and Weekly Off allocation':'Alocação por trabalhador de Turno A, Turno B e Folga Semanal','Public Holiday':'Feriado Público','Half Day':'Meio Dia','Full Day':'Dia Completo','Full Month':'Mês Completo','Clear All':'Limpar Tudo','Select All':'Seleccionar Tudo','Uploaded By':'Carregado por','Updated By':'Actualizado por','Created On':'Criado em','Created By':'Criado por','Records':'Registos','Record':'Registo','Summary':'Resumo','Details':'Detalhes','Code':'Código','Address':'Endereço','Phone':'Telefone','Email':'E-mail','Photo':'Fotografia','Store Access':'Acesso à Loja','Apply Selected':'Aplicar Seleccionados','Copy Previous Month':'Copiar Mês Anterior','Copy Previous Week':'Copiar Semana Anterior','Monthly roster saved':'Escala mensal guardada','Kam se kam ek option select karein.':'Seleccione pelo menos uma opção.','Month select karein':'Seleccione o mês','Galat User ID ya Password!':'ID do utilizador ou palavra-passe incorrectos!','Sirf PDF files allowed hain!':'Apenas ficheiros PDF são permitidos!','Sabhi fields bharna zaroori hai!':'Todos os campos são obrigatórios!','This roster shows only your shifts and weekly-off dates for the current month.':'Esta escala mostra apenas os seus turnos e folgas semanais do mês actual.','Overtime Minutes':'Minutos de Horas Extra','Submit Overtime':'Enviar Horas Extra','Email - requires SMTP':'E-mail - requer SMTP','Internal Notification':'Notificação Interna','Download Center':'Centro de Transferências','Monthly':'Mensal','Weekly':'Semanal','Daily':'Diário','Delivery':'Entrega','Frequency':'Frequência','File':'Ficheiro','Uploaded At':'Carregado em','Created':'Criado','To':'Para','From':'De','Effective':'Efectivo','Estimate':'Estimativa','Employer':'Empregador','Gross':'Bruto','Configurable estimate using 2026 settings. Validate payroll categories, taxable base and exemptions before finalisation.':'Estimativa configurável com definições de 2026. Valide as categorias salariais, a base tributável e as isenções antes da finalização.','Identification masking':'Ocultação da Identificação','Document access log':'Registo de Acesso a Documentos','Access audit':'Auditoria de Acesso','Last backups':'Últimas Cópias de Segurança','Number of Users':'Número de Utilizadores','Application Version':'Versão da Aplicação','retry required':'nova tentativa necessária','Last saved attendance remains available':'A última assiduidade guardada continua disponível','Queue State':'Estado da Fila','Level':'Nível','Late Count':'Número de Atrasos','Rolling 30-day view.':'Vista móvel de 30 dias.','roster cells copied':'células de escala copiadas','assignments saved':'alocações guardadas','Copy failed':'Falha ao copiar','Save Lifecycle Event':'Guardar Evento do Ciclo de Vida','Employee Lifecycle':'Ciclo de Vida do Trabalhador','New Records':'Novos Registos','Records Received':'Registos Recebidos','Machine Status':'Estado do Equipamento','Store Code':'Código da Loja','Payroll, holidays, lifecycle, overtime, backups and privacy controls.':'Salários, feriados, ciclo de vida, horas extra, cópias de segurança e controlos de privacidade.','Privacy-safe QR verification cards.':'Cartões QR de verificação com protecção de privacidade.','Internal leave, shift, payroll and contract notices.':'Avisos internos de ausências, turnos, salários e contratos.','Track user, store, action, IP and changes.':'Acompanhar utilizador, loja, acção, IP e alterações.','Minimum staffing rules and shortage warnings.':'Regras de dotação mínima e avisos de falta de pessoal.','Copy week or month schedules.':'Copiar escalas semanais ou mensais.','Contracts, IDs and certificates.':'Contratos, documentos de identificação e certificados.','Annual, used, pending and available balances.':'Saldos anuais, usados, pendentes e disponíveis.','Approve missing-punch correction requests.':'Aprovar pedidos de correcção de marcações em falta.','Machine status, manual checks and sync history.':'Estado dos equipamentos, verificações manuais e histórico de sincronização.','Combined attendance with store code and Excel export.':'Assiduidade combinada com código da loja e exportação Excel.','Multi-store operations, compliance and employee self-service':'Operações multi-loja, conformidade e auto-serviço do trabalhador','No contract alerts.':'Sem alertas de contrato.','Audit Events':'Eventos de Auditoria','Contracts':'Contratos','Corrections':'Correcções','Machine':'Equipamento','Store Comparison':'Comparação de Lojas','Monthly Summary':'Resumo Mensal','Default Schedule':'Horário Padrão','All Allocations':'Todas as Alocações','Designations Selected':'Funções Seleccionadas','All Designations Selected':'Todas as Funções Seleccionadas','Same Weekday for Full Month':'Mesmo Dia da Semana durante Todo o Mês','Monday-Sunday':'Segunda a Domingo','Last Week':'Última Semana','5th Week':'5.ª Semana','4th Week':'4.ª Semana','3rd Week':'3.ª Semana','2nd Week':'2.ª Semana','1st Week':'1.ª Semana','All Weeks (Monday-Sunday)':'Todas as Semanas (Segunda a Domingo)','Not in this month':'Não existe neste mês','options selected':'opções seleccionadas','option selected':'opção seleccionada','Apply to selected date':'Aplicar à data seleccionada','Month & Year':'Mês e Ano','load month':'carregar mês','Select Month':'Seleccionar Mês','No shift requests':'Sem pedidos de turno','Current Assignment':'Alocação Actual','Requested':'Solicitado','Shift Request':'Pedido de Turno','Request Shift / Off':'Pedir Turno / Folga','Select Employee':'Seleccionar Trabalhador','Bulk Upload':'Carregamento em Massa','Standard Row':'Linha Padrão','Monthly grid':'Grelha mensal','Master':'Principal','Individual Slip':'Recibo Individual','Split':'Separar','All Personnel':'Todo o Pessoal','No requests':'Sem pedidos','Minutes':'Minutos','ALL':'TODOS','Change':'Alteração','Emp':'Trab.','Remove Photo':'Remover Fotografia','STORE ACCESS':'ACESSO À LOJA','Create login and employee profile':'Criar início de sessão e perfil do trabalhador','No employees found.':'Nenhum trabalhador encontrado.','Select Designation':'Seleccionar Função','Add Employee':'Adicionar Trabalhador','Search, review and maintain workforce profiles':'Pesquisar, rever e manter perfis dos trabalhadores','Open Roster Planner':'Abrir Planeador de Escala','Use Roster Planner to assign shifts and weekly-off rotations.':'Utilize o Planeador de Escala para atribuir turnos e rotações de folga semanal.','Rota Rotation and Shift Schedules are integrated with the':'A rotação da escala e os horários de turno estão integrados com o','No salary slips uploaded yet.':'Ainda não foram carregados recibos de salário.','View':'Ver','PDF File':'Ficheiro PDF','-- Select Employee --':'-- Seleccionar Trabalhador --','Individual Slip Upload':'Carregar Recibo Individual','Split & Upload':'Separar e Carregar','Master PDF':'PDF Principal','Bulk Upload (Merged PDF)':'Carregamento em Massa (PDF Unido)','Monthly grid with Leave Codes':'Grelha mensal com códigos de ausência','Employee Matrix':'Matriz de Trabalhadores','Individual records per date':'Registos individuais por data','Standard Row Export':'Exportação em Linhas','Download Attendance Reports':'Baixar Relatórios de Assiduidade','Total Summary':'Resumo Total','No attendance records found for this selection.':'Nenhum registo de assiduidade encontrado para esta selecção.','Status ↕':'Estado ↕','Working Hrs ↕':'Horas Trabalhadas ↕','Total Lunch ↕':'Total de Almoço ↕','Out Time ↕':'Hora de Saída ↕','Store In ↕':'Entrada na Loja ↕','Dept ↕':'Departamento ↕','Employee Name ↕':'Nome do Trabalhador ↕','Date ↕':'Data ↕','Last Month':'Mês Passado','This Month':'Este Mês','This Week':'Esta Semana','Yesterday':'Ontem','Quick Range':'Intervalo Rápido','Rota':'Escala','Export':'Exportar','Logged In As':'Sessão Iniciada Como','-- All Personnel --':'-- Todo o Pessoal --','Employee Filter':'Filtro de Trabalhadores','Tot Hrs':'Total de Horas','Mis Punch':'Marcação em Falta','Mis-Punch':'Marcação em Falta','Late Arr.':'Chegada Tardia','Week Off':'Folga Semanal','Shutdown':'Encerrar','Sync':'Sincronização','Device':'Equipamento','Leaves':'Ausências','Dev':'Programador','Biometric live tracking active for Attendance Portal.':'Acompanhamento biométrico em tempo real activo no Portal de Assiduidade.','Announcements':'Comunicados','Employees Info (ID Card)':'Informações dos Trabalhadores (Cartão de Identificação)','Manage Passwords':'Gerir Palavras-passe','Biometric Machines':'Equipamentos Biométricos','Shift Approvals':'Aprovações de Turno','Reset':'Repor','Off':'Folga','Daily manpower summary':'Resumo diário de efectivos','Loading monthly roster...':'A carregar a escala mensal...','Send Request for Approval':'Enviar Pedido para Aprovação','Developed by':'Desenvolvido por','Privacy-safe QR verification cards.':'Cartões QR de verificação com protecção de privacidade.','Internal leave, shift, payroll and contract notices.':'Avisos internos de ausências, turnos, salários e contratos.','Track user, store, action, IP and changes.':'Acompanhar utilizador, loja, acção, IP e alterações.','Contracts, IDs and certificates.':'Contratos, documentos de identificação e certificados.','Approve missing-punch correction requests.':'Aprovar pedidos de correcção de marcações em falta.','Combined attendance with store code and Excel export.':'Assiduidade combinada com código da loja e exportação Excel.','Machine status, manual checks and sync history.':'Estado dos equipamentos, verificações manuais e histórico de sincronização.','Annual, used, pending and available balances.':'Saldos anuais, usados, pendentes e disponíveis.','Copy week or month schedules.':'Copiar escalas semanais ou mensais.','Open module':'Abrir módulo','Framework':'Enquadramento','Attendance Portal':'Portal de Assiduidade','Sign in to access your dashboard':'Inicie sessão para aceder ao seu painel','User ID':'ID do Utilizador','Password':'Palavra-passe','Secure Login':'Iniciar Sessão','Forgot/Reset Password?':'Esqueceu/Redefinir Palavra-passe?','Reset Password':'Redefinir Palavra-passe','Create a new password request':'Criar um novo pedido de palavra-passe','Submit Reset Request':'Enviar Pedido de Redefinição','Back to Login':'Voltar ao Início de Sessão','Current Password':'Palavra-passe Actual','New Password':'Nova Palavra-passe','Confirm Password':'Confirmar Palavra-passe','English':'Inglês','Portuguese':'Português'};function hrmsTranslate(root=document.body){
+ if(window.HRMS_LANGUAGE!=='pt'||!root)return;
+ const keys=Object.keys(window.HRMS_PT).sort((a,b)=>b.length-a.length);
+ const cv=(value)=>{let t=value||'';keys.forEach(k=>{t=t.split(k).join(window.HRMS_PT[k])});return t};
+ const walker=document.createTreeWalker(root,NodeFilter.SHOW_TEXT);const nodes=[];while(walker.nextNode())nodes.push(walker.currentNode);
+ nodes.forEach(n=>{if(!n.parentElement||['SCRIPT','STYLE','TEXTAREA'].includes(n.parentElement.tagName))return;n.nodeValue=cv(n.nodeValue)});
+ root.querySelectorAll('[placeholder],[title],[aria-label],input[type="button"],input[type="submit"]').forEach(el=>{
+   ['placeholder','title','aria-label','value'].forEach(a=>{const v=el.getAttribute(a);if(v)el.setAttribute(a,cv(v))});
+ });
+ document.documentElement.lang='pt';document.title=cv(document.title);
+}document.addEventListener('DOMContentLoaded',()=>hrmsTranslate());</script></body>
 </html>
 """
 
@@ -634,7 +744,7 @@ RESET_TEMPLATE = """
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>body { font-family: 'Inter', sans-serif; }</style>
 </head>
-<body class="bg-slate-900 min-h-screen flex items-center justify-center p-4">
+<body class="bg-slate-900 min-h-screen flex items-center justify-center p-4 relative"><div class="absolute top-4 right-4"><select onchange="location.href='/set_language/'+this.value" class="bg-white text-slate-900 text-xs font-bold rounded-xl px-3 py-2"><option value="en" {% if session.get('ui_language','en')=='en' %}selected{% endif %}>English</option><option value="pt" {% if session.get('ui_language')=='pt' %}selected{% endif %}>Português</option></select></div>
     <div class="bg-white/95 backdrop-blur-md rounded-3xl shadow-2xl border border-slate-200/50 p-8 w-full max-w-md space-y-6">
         <div class="text-center space-y-2">
             <div class="inline-flex bg-amber-500 px-5 py-3 rounded-2xl shadow-lg mb-2 items-center justify-center">
@@ -671,7 +781,17 @@ RESET_TEMPLATE = """
             </div>
         </form>
     </div>
-</body>
+<script>window.HRMS_LANGUAGE={{ session.get('ui_language','en')|tojson }};window.HRMS_PT={'Correction Rejected':'Correcção Rejeitada','Correction Approved':'Correcção Aprovada','Correction Request':'Pedido de Correcção','New Document':'Novo Documento','was Rejected':'foi rejeitada','was Approved':'foi aprovada','Your correction':'A sua correcção','Your roster':'A sua escala','Month select karke Load Month click karein':'Seleccione o mês e clique em Carregar Mês','Employee-wise Shift A, Shift B and Weekly Off allocation':'Alocação por trabalhador de Turno A, Turno B e Folga Semanal','Public Holiday':'Feriado Público','Half Day':'Meio Dia','Full Day':'Dia Completo','Full Month':'Mês Completo','Clear All':'Limpar Tudo','Select All':'Seleccionar Tudo','Uploaded By':'Carregado por','Updated By':'Actualizado por','Created On':'Criado em','Created By':'Criado por','Records':'Registos','Record':'Registo','Summary':'Resumo','Details':'Detalhes','Code':'Código','Address':'Endereço','Phone':'Telefone','Email':'E-mail','Photo':'Fotografia','Store Access':'Acesso à Loja','Apply Selected':'Aplicar Seleccionados','Copy Previous Month':'Copiar Mês Anterior','Copy Previous Week':'Copiar Semana Anterior','Monthly roster saved':'Escala mensal guardada','Kam se kam ek option select karein.':'Seleccione pelo menos uma opção.','Month select karein':'Seleccione o mês','Galat User ID ya Password!':'ID do utilizador ou palavra-passe incorrectos!','Sirf PDF files allowed hain!':'Apenas ficheiros PDF são permitidos!','Sabhi fields bharna zaroori hai!':'Todos os campos são obrigatórios!','This roster shows only your shifts and weekly-off dates for the current month.':'Esta escala mostra apenas os seus turnos e folgas semanais do mês actual.','Overtime Minutes':'Minutos de Horas Extra','Submit Overtime':'Enviar Horas Extra','Email - requires SMTP':'E-mail - requer SMTP','Internal Notification':'Notificação Interna','Download Center':'Centro de Transferências','Monthly':'Mensal','Weekly':'Semanal','Daily':'Diário','Delivery':'Entrega','Frequency':'Frequência','File':'Ficheiro','Uploaded At':'Carregado em','Created':'Criado','To':'Para','From':'De','Effective':'Efectivo','Estimate':'Estimativa','Employer':'Empregador','Gross':'Bruto','Configurable estimate using 2026 settings. Validate payroll categories, taxable base and exemptions before finalisation.':'Estimativa configurável com definições de 2026. Valide as categorias salariais, a base tributável e as isenções antes da finalização.','Identification masking':'Ocultação da Identificação','Document access log':'Registo de Acesso a Documentos','Access audit':'Auditoria de Acesso','Last backups':'Últimas Cópias de Segurança','Number of Users':'Número de Utilizadores','Application Version':'Versão da Aplicação','retry required':'nova tentativa necessária','Last saved attendance remains available':'A última assiduidade guardada continua disponível','Queue State':'Estado da Fila','Level':'Nível','Late Count':'Número de Atrasos','Rolling 30-day view.':'Vista móvel de 30 dias.','roster cells copied':'células de escala copiadas','assignments saved':'alocações guardadas','Copy failed':'Falha ao copiar','Save Lifecycle Event':'Guardar Evento do Ciclo de Vida','Employee Lifecycle':'Ciclo de Vida do Trabalhador','New Records':'Novos Registos','Records Received':'Registos Recebidos','Machine Status':'Estado do Equipamento','Store Code':'Código da Loja','Payroll, holidays, lifecycle, overtime, backups and privacy controls.':'Salários, feriados, ciclo de vida, horas extra, cópias de segurança e controlos de privacidade.','Privacy-safe QR verification cards.':'Cartões QR de verificação com protecção de privacidade.','Internal leave, shift, payroll and contract notices.':'Avisos internos de ausências, turnos, salários e contratos.','Track user, store, action, IP and changes.':'Acompanhar utilizador, loja, acção, IP e alterações.','Minimum staffing rules and shortage warnings.':'Regras de dotação mínima e avisos de falta de pessoal.','Copy week or month schedules.':'Copiar escalas semanais ou mensais.','Contracts, IDs and certificates.':'Contratos, documentos de identificação e certificados.','Annual, used, pending and available balances.':'Saldos anuais, usados, pendentes e disponíveis.','Approve missing-punch correction requests.':'Aprovar pedidos de correcção de marcações em falta.','Machine status, manual checks and sync history.':'Estado dos equipamentos, verificações manuais e histórico de sincronização.','Combined attendance with store code and Excel export.':'Assiduidade combinada com código da loja e exportação Excel.','Multi-store operations, compliance and employee self-service':'Operações multi-loja, conformidade e auto-serviço do trabalhador','No contract alerts.':'Sem alertas de contrato.','Audit Events':'Eventos de Auditoria','Contracts':'Contratos','Corrections':'Correcções','Machine':'Equipamento','Store Comparison':'Comparação de Lojas','Monthly Summary':'Resumo Mensal','Default Schedule':'Horário Padrão','All Allocations':'Todas as Alocações','Designations Selected':'Funções Seleccionadas','All Designations Selected':'Todas as Funções Seleccionadas','Same Weekday for Full Month':'Mesmo Dia da Semana durante Todo o Mês','Monday-Sunday':'Segunda a Domingo','Last Week':'Última Semana','5th Week':'5.ª Semana','4th Week':'4.ª Semana','3rd Week':'3.ª Semana','2nd Week':'2.ª Semana','1st Week':'1.ª Semana','All Weeks (Monday-Sunday)':'Todas as Semanas (Segunda a Domingo)','Not in this month':'Não existe neste mês','options selected':'opções seleccionadas','option selected':'opção seleccionada','Apply to selected date':'Aplicar à data seleccionada','Month & Year':'Mês e Ano','load month':'carregar mês','Select Month':'Seleccionar Mês','No shift requests':'Sem pedidos de turno','Current Assignment':'Alocação Actual','Requested':'Solicitado','Shift Request':'Pedido de Turno','Request Shift / Off':'Pedir Turno / Folga','Select Employee':'Seleccionar Trabalhador','Bulk Upload':'Carregamento em Massa','Standard Row':'Linha Padrão','Monthly grid':'Grelha mensal','Master':'Principal','Individual Slip':'Recibo Individual','Split':'Separar','All Personnel':'Todo o Pessoal','No requests':'Sem pedidos','Minutes':'Minutos','ALL':'TODOS','Change':'Alteração','Emp':'Trab.','Remove Photo':'Remover Fotografia','STORE ACCESS':'ACESSO À LOJA','Create login and employee profile':'Criar início de sessão e perfil do trabalhador','No employees found.':'Nenhum trabalhador encontrado.','Select Designation':'Seleccionar Função','Add Employee':'Adicionar Trabalhador','Search, review and maintain workforce profiles':'Pesquisar, rever e manter perfis dos trabalhadores','Open Roster Planner':'Abrir Planeador de Escala','Use Roster Planner to assign shifts and weekly-off rotations.':'Utilize o Planeador de Escala para atribuir turnos e rotações de folga semanal.','Rota Rotation and Shift Schedules are integrated with the':'A rotação da escala e os horários de turno estão integrados com o','No salary slips uploaded yet.':'Ainda não foram carregados recibos de salário.','View':'Ver','PDF File':'Ficheiro PDF','-- Select Employee --':'-- Seleccionar Trabalhador --','Individual Slip Upload':'Carregar Recibo Individual','Split & Upload':'Separar e Carregar','Master PDF':'PDF Principal','Bulk Upload (Merged PDF)':'Carregamento em Massa (PDF Unido)','Monthly grid with Leave Codes':'Grelha mensal com códigos de ausência','Employee Matrix':'Matriz de Trabalhadores','Individual records per date':'Registos individuais por data','Standard Row Export':'Exportação em Linhas','Download Attendance Reports':'Baixar Relatórios de Assiduidade','Total Summary':'Resumo Total','No attendance records found for this selection.':'Nenhum registo de assiduidade encontrado para esta selecção.','Status ↕':'Estado ↕','Working Hrs ↕':'Horas Trabalhadas ↕','Total Lunch ↕':'Total de Almoço ↕','Out Time ↕':'Hora de Saída ↕','Store In ↕':'Entrada na Loja ↕','Dept ↕':'Departamento ↕','Employee Name ↕':'Nome do Trabalhador ↕','Date ↕':'Data ↕','Last Month':'Mês Passado','This Month':'Este Mês','This Week':'Esta Semana','Yesterday':'Ontem','Quick Range':'Intervalo Rápido','Rota':'Escala','Export':'Exportar','Logged In As':'Sessão Iniciada Como','-- All Personnel --':'-- Todo o Pessoal --','Employee Filter':'Filtro de Trabalhadores','Tot Hrs':'Total de Horas','Mis Punch':'Marcação em Falta','Mis-Punch':'Marcação em Falta','Late Arr.':'Chegada Tardia','Week Off':'Folga Semanal','Shutdown':'Encerrar','Sync':'Sincronização','Device':'Equipamento','Leaves':'Ausências','Dev':'Programador','Biometric live tracking active for Attendance Portal.':'Acompanhamento biométrico em tempo real activo no Portal de Assiduidade.','Announcements':'Comunicados','Employees Info (ID Card)':'Informações dos Trabalhadores (Cartão de Identificação)','Manage Passwords':'Gerir Palavras-passe','Biometric Machines':'Equipamentos Biométricos','Shift Approvals':'Aprovações de Turno','Reset':'Repor','Off':'Folga','Daily manpower summary':'Resumo diário de efectivos','Loading monthly roster...':'A carregar a escala mensal...','Send Request for Approval':'Enviar Pedido para Aprovação','Developed by':'Desenvolvido por','Attendance Portal':'Portal de Assiduidade','Sign in to access your dashboard':'Inicie sessão para aceder ao seu painel','User ID':'ID do Utilizador','Password':'Palavra-passe','Secure Login':'Iniciar Sessão','Forgot/Reset Password?':'Esqueceu/Redefinir Palavra-passe?','Reset Password':'Redefinir Palavra-passe','Create a new password request':'Criar um novo pedido de palavra-passe','Submit Reset Request':'Enviar Pedido de Redefinição','Back to Login':'Voltar ao Início de Sessão','Current Password':'Palavra-passe Actual','New Password':'Nova Palavra-passe','Confirm Password':'Confirmar Palavra-passe','English':'Inglês','Portuguese':'Português'};function hrmsTranslate(root=document.body){
+ if(window.HRMS_LANGUAGE!=='pt'||!root)return;
+ const keys=Object.keys(window.HRMS_PT).sort((a,b)=>b.length-a.length);
+ const cv=(value)=>{let t=value||'';keys.forEach(k=>{t=t.split(k).join(window.HRMS_PT[k])});return t};
+ const walker=document.createTreeWalker(root,NodeFilter.SHOW_TEXT);const nodes=[];while(walker.nextNode())nodes.push(walker.currentNode);
+ nodes.forEach(n=>{if(!n.parentElement||['SCRIPT','STYLE','TEXTAREA'].includes(n.parentElement.tagName))return;n.nodeValue=cv(n.nodeValue)});
+ root.querySelectorAll('[placeholder],[title],[aria-label],input[type="button"],input[type="submit"]').forEach(el=>{
+   ['placeholder','title','aria-label','value'].forEach(a=>{const v=el.getAttribute(a);if(v)el.setAttribute(a,cv(v))});
+ });
+ document.documentElement.lang='pt';document.title=cv(document.title);
+}document.addEventListener('DOMContentLoaded',()=>hrmsTranslate());</script></body>
 </html>
 """
 
@@ -680,7 +800,7 @@ def inject_portal_helpers(): return {'session_has_permission': session_has_permi
 
 HTML_TEMPLATE = """
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{ ui_language }}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -817,11 +937,11 @@ HTML_TEMPLATE = """
             }
         }
 
-        let timeLeft = 900;
+        let timeLeft = 180;
         let timerInterval;
         function startTimer() {
             clearInterval(timerInterval);
-            timeLeft = 900;
+            timeLeft = 180;
             timerInterval = setInterval(function() {
                 if (timeLeft <= 0) { window.location.reload(); } else {
                     let m = Math.floor(timeLeft / 60);
@@ -868,6 +988,8 @@ HTML_TEMPLATE = """
             }
         }
 
+        function filterOvertimeHistory(){const q=(document.getElementById('overtime-history-search')?.value||'').toLowerCase();const st=document.getElementById('overtime-history-status')?.value||'';document.querySelectorAll('.overtime-history-row').forEach(r=>r.style.display=(r.dataset.search.includes(q)&&(!st||r.dataset.status===st))?'':'none');}
+        function setRights(btn,on){btn.closest('form').querySelectorAll('.rights-grid input[type=checkbox]').forEach(x=>x.checked=on);}
         function secureShutdown() {
             let pwd = prompt("Server band karne ke liye password enter karein:");
             if (pwd) window.location.href = "/shutdown?pwd=" + encodeURIComponent(pwd);
@@ -1065,6 +1187,30 @@ HTML_TEMPLATE = """
             updateLiveClock();
         });
     </script>
+
+<style id="mobile-responsive-fixes">
+  html, body { max-width: 100%; overflow-x: hidden; }
+  button, a, select, input, textarea { touch-action: manipulation; }
+  input, select, textarea { max-width: 100%; }
+  @media (max-width: 640px) {
+    body { font-size: 14px; }
+    header { gap: 0.4rem; }
+    header select { max-width: 112px; }
+    .fixed.inset-0 { padding: 0.35rem !important; }
+    .fixed.inset-0 > div { max-width: calc(100vw - 0.7rem) !important; max-height: 96vh !important; }
+    #roster-matrix-table { -webkit-overflow-scrolling: touch; }
+    #roster-matrix-table .sticky { position: static !important; left: auto !important; }
+    #roster-matrix-table table { min-width: 980px; }
+    #roster-designation-menu { position: fixed !important; left: 0.5rem !important; right: 0.5rem !important; top: 8rem !important; width: auto !important; max-height: 55vh !important; }
+    .id-card { width: min(340px, 94vw) !important; transform-origin: top center; }
+    .download-btn { width: min(340px, 94vw); }
+    iframe { min-height: 65vh; }
+    table { font-size: 11px; }
+    th, td { white-space: nowrap; }
+    input[type="date"], input[type="month"], input[type="time"], select, textarea { min-height: 42px; }
+    button, a.rounded-xl { min-height: 40px; }
+  }
+</style>
 </head>
 <body class="bg-slate-50 text-slate-800 antialiased flex h-screen overflow-hidden">
     
@@ -1097,9 +1243,9 @@ HTML_TEMPLATE = """
                     <span>Dashboard</span>
                 </a>
                 
-                {% if role in ['admin','developer'] %}
+                {% if session_has_permission('employee_id_cards') %}
                 <a href="#" onclick="toggleModal('employee-list-modal', true); return false;" class="flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 font-medium text-xs transition border border-transparent hover:border-slate-200">
-                    <span>👥</span><span>Employees</span>
+                    <span>🪪</span><span>Employee ID Cards</span>
                 </a>
                 {% endif %}
                 {% if session_has_permission('roster') %}
@@ -1161,11 +1307,38 @@ HTML_TEMPLATE = """
                     {% endif %}
                 </a>{% endif %}
                 
+
+                {% if session_has_permission('overtime_approval') %}
+                <a href="#" onclick="toggleModal('overtime-approval-modal',true);return false;" class="flex items-center justify-between px-3 py-2.5 rounded-xl text-amber-700 bg-amber-50 hover:bg-amber-100 font-bold text-xs border border-amber-200">
+                    <div class="flex items-center space-x-3"><span>⏱️</span><span>Overtime Approval</span></div>
+                    {% if pending_overtime_count > 0 %}<span class="bg-amber-500 text-white px-2 py-0.5 rounded-full text-[10px]">{{pending_overtime_count}}</span>{% endif %}
+                </a>
+{% if session_has_permission('overtime_history') %}                <a href="#" onclick="toggleModal('overtime-history-modal',true);return false;" class="flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 font-medium text-xs">
+                    <span>🕘</span><span>Overtime History</span>
+                </a>{% endif %}
+                {% endif %}
+                {% if role == 'developer' %}
+                <a href="#" onclick="toggleModal('permission-control-modal',true);return false;" class="flex items-center space-x-3 px-3 py-2.5 rounded-xl text-violet-700 bg-violet-50 hover:bg-violet-100 font-black text-xs border border-violet-200"><span>🔐</span><span>Portal Rights Control</span></a>
+                {% endif %}
+                {% if session_has_permission('workforce_hub') %}
+                <a href="/workforce_hub" class="flex items-center space-x-3 px-3 py-2.5 rounded-xl text-cyan-700 bg-cyan-50 hover:bg-cyan-100 font-bold text-xs transition border border-cyan-200">
+                    <span>⚙️</span><span>Workforce Automation Hub</span>
+                </a>
+                {% endif %}
+                {% if session_has_permission('attendance_corrections') %}
+                <a href="/suite/corrections" class="flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 font-medium text-xs"><span>✍️</span><span>Attendance Correction</span></a>
+                {% endif %}{% if session_has_permission('employee_documents') %}<a href="/suite/documents" class="flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 font-medium text-xs"><span>📁</span><span>My Documents</span></a>
+                {% endif %}{% if session_has_permission('notifications') %}<a href="/suite/notifications" class="flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 font-medium text-xs"><span>🔔</span><span>Notifications</span></a>
+                {% endif %}
+                {% if role in ['admin','developer'] %}<a href="/duplicate_punches" class="flex items-center space-x-3 px-3 py-2.5 rounded-xl text-orange-800 bg-orange-50 hover:bg-orange-100 font-black text-xs border border-orange-200"><span>👆</span><span>Duplicate Punches</span></a>{% endif %}
+                <a href="/promotion" class="flex items-center space-x-3 px-3 py-2.5 rounded-xl text-fuchsia-700 bg-fuchsia-50 hover:bg-fuchsia-100 font-black text-xs border border-fuchsia-200"><span>📣</span><span>Promotion</span></a>
+                <a href="/kvi_power_sku" class="flex items-center space-x-3 px-3 py-2.5 rounded-xl text-amber-800 bg-amber-50 hover:bg-amber-100 font-black text-xs border border-amber-200"><span>⚡</span><span>KVI + Power SKU</span></a>
                 <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-3 mt-6 mb-2">Team Management</p>
                 {% if session_has_permission('payroll') %}<a href="#" onclick="toggleModal('salary-modal', true); return false;" class="flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 font-medium text-xs transition border border-transparent hover:border-slate-200">
                     <span>💰</span>
                     <span>Payroll & Reports</span>
                 </a>{% endif %}
+                {% if role in ['admin','developer'] and session_has_permission('payroll') %}<a href="/export_last_six_months" class="flex items-center space-x-3 px-3 py-2.5 rounded-xl text-emerald-700 bg-emerald-50 hover:bg-emerald-100 font-bold text-xs border border-emerald-200"><span>📥</span><span>Export Last 6 Months</span></a>{% endif %}
                 
                 {% if role == 'employee' %}
                 <a href="/employee_id/{{ session.get('user_id') }}" target="_blank" class="flex items-center space-x-3 px-3 py-2.5 rounded-xl text-emerald-700 bg-emerald-50 hover:bg-emerald-100 font-bold text-xs transition border border-emerald-200">
@@ -1210,6 +1383,10 @@ HTML_TEMPLATE = """
             </div>
 
             <div class="flex items-center gap-2 flex-wrap justify-end">
+                <select onchange="window.location.href='/set_language/'+this.value" class="text-xs border border-slate-200 rounded-xl px-2 py-2 bg-white font-bold" title="Language / Idioma">
+                    <option value="en" {% if ui_language=='en' %}selected{% endif %}>English</option>
+                    <option value="pt" {% if ui_language=='pt' %}selected{% endif %}>Português</option>
+                </select>
                 {% if role == 'employee' %}
                 <a href="/employee_id/{{ session.get('user_id') }}" target="_blank" class="bg-indigo-50 hover:bg-indigo-100 text-indigo-800 text-xs font-bold px-2 py-1.5 sm:px-3 sm:py-2 rounded-xl transition border border-indigo-200 flex items-center gap-1.5" title="{% if ui_language|default('en') == 'pt' %}Baixar Cartão de Identificação{% else %}Download ID Card{% endif %}">
                     <span>🪪</span><span class="hidden lg:inline">{% if ui_language|default('en') == 'pt' %}Baixar Cartão{% else %}ID Card{% endif %}</span>
@@ -1225,12 +1402,9 @@ HTML_TEMPLATE = """
 
                 <!-- Clock and Status (Hidden on very small screens to save space) -->
                 <div class="hidden md:flex text-xs bg-slate-50 px-3 py-2 rounded-xl border border-slate-200 items-center space-x-2">
-                    <span class="h-2 w-2 {% if stats.device_online %}bg-emerald-500{% else %}bg-red-500{% endif %} rounded-full animate-pulse"></span>
-                    <span class="text-slate-600 font-medium">Device: <strong class="{% if stats.device_online %}text-emerald-600{% else %}text-red-600{% endif %}">{% if stats.device_online %}Online{% else %}Offline{% endif %}</strong></span><span class="text-slate-300">|</span><span class="text-slate-500 font-mono text-[10px]">{{ current_machine.ip }}:{{ current_machine.port }}</span>
-                    <span class="text-slate-300">|</span>
+                    {% if role in ['admin','developer'] %}<span class="h-2 w-2 {% if stats.device_online %}bg-emerald-500{% else %}bg-red-500{% endif %} rounded-full animate-pulse"></span><span class="text-slate-600 font-medium">Device: <strong class="{% if stats.device_online %}text-emerald-600{% else %}text-red-600{% endif %}">{% if stats.device_online %}Online{% else %}Offline{% endif %}</strong></span><span class="text-slate-300">|</span><span class="text-slate-500 font-mono text-[10px]">{{ current_machine.ip }}:{{ current_machine.port }}</span><span class="text-slate-300">|</span>{% endif %}
                     <span id="live-digital-clock" class="text-slate-700 font-semibold"></span>
-                    <span class="text-slate-300">|</span>
-                    <span class="text-slate-500">Sync: <strong id="countdown-timer" class="text-emerald-600 font-mono">03:00</strong></span>
+                    {% if role in ['admin','developer'] %}<span class="text-slate-300">|</span><span class="text-slate-500">Sync: <strong id="countdown-timer" class="text-emerald-600 font-mono">03:00</strong></span>{% endif %}
                 </div>
 
                 <div class="flex items-center space-x-2 bg-slate-100 border border-slate-200 px-2.5 py-1.5 sm:px-3 sm:py-1.5 rounded-xl text-xs font-bold text-slate-700">
@@ -1238,7 +1412,7 @@ HTML_TEMPLATE = """
                     <a href="/logout" class="text-rose-600 hover:text-rose-700 sm:ml-2 font-semibold">Logout 🔒</a>
                 </div>
 
-                {% if role == 'admin' or role == 'developer' %}
+                {% if role == 'developer' %}
                 <button onclick="secureShutdown()" class="bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl transition border border-rose-200">
                     <span class="hidden sm:inline">🛑 Shutdown</span>
                     <span class="sm:hidden">🛑</span>
@@ -1437,7 +1611,7 @@ HTML_TEMPLATE = """
                                     
                                     <td class="py-3 px-4 font-bold nowrap-cell font-mono text-xs {% if log.lunch_seconds > 3600 %}text-rose-600 bg-rose-50/50{% else %}text-slate-700{% endif %}">{{ log.total_lunch }}</td>
                                     <td class="py-3 px-4 font-bold text-slate-900 nowrap-cell font-mono text-xs">{{ log.total_hours }}</td>
-                                    <td class="py-3 px-4 font-bold nowrap-cell font-mono text-xs {% if log.variance_type == 'positive' %}text-emerald-600{% elif log.variance_type == 'negative' %}text-rose-600{% else %}text-slate-600{% endif %}">{{ log.net_variance }}</td>
+                                    <td class="py-3 px-4 font-bold nowrap-cell font-mono text-xs {% if log.variance_type == 'positive' %}text-emerald-600{% elif log.variance_type == 'pending' %}text-amber-600{% elif log.variance_type == 'rejected' %}text-slate-400{% elif log.variance_type == 'negative' %}text-rose-600{% else %}text-slate-600{% endif %}">{{ log.net_variance }}</td>
                                     <td class="py-3 px-4 text-center nowrap-cell">
                                         {% if log.status == 'Weekly Off' %}
                                             <span class="px-2 py-1 rounded-full text-[10px] sm:text-xs font-bold bg-slate-100 text-slate-600 border border-slate-200">Weekly Off</span>
@@ -1636,7 +1810,7 @@ HTML_TEMPLATE = """
       <div id="employee-list-modal" class="fixed inset-0 bg-slate-950/75 backdrop-blur-sm z-[65] flex items-center justify-center hidden p-2 sm:p-4">
           <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-7xl max-h-[94vh] flex flex-col overflow-hidden">
               <div class="px-5 py-4 bg-gradient-to-r from-slate-950 via-slate-900 to-emerald-950 text-white flex justify-between items-center">
-                  <div><h3 class="text-lg font-black">Employee List</h3><p class="text-[11px] text-slate-300 mt-1">Search, review and maintain workforce profiles</p></div>
+                  <div><h3 class="text-lg font-black">Employee ID Cards</h3><p class="text-[11px] text-slate-300 mt-1">All employee identification cards in one place</p></div>
                   <div class="flex items-center gap-2">
                       <button onclick="resetEmployeeFilters()" class="h-9 w-9 rounded-lg bg-white/10 hover:bg-white/20">▦</button>
                       <button onclick="toggleModal('add-employee-modal',true)" class="bg-rose-500 hover:bg-rose-600 text-white px-4 py-2 rounded-xl text-xs font-bold">＋ Add Employee</button>
@@ -1649,21 +1823,29 @@ HTML_TEMPLATE = """
                   <select id="emp-filter-designation" onchange="filterEmployeeCards()" class="border border-slate-300 rounded-xl px-3 py-2.5 text-xs"><option value="">Select Designation</option>{% for d in employee_designations %}<option value="{{ d|lower }}">{{ d }}</option>{% endfor %}</select>
                   <button onclick="filterEmployeeCards()" class="bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-xs font-bold">Search</button>
               </div>
-              <div class="p-4 overflow-y-auto bg-[#2b0907] flex-1">
-                  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4" id="employee-card-grid">
+              <div class="p-4 overflow-y-auto bg-slate-700 flex-1">
+                  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5" id="employee-card-grid">
                       {% for emp in employee_cards %}
-                      <article class="employee-directory-card relative bg-gradient-to-b from-[#53140e] to-[#3a0c09] text-white border border-[#84261d] rounded-2xl p-4 shadow-lg" data-id="{{ emp.user_id|lower }}" data-name="{{ emp.name|lower }}" data-designation="{{ emp.designation|lower }}">
-                          <div class="absolute right-3 top-3 text-xl cursor-default">⋮</div>
-                          <div class="flex justify-center mt-1">
-                              {% if emp.profile_photo %}<img src="/uploads/{{ emp.profile_photo }}" class="w-24 h-24 rounded-full object-cover border-4 border-white/30 shadow-xl">{% else %}<div class="w-24 h-24 rounded-full bg-gradient-to-br from-amber-300 to-rose-500 border-4 border-white/30 flex items-center justify-center text-2xl font-black">{{ emp.name[:2] }}</div>{% endif %}
+                      <article class="employee-directory-card rounded-2xl bg-slate-200 p-2 shadow-xl" data-id="{{emp.user_id|lower}}" data-name="{{emp.name|lower}}" data-designation="{{emp.designation|lower}}">
+                        <div class="relative mx-auto h-[500px] w-full max-w-[340px] overflow-hidden rounded-xl bg-white text-center shadow-lg">
+                          <div class="flex h-16 items-center justify-center px-5 pt-2"><img src="{{url_for('static',filename='fresmart.png')}}" class="h-12 w-44 object-contain" alt="Company Logo"></div>
+                          <div class="mx-auto mt-1 h-[138px] w-[122px] overflow-hidden rounded-lg border bg-slate-50">
+                            {% if emp.profile_photo %}<img src="/uploads/{{emp.profile_photo}}" class="h-full w-full object-cover" alt="Employee Photo">{% else %}<div class="flex h-full w-full items-center justify-center bg-gradient-to-br from-amber-300 to-rose-500 text-3xl font-black text-white">{{emp.name[:2]}}</div>{% endif %}
                           </div>
-                          <div class="text-center mt-3"><h4 class="font-bold text-sm">{{ emp.name }}</h4><p class="text-[10px] text-rose-100 mt-1">{{ emp.designation }}</p></div>
-                          <div class="mt-4 rounded-xl bg-[#f7d8d4] text-[#4c1510] p-3 space-y-2 text-[10px]">
-                              <div>✉ {{ emp.email or 'Email not added' }}</div><div>▣ {{ emp.user_id }}</div><div>🏢 {{ emp.dept }}</div><div>📍 {{ emp.stores|join(', ') }}</div>
+                          <h4 class="mx-auto mt-2 max-w-[290px] truncate px-2 text-base font-black uppercase text-slate-800" title="{{emp.name}}">{{emp.name}}</h4>
+                          <div class="mx-5 mt-3 space-y-1 text-left text-[11px] text-slate-800">
+                            <div class="grid grid-cols-[110px_1fr]"><span>HRMS Code</span><b>: {{emp.user_id}}</b></div>
+                            <div class="grid grid-cols-[110px_1fr]"><span>Designation</span><b class="truncate" title="{{emp.designation}}">: {{emp.designation}}</b></div>
+                            <div class="grid grid-cols-[110px_1fr]"><span>Identification</span><b class="truncate">: {{emp.identificacao or '-'}}</b></div>
+                            <div class="grid grid-cols-[110px_1fr]"><span>Contract Date</span><b>: {{emp.data_de_contrato or '-'}}</b></div>
+                            <div class="grid grid-cols-[110px_1fr]"><span>Store</span><b>: {{emp.stores|join(', ')}}</b></div>
                           </div>
-                          <div class="mt-3 flex gap-2"><a href="/employee_id/{{ emp.user_id }}" target="_blank" class="flex-1 text-center bg-white/10 hover:bg-white/20 text-[10px] font-bold py-2 rounded-lg">ID Card</a><button onclick="toggleModal('user-mgmt-modal',true)" class="flex-1 bg-emerald-500 hover:bg-emerald-600 text-[10px] font-bold py-2 rounded-lg">Manage</button></div>
+                          <div class="absolute bottom-0 left-0 w-full"><div class="h-2 bg-gradient-to-r from-lime-400 via-amber-400 to-fuchsia-500"></div><div class="bg-black px-3 py-2 text-[9px] leading-3 text-white">Employee Identification Card<br>{{emp.user_id}}</div></div>
+                        </div>
+                        <div class="mt-2 grid grid-cols-2 gap-2"><a href="/employee_id/{{emp.user_id}}" target="_blank" class="rounded-lg bg-slate-900 py-2 text-center text-[10px] font-bold text-white">Open / Download ID Card</a><button onclick="toggleModal('user-mgmt-modal',true)" class="rounded-lg bg-emerald-600 py-2 text-[10px] font-bold text-white">Manage</button></div>
+                        <form action="/admin_employee_photo/{{emp.user_id}}" method="POST" enctype="multipart/form-data" class="mt-2 flex gap-2 rounded-xl bg-white p-2"><input type="file" name="profile_photo" accept=".jpg,.jpeg,.png,.webp" required class="min-w-0 flex-1 text-[9px]"><button class="shrink-0 rounded-lg bg-amber-400 px-2 py-1 text-[9px] font-black">Change Photo</button></form>
                       </article>
-                      {% else %}<div class="col-span-full text-center text-white/70 py-12">No employees found.</div>{% endfor %}
+                      {% else %}<div class="col-span-full py-12 text-center text-white/70">No employees found.</div>{% endfor %}
                   </div>
               </div>
           </div>
@@ -1676,7 +1858,7 @@ HTML_TEMPLATE = """
                   <input type="hidden" name="action" value="create"><input type="hidden" name="role" value="employee"><input type="hidden" name="status" value="active"><input type="hidden" name="job_role" value="EMPLOYEE">
                   <input name="uid" placeholder="Employee ID, e.g. NWC9001" required class="border rounded-xl p-3 text-xs"><input name="name" placeholder="Full name" required class="border rounded-xl p-3 text-xs">
                   <input name="designation" placeholder="Designation" required class="border rounded-xl p-3 text-xs"><input name="dept" placeholder="Department" required class="border rounded-xl p-3 text-xs">
-                  <input name="email" type="email" placeholder="Email address" class="border rounded-xl p-3 text-xs"><input name="identificacao" placeholder="Identificação / NIF" class="border rounded-xl p-3 text-xs"><input name="numero_inss" placeholder="Número do INSS" class="border rounded-xl p-3 text-xs"><input name="data_de_contrato" type="date" class="border rounded-xl p-3 text-xs"><input name="password" value="123" placeholder="Initial password" class="border rounded-xl p-3 text-xs">
+                  <input name="email" type="email" placeholder="Email address" class="border rounded-xl p-3 text-xs"><input name="identificacao" placeholder="Identificação / NIF" class="border rounded-xl p-3 text-xs"><input name="data_de_contrato" type="date" class="border rounded-xl p-3 text-xs"><input name="password" value="123" placeholder="Initial password" class="border rounded-xl p-3 text-xs">
                   <div class="sm:col-span-2 border rounded-xl p-3"><p class="text-[10px] font-bold text-slate-500 mb-2">STORE ACCESS</p>{% for code,m in machines.items() if code!='DEV' %}<label class="mr-4 text-xs"><input type="checkbox" name="stores" value="{{code}}" {% if code==store %}checked{% endif %}> {{code}}</label>{% endfor %}</div>
                   {% for p in role_presets.EMPLOYEE %}<input type="hidden" name="permissions" value="{{p}}">{% endfor %}
                   <button class="sm:col-span-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-xl text-xs">Create Employee</button>
@@ -1698,6 +1880,39 @@ HTML_TEMPLATE = """
 <option value="F62;1">F62;1 — Gravidez</option>
 </select><input type="file" name="supporting_doc" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" class="border rounded p-1 text-[10px] bg-white"><button class="bg-emerald-600 text-white font-bold rounded text-xs">Submit Leave</button></form>{% endif %}<div class="overflow-auto flex-1 border rounded-xl"><table class="w-full text-left min-w-[650px] text-[10px]"><thead class="bg-slate-100 font-bold"><tr><th class="p-2">Employee</th><th class="p-2">Dates</th><th class="p-2">Type</th><th class="p-2">Status</th><th class="p-2">Action</th></tr></thead><tbody>{% for req in leave_requests|reverse %}<tr class="border-b"><td class="p-2 font-bold">{{req.name}}<br><span class="text-slate-400">{{req.user_id}} · {{req.get('store','')}}</span></td><td class="p-2">{{req.start_date}} → {{req.end_date}}</td><td class="p-2"><b>{{ req.leave_type }}</b><br><span class="text-slate-500">{{ leave_code_names.get(req.leave_type, req.get('leave_reason', req.leave_type)) }}</span></td><td class="p-2">{{req.status}}</td><td class="p-2">{% if req.status=='Pending' and role in ['admin','developer'] %}<a href="/update_leave/{{req.id}}/approve" class="bg-emerald-500 text-white px-2 py-1 rounded mr-1">Approve</a><a href="/update_leave/{{req.id}}/reject" class="bg-rose-500 text-white px-2 py-1 rounded">Reject</a>{% else %}<span class="text-slate-400">Processed</span>{% endif %}</td></tr>{% else %}<tr><td colspan="5" class="p-6 text-center text-slate-400">No leave requests</td></tr>{% endfor %}</tbody></table></div></div></div>
 
+      <div id="overtime-approval-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[70] flex items-center justify-center hidden p-2">
+        <div class="bg-white rounded-2xl shadow-2xl p-4 w-full max-w-5xl max-h-[90vh] flex flex-col gap-3">
+          <div class="flex justify-between"><div><h3 class="font-black">⏱️ Overtime Approval</h3><p class="text-xs text-slate-500">Only pending overtime requests are shown here.</p></div><button onclick="toggleModal('overtime-approval-modal',false)">✕</button></div>
+          <div class="overflow-auto border rounded-xl"><table class="w-full min-w-[760px] text-xs"><thead class="bg-slate-100"><tr><th>Date</th><th>Employee</th><th>Store</th><th>Extra Time</th><th>Status</th><th>Action</th></tr></thead><tbody>
+          {% for ot in overtime_rows|reverse if ot.status=='Pending' %}<tr class="border-b"><td>{{ot.date}}</td><td><b>{{ot.name}}</b><br>{{ot.user_id}}</td><td>{{ot.store}}</td><td>{{ot.minutes//60}}h {{ot.minutes%60}}m</td><td><span class="bg-amber-100 text-amber-700 px-2 py-1 rounded-full">{{ot.status}}</span></td><td><a class="bg-emerald-600 text-white px-3 py-2 rounded-lg mr-1" href="/overtime_action/{{ot.id}}/approve">Approve</a><a class="bg-rose-600 text-white px-3 py-2 rounded-lg" href="/overtime_action/{{ot.id}}/reject">Reject</a></td></tr>{% else %}<tr><td colspan="6" class="p-6 text-center text-slate-400">No pending overtime requests</td></tr>{% endfor %}
+          </tbody></table></div>
+        </div>
+      </div>
+
+      <div id="overtime-history-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[70] flex items-center justify-center hidden p-2">
+        <div class="bg-white rounded-2xl shadow-2xl p-4 w-full max-w-6xl max-h-[92vh] flex flex-col gap-3">
+          <div class="flex justify-between"><div><h3 class="font-black">🕘 Overtime History</h3><p class="text-xs text-slate-500">Complete employee-wise Pending, Approved and Rejected history.</p></div><button onclick="toggleModal('overtime-history-modal',false)">✕</button></div>
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-2"><input id="overtime-history-search" oninput="filterOvertimeHistory()" placeholder="Search employee name or code" class="border rounded-xl px-3 py-2 text-xs"><select id="overtime-history-status" onchange="filterOvertimeHistory()" class="border rounded-xl px-3 py-2 text-xs"><option value="">All Status</option><option>Pending</option><option>Approved</option><option>Rejected</option></select><button onclick="document.getElementById('overtime-history-search').value='';document.getElementById('overtime-history-status').value='';filterOvertimeHistory()" class="border rounded-xl px-3 py-2 text-xs font-bold">Clear Filters</button></div>
+          <div class="overflow-auto border rounded-xl"><table id="overtime-history-table" class="w-full min-w-[900px] text-xs"><thead class="bg-slate-100"><tr><th>Date</th><th>Employee</th><th>Store</th><th>Detected Extra</th><th>Status</th><th>Reviewed By</th><th>Reviewed At</th></tr></thead><tbody>
+          {% for ot in overtime_rows|reverse %}<tr class="border-b overtime-history-row" data-search="{{ot.name|lower}} {{ot.user_id|lower}}" data-status="{{ot.status}}"><td>{{ot.date}}</td><td><b>{{ot.name}}</b><br>{{ot.user_id}}</td><td>{{ot.store}}</td><td>{{ot.minutes//60}}h {{ot.minutes%60}}m</td><td>{{ot.status}}</td><td>{{ot.reviewed_by or '-'}}</td><td>{{ot.reviewed_at or '-'}}</td></tr>{% else %}<tr><td colspan="7" class="p-6 text-center text-slate-400">No overtime history</td></tr>{% endfor %}
+          </tbody></table></div>
+        </div>
+      </div>
+
+
+    <div id="permission-control-modal" class="fixed inset-0 bg-slate-950/75 backdrop-blur-sm z-[90] hidden p-2 sm:p-4">
+      <div class="mx-auto flex h-full w-full max-w-7xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+        <div class="flex items-center justify-between bg-gradient-to-r from-violet-950 to-slate-950 px-5 py-4 text-white"><div><h3 class="text-lg font-black">🔐 Portal Rights Control</h3><p class="text-xs text-violet-200">Developer can allow or hide every portal option for existing and new users.</p></div><button onclick="toggleModal('permission-control-modal',false)" class="rounded-lg bg-white/10 px-3 py-2">✕</button></div>
+        <div class="overflow-auto p-4 space-y-4">
+          {% for uid,raw in users_db.items() if uid != session.get('user_id') %}{% set u=raw %}
+          <form action="/developer_user_rights/{{uid}}" method="POST" class="rounded-2xl border border-slate-200 bg-slate-50 p-4 shadow-sm">
+            <div class="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"><div><h4 class="font-black text-slate-900">{{u.name}} <span class="font-mono text-xs text-slate-500">{{uid}}</span></h4><p class="text-xs text-slate-500">Current role: {{u.role}} · Store: {{u.store}} · Updated: {{u.get('rights_updated_at','-')}}</p></div><div class="flex gap-2"><select name="role" class="rounded-lg border px-3 py-2 text-xs"><option value="employee" {% if u.role=='employee' %}selected{% endif %}>Employee</option><option value="admin" {% if u.role=='admin' %}selected{% endif %}>Admin</option></select><button type="button" onclick="setRights(this,true)" class="rounded-lg border px-3 py-2 text-xs font-bold">Select All</button><button type="button" onclick="setRights(this,false)" class="rounded-lg border px-3 py-2 text-xs font-bold">Clear All</button><button class="rounded-lg bg-violet-600 px-4 py-2 text-xs font-black text-white">Save Rights</button></div></div>
+            <div class="mb-3 flex flex-wrap gap-3 rounded-xl bg-white p-3"><b class="text-xs">Store Access:</b>{% for code,m in machines.items() if code!='DEV' %}<label class="text-xs"><input type="checkbox" name="stores" value="{{code}}" {% if code in u.get('stores',[u.get('store')]) %}checked{% endif %}> {{code}}</label>{% endfor %}</div>
+            <div class="rights-grid grid grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">{% for p in permission_list %}<label class="flex items-center gap-2 rounded-xl border bg-white p-2 text-xs"><input type="checkbox" name="permissions" value="{{p}}" {% if p in u.get('permissions',[]) %}checked{% endif %}><span>{{permission_labels.get(p,p)}}</span></label>{% endfor %}</div>
+          </form>{% endfor %}
+        </div>
+      </div>
+    </div>
     <!-- Password Resets Modal (Admin & Dev) -->
     <div id="reset-approvals-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[60] flex items-center justify-center hidden p-2">
         <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 p-4 w-full max-w-4xl mx-auto space-y-4 max-h-[85vh] flex flex-col">
@@ -1896,12 +2111,38 @@ HTML_TEMPLATE = """
     </div>
 
     <!-- Developer User Management Modal -->
-    <div id="user-mgmt-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[60] flex items-center justify-center hidden p-2"><div class="bg-white rounded-2xl shadow-2xl p-4 w-full max-w-6xl max-h-[92vh] flex flex-col space-y-3"><div class="flex justify-between"><h3 class="font-bold">🪪 User / Role / Store Rights</h3><button onclick="toggleModal('user-mgmt-modal',false)">✕</button></div><form action="/manage_user" method="POST" class="grid grid-cols-1 md:grid-cols-4 gap-2 bg-slate-50 p-3 rounded-xl"><input type="hidden" name="action" value="create"><input name="uid" placeholder="User ID" required class="border rounded p-2 text-xs"><input name="name" placeholder="Name" required class="border rounded p-2 text-xs"><input name="password" placeholder="Password" class="border rounded p-2 text-xs"><input name="designation" placeholder="Designation" class="border rounded p-2 text-xs"><input name="identificacao" placeholder="Identificação / NIF" class="border rounded p-2 text-xs"><input name="numero_inss" placeholder="Número do INSS" class="border rounded p-2 text-xs"><input name="data_de_contrato" type="date" class="border rounded p-2 text-xs"><select name="role" class="border rounded p-2 text-xs"><option value="employee">Employee</option><option value="admin">Admin</option></select><input name="job_role" placeholder="HR / AREA MANAGER / OPERATION HEAD" class="border rounded p-2 text-xs"><input name="dept" placeholder="Department" class="border rounded p-2 text-xs"><select name="status" class="border rounded p-2 text-xs"><option value="active">Active</option><option value="blocked">Deactive / Blocked</option></select><div class="md:col-span-2"><b class="text-[10px]">Stores:</b>{% for code,m in machines.items() if code!='DEV' %}<label class="ml-2 text-[10px]"><input type="checkbox" name="stores" value="{{code}}">{{code}}</label>{% endfor %}<label class="ml-2 text-[10px] font-bold"><input type="checkbox" name="all_stores" value="1"> ALL</label></div><div class="md:col-span-2 grid grid-cols-2 sm:grid-cols-3 gap-1 max-h-16 overflow-auto">{% for p in permission_list %}<label class="text-[9px]"><input type="checkbox" name="permissions" value="{{p}}">{{p|replace('_',' ')|title}}</label>{% endfor %}</div><button class="md:col-span-4 bg-emerald-600 text-white font-bold py-2 rounded text-xs">Create / Update</button></form><div class="overflow-auto flex-1 border rounded-xl"><table class="w-full min-w-[950px] text-left text-[10px]"><thead class="bg-slate-100 sticky top-0"><tr><th class="p-2">ID / Name</th><th>Designation / Role</th><th>Stores</th><th>Status</th><th>Permissions</th><th>Action</th></tr></thead><tbody>{% for uid,info in users_db.items() %}<tr class="border-b"><td class="p-2 font-bold">{{uid}}<br>{{info.name}}</td><td class="p-2">{{info.designation}}<br>{{info.job_role}} / {{info.role}}</td><td class="p-2">{{info.stores|join(', ')}}</td><td class="p-2">{{info.status|upper}}</td><td class="p-2">{{info.permissions|join(', ')}}</td><td class="p-2"><div class="flex gap-1"><form action="/manage_user" method="POST"><input type="hidden" name="uid" value="{{uid}}"><input type="hidden" name="action" value="toggle_status"><button class="bg-amber-100 text-amber-700 px-2 py-1 rounded">Toggle</button></form><form action="/manage_user" method="POST" onsubmit="return confirm('Delete this user?')"><input type="hidden" name="uid" value="{{uid}}"><input type="hidden" name="action" value="delete"><button class="bg-rose-100 text-rose-700 px-2 py-1 rounded">Del</button></form></div></td></tr>{% endfor %}</tbody></table></div></div></div>
+    <div id="user-mgmt-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[60] flex items-center justify-center hidden p-2"><div class="bg-white rounded-2xl shadow-2xl p-4 w-full max-w-6xl max-h-[92vh] flex flex-col space-y-3"><div class="flex justify-between"><h3 class="font-bold">🪪 User / Role / Store Rights</h3><button onclick="toggleModal('user-mgmt-modal',false)">✕</button></div><form action="/manage_user" method="POST" class="grid grid-cols-1 md:grid-cols-4 gap-2 bg-slate-50 p-3 rounded-xl"><input type="hidden" name="action" value="create"><input name="uid" placeholder="User ID" required class="border rounded p-2 text-xs"><input name="name" placeholder="Name" required class="border rounded p-2 text-xs"><input name="password" placeholder="Password" class="border rounded p-2 text-xs"><input name="designation" placeholder="Designation" class="border rounded p-2 text-xs"><input name="identificacao" placeholder="Identificação / NIF" class="border rounded p-2 text-xs"><input name="data_de_contrato" type="date" class="border rounded p-2 text-xs"><select name="role" class="border rounded p-2 text-xs"><option value="employee">Employee</option><option value="admin">Admin</option></select><input name="job_role" placeholder="HR / AREA MANAGER / OPERATION HEAD" class="border rounded p-2 text-xs"><input name="dept" placeholder="Department" class="border rounded p-2 text-xs"><select name="status" class="border rounded p-2 text-xs"><option value="active">Active</option><option value="blocked">Deactive / Blocked</option></select><div class="md:col-span-2"><b class="text-[10px]">Stores:</b>{% for code,m in machines.items() if code!='DEV' %}<label class="ml-2 text-[10px]"><input type="checkbox" name="stores" value="{{code}}">{{code}}</label>{% endfor %}<label class="ml-2 text-[10px] font-bold"><input type="checkbox" name="all_stores" value="1"> ALL</label></div><div class="md:col-span-2 grid grid-cols-2 sm:grid-cols-3 gap-1 max-h-16 overflow-auto">{% for p in permission_list %}<label class="text-[9px]"><input type="checkbox" name="permissions" value="{{p}}">{{p|replace('_',' ')|title}}</label>{% endfor %}</div><button class="md:col-span-4 bg-emerald-600 text-white font-bold py-2 rounded text-xs">Create / Update</button></form><div class="overflow-auto flex-1 border rounded-xl"><table class="w-full min-w-[950px] text-left text-[10px]"><thead class="bg-slate-100 sticky top-0"><tr><th class="p-2">ID / Name</th><th>Designation / Role</th><th>Stores</th><th>Status</th><th>Permissions</th><th>Action</th></tr></thead><tbody>{% for uid,info in users_db.items() %}<tr class="border-b"><td class="p-2 font-bold">{{uid}}<br>{{info.name}}</td><td class="p-2">{{info.designation}}<br>{{info.job_role}} / {{info.role}}</td><td class="p-2">{{info.stores|join(', ')}}</td><td class="p-2">{{info.status|upper}}</td><td class="p-2">{{info.permissions|join(', ')}}</td><td class="p-2"><div class="flex gap-1"><form action="/manage_user" method="POST"><input type="hidden" name="uid" value="{{uid}}"><input type="hidden" name="action" value="toggle_status"><button class="bg-amber-100 text-amber-700 px-2 py-1 rounded">Toggle</button></form><form action="/manage_user" method="POST" onsubmit="return confirm('Delete this user?')"><input type="hidden" name="uid" value="{{uid}}"><input type="hidden" name="action" value="delete"><button class="bg-rose-100 text-rose-700 px-2 py-1 rounded">Del</button></form></div></td></tr>{% endfor %}</tbody></table></div></div></div>
 
     <!-- Biometric Machine Management -->
     <div id="machine-mgmt-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[60] flex items-center justify-center hidden p-2"><div class="bg-white rounded-2xl shadow-2xl p-4 w-full max-w-5xl max-h-[90vh] overflow-auto"><div class="flex justify-between mb-3"><h3 class="font-bold">🖥️ Biometric Machines / Stores</h3><button onclick="toggleModal('machine-mgmt-modal',false)">✕</button></div><form action="/manage_machine" method="POST" class="grid grid-cols-1 md:grid-cols-5 gap-2 bg-slate-50 p-3 rounded-xl"><input name="code" placeholder="Store Code" required class="border rounded p-2 text-xs"><input name="name" placeholder="Portal Name" required class="border rounded p-2 text-xs"><input name="ip" placeholder="Machine IP" required class="border rounded p-2 text-xs"><input name="port" value="4370" required class="border rounded p-2 text-xs"><input name="admin" placeholder="Portal Admin User ID" class="border rounded p-2 text-xs"><button class="md:col-span-5 bg-indigo-600 text-white font-bold py-2 rounded text-xs">Save / Merge Machine</button></form><table class="w-full text-left text-xs mt-3"><thead class="bg-slate-100"><tr><th class="p-2">Store</th><th class="p-2">Portal</th><th class="p-2">Address</th><th class="p-2">Admin</th><th class="p-2">Status</th><th></th></tr></thead><tbody>{% for code,m in machines.items() %}<tr class="border-b"><td class="p-2 font-bold">{{code}}</td><td class="p-2">{{m.name}}</td><td class="p-2 font-mono">{{m.ip}}:{{m.port}}</td><td class="p-2">{{m.get('admin','-')}}</td><td class="p-2">{% if machine_status.get(code) %}<span class="text-emerald-600 font-bold">ONLINE</span>{% else %}<span class="text-rose-600 font-bold">OFFLINE</span>{% endif %}</td><td class="p-2">{% if code not in ['LM11','LF07','DEV'] %}<form action="/manage_machine" method="POST"><input type="hidden" name="code" value="{{code}}"><input type="hidden" name="action" value="delete"><button class="text-rose-600 font-bold" onclick="return confirm('Delete machine?')">Delete</button></form>{% endif %}</td></tr>{% endfor %}</tbody></table></div></div>
 
-</body>
+
+<script>
+window.HRMS_LANGUAGE={{ ui_language|default('en')|tojson }};
+window.HRMS_PT={'Correction Rejected':'Correcção Rejeitada','Correction Approved':'Correcção Aprovada','Correction Request':'Pedido de Correcção','New Document':'Novo Documento','was Rejected':'foi rejeitada','was Approved':'foi aprovada','Your correction':'A sua correcção','Your roster':'A sua escala','Month select karke Load Month click karein':'Seleccione o mês e clique em Carregar Mês','Employee-wise Shift A, Shift B and Weekly Off allocation':'Alocação por trabalhador de Turno A, Turno B e Folga Semanal','Public Holiday':'Feriado Público','Half Day':'Meio Dia','Full Day':'Dia Completo','Full Month':'Mês Completo','Clear All':'Limpar Tudo','Select All':'Seleccionar Tudo','Uploaded By':'Carregado por','Updated By':'Actualizado por','Created On':'Criado em','Created By':'Criado por','Records':'Registos','Record':'Registo','Summary':'Resumo','Details':'Detalhes','Code':'Código','Address':'Endereço','Phone':'Telefone','Email':'E-mail','Photo':'Fotografia','Store Access':'Acesso à Loja','Apply Selected':'Aplicar Seleccionados','Copy Previous Month':'Copiar Mês Anterior','Copy Previous Week':'Copiar Semana Anterior','Monthly roster saved':'Escala mensal guardada','Kam se kam ek option select karein.':'Seleccione pelo menos uma opção.','Month select karein':'Seleccione o mês','Galat User ID ya Password!':'ID do utilizador ou palavra-passe incorrectos!','Sirf PDF files allowed hain!':'Apenas ficheiros PDF são permitidos!','Sabhi fields bharna zaroori hai!':'Todos os campos são obrigatórios!','This roster shows only your shifts and weekly-off dates for the current month.':'Esta escala mostra apenas os seus turnos e folgas semanais do mês actual.','Overtime Minutes':'Minutos de Horas Extra','Submit Overtime':'Enviar Horas Extra','Email - requires SMTP':'E-mail - requer SMTP','Internal Notification':'Notificação Interna','Download Center':'Centro de Transferências','Monthly':'Mensal','Weekly':'Semanal','Daily':'Diário','Delivery':'Entrega','Frequency':'Frequência','File':'Ficheiro','Uploaded At':'Carregado em','Created':'Criado','To':'Para','From':'De','Effective':'Efectivo','Estimate':'Estimativa','Employer':'Empregador','Gross':'Bruto','Configurable estimate using 2026 settings. Validate payroll categories, taxable base and exemptions before finalisation.':'Estimativa configurável com definições de 2026. Valide as categorias salariais, a base tributável e as isenções antes da finalização.','Identification masking':'Ocultação da Identificação','Document access log':'Registo de Acesso a Documentos','Access audit':'Auditoria de Acesso','Last backups':'Últimas Cópias de Segurança','Number of Users':'Número de Utilizadores','Application Version':'Versão da Aplicação','retry required':'nova tentativa necessária','Last saved attendance remains available':'A última assiduidade guardada continua disponível','Queue State':'Estado da Fila','Level':'Nível','Late Count':'Número de Atrasos','Rolling 30-day view.':'Vista móvel de 30 dias.','roster cells copied':'células de escala copiadas','assignments saved':'alocações guardadas','Copy failed':'Falha ao copiar','Save Lifecycle Event':'Guardar Evento do Ciclo de Vida','Employee Lifecycle':'Ciclo de Vida do Trabalhador','New Records':'Novos Registos','Records Received':'Registos Recebidos','Machine Status':'Estado do Equipamento','Store Code':'Código da Loja','Payroll, holidays, lifecycle, overtime, backups and privacy controls.':'Salários, feriados, ciclo de vida, horas extra, cópias de segurança e controlos de privacidade.','Privacy-safe QR verification cards.':'Cartões QR de verificação com protecção de privacidade.','Internal leave, shift, payroll and contract notices.':'Avisos internos de ausências, turnos, salários e contratos.','Track user, store, action, IP and changes.':'Acompanhar utilizador, loja, acção, IP e alterações.','Minimum staffing rules and shortage warnings.':'Regras de dotação mínima e avisos de falta de pessoal.','Copy week or month schedules.':'Copiar escalas semanais ou mensais.','Contracts, IDs and certificates.':'Contratos, documentos de identificação e certificados.','Annual, used, pending and available balances.':'Saldos anuais, usados, pendentes e disponíveis.','Approve missing-punch correction requests.':'Aprovar pedidos de correcção de marcações em falta.','Machine status, manual checks and sync history.':'Estado dos equipamentos, verificações manuais e histórico de sincronização.','Combined attendance with store code and Excel export.':'Assiduidade combinada com código da loja e exportação Excel.','Multi-store operations, compliance and employee self-service':'Operações multi-loja, conformidade e auto-serviço do trabalhador','No contract alerts.':'Sem alertas de contrato.','Audit Events':'Eventos de Auditoria','Contracts':'Contratos','Corrections':'Correcções','Machine':'Equipamento','Store Comparison':'Comparação de Lojas','Monthly Summary':'Resumo Mensal','Default Schedule':'Horário Padrão','All Allocations':'Todas as Alocações','Designations Selected':'Funções Seleccionadas','All Designations Selected':'Todas as Funções Seleccionadas','Same Weekday for Full Month':'Mesmo Dia da Semana durante Todo o Mês','Monday-Sunday':'Segunda a Domingo','Last Week':'Última Semana','5th Week':'5.ª Semana','4th Week':'4.ª Semana','3rd Week':'3.ª Semana','2nd Week':'2.ª Semana','1st Week':'1.ª Semana','All Weeks (Monday-Sunday)':'Todas as Semanas (Segunda a Domingo)','Not in this month':'Não existe neste mês','options selected':'opções seleccionadas','option selected':'opção seleccionada','Apply to selected date':'Aplicar à data seleccionada','Month & Year':'Mês e Ano','load month':'carregar mês','Select Month':'Seleccionar Mês','No shift requests':'Sem pedidos de turno','Current Assignment':'Alocação Actual','Requested':'Solicitado','Shift Request':'Pedido de Turno','Request Shift / Off':'Pedir Turno / Folga','Select Employee':'Seleccionar Trabalhador','Bulk Upload':'Carregamento em Massa','Standard Row':'Linha Padrão','Monthly grid':'Grelha mensal','Master':'Principal','Individual Slip':'Recibo Individual','Split':'Separar','All Personnel':'Todo o Pessoal','No requests':'Sem pedidos','Minutes':'Minutos','ALL':'TODOS','Change':'Alteração','Emp':'Trab.','Remove Photo':'Remover Fotografia','STORE ACCESS':'ACESSO À LOJA','Create login and employee profile':'Criar início de sessão e perfil do trabalhador','No employees found.':'Nenhum trabalhador encontrado.','Select Designation':'Seleccionar Função','Add Employee':'Adicionar Trabalhador','Search, review and maintain workforce profiles':'Pesquisar, rever e manter perfis dos trabalhadores','Open Roster Planner':'Abrir Planeador de Escala','Use Roster Planner to assign shifts and weekly-off rotations.':'Utilize o Planeador de Escala para atribuir turnos e rotações de folga semanal.','Rota Rotation and Shift Schedules are integrated with the':'A rotação da escala e os horários de turno estão integrados com o','No salary slips uploaded yet.':'Ainda não foram carregados recibos de salário.','View':'Ver','PDF File':'Ficheiro PDF','-- Select Employee --':'-- Seleccionar Trabalhador --','Individual Slip Upload':'Carregar Recibo Individual','Split & Upload':'Separar e Carregar','Master PDF':'PDF Principal','Bulk Upload (Merged PDF)':'Carregamento em Massa (PDF Unido)','Monthly grid with Leave Codes':'Grelha mensal com códigos de ausência','Employee Matrix':'Matriz de Trabalhadores','Individual records per date':'Registos individuais por data','Standard Row Export':'Exportação em Linhas','Download Attendance Reports':'Baixar Relatórios de Assiduidade','Total Summary':'Resumo Total','No attendance records found for this selection.':'Nenhum registo de assiduidade encontrado para esta selecção.','Status ↕':'Estado ↕','Working Hrs ↕':'Horas Trabalhadas ↕','Total Lunch ↕':'Total de Almoço ↕','Out Time ↕':'Hora de Saída ↕','Store In ↕':'Entrada na Loja ↕','Dept ↕':'Departamento ↕','Employee Name ↕':'Nome do Trabalhador ↕','Date ↕':'Data ↕','Last Month':'Mês Passado','This Month':'Este Mês','This Week':'Esta Semana','Yesterday':'Ontem','Quick Range':'Intervalo Rápido','Rota':'Escala','Export':'Exportar','Logged In As':'Sessão Iniciada Como','-- All Personnel --':'-- Todo o Pessoal --','Employee Filter':'Filtro de Trabalhadores','Tot Hrs':'Total de Horas','Mis Punch':'Marcação em Falta','Mis-Punch':'Marcação em Falta','Late Arr.':'Chegada Tardia','Week Off':'Folga Semanal','Shutdown':'Encerrar','Sync':'Sincronização','Device':'Equipamento','Leaves':'Ausências','Dev':'Programador','Biometric live tracking active for Attendance Portal.':'Acompanhamento biométrico em tempo real activo no Portal de Assiduidade.','Announcements':'Comunicados','Employees Info (ID Card)':'Informações dos Trabalhadores (Cartão de Identificação)','Manage Passwords':'Gerir Palavras-passe','Biometric Machines':'Equipamentos Biométricos','Shift Approvals':'Aprovações de Turno','Reset':'Repor','Off':'Folga','Daily manpower summary':'Resumo diário de efectivos','Loading monthly roster...':'A carregar a escala mensal...','Send Request for Approval':'Enviar Pedido para Aprovação','Developed by':'Desenvolvido por','Attendance Portal':'Portal de Assiduidade','Sign in to access your dashboard':'Inicie sessão para aceder ao seu painel','User ID':'ID do Utilizador','Password':'Palavra-passe','Secure Login':'Iniciar Sessão','Forgot/Reset Password?':'Esqueceu/Redefinir Palavra-passe?','Reset Password':'Redefinir Palavra-passe','Create a new password request':'Criar um novo pedido de palavra-passe','Submit Reset Request':'Enviar Pedido de Redefinição','Back to Login':'Voltar ao Início de Sessão','Current Password':'Palavra-passe Actual','New Password':'Nova Palavra-passe','Confirm Password':'Confirmar Palavra-passe','Dashboard':'Painel','Good day':'Bom dia','Main Menu':'Menu Principal','Team Management':'Gestão da Equipa','Quick Actions':'Acções Rápidas','Search':'Pesquisar','Search code or employee name':'Pesquisar código ou nome do trabalhador','Filter':'Filtrar','Reset Filters':'Limpar Filtros','Close':'Fechar','Save':'Guardar','Cancel':'Cancelar','Apply':'Aplicar','Load':'Carregar','Load Month':'Carregar Mês','Export Excel':'Exportar Excel','English':'Inglês','Portuguese':'Português','Language':'Idioma','Employee':'Trabalhador','Employees':'Trabalhadores','Employee Code':'Código do Trabalhador','Employee Name':'Nome do Trabalhador','Employee ID':'ID do Trabalhador','Designation':'Função','Department':'Departamento','Store':'Loja','Stores':'Lojas','All Stores':'Todas as Lojas','All Designations':'Todas as Funções','All Allocations':'Todas as Alocações','All Weeks':'Todas as Semanas','Selected':'Seleccionado','Selected Date Only':'Apenas a Data Seleccionada','Same Weekday for Full Month':'Mesmo Dia da Semana em Todo o Mês','First Week':'Primeira Semana','Second Week':'Segunda Semana','Third Week':'Terceira Semana','Fourth Week':'Quarta Semana','Fifth Week':'Quinta Semana','Last Week':'Última Semana','Week calculation':'Cálculo da semana','Monday is the first day and Sunday is the last day':'Segunda-feira é o primeiro dia e Domingo é o último dia','Attendance':'Assiduidade','Attendance Correction':'Correcção de Assiduidade','Attendance Corrections':'Correcções de Assiduidade','Present':'Presente','Absent':'Ausente','Late':'Atrasado','Late Arrival':'Chegada Tardia','Early Departure':'Saída Antecipada','Weekly Off':'Folga Semanal','Shift A':'Turno A','Shift B':'Turno B','Default':'Padrão','Roster Planner':'Planeador de Escala','Monthly Roster':'Escala Mensal','Monthly Roster Matrix':'Matriz de Escala Mensal','Save Monthly Roster':'Guardar Escala Mensal','Daily manpower summary':'Resumo diário de efectivos','Shift Allocation':'Alocação de Turno','Date & Day':'Data e Dia','My Monthly Roster':'Minha Escala Mensal','Shift / Weekly Off':'Turno / Folga Semanal','Today':'Hoje','Scheduled':'Programado','Date':'Data','Day':'Dia','Month':'Mês','Year':'Ano','Hours':'Horas','Minutes':'Minutos','Time':'Hora','Store In':'Entrada na Loja','Lunch Out':'Saída para Almoço','Lunch In':'Regresso do Almoço','Out Time':'Hora de Saída','Working Hours':'Horas Trabalhadas','Total Hours':'Total de Horas','Lunch Hours':'Horas de Almoço','Variance':'Variação','Device':'Equipamento','Online':'Online','Offline':'Offline','Loading':'A carregar','No data':'Sem dados','No records found':'Nenhum registo encontrado','Leave Portal':'Portal de Ausências','Leave Management':'Gestão de Ausências','Leave Balances':'Saldos de Ausências','Leave Type':'Tipo de Ausência','Leave Code':'Código de Ausência','Submit Leave':'Enviar Pedido','Start Date':'Data Inicial','End Date':'Data Final','Supporting Document':'Documento Comprovativo','Status':'Estado','Action':'Acção','Pending':'Pendente','Approved':'Aprovado','Rejected':'Rejeitado','Processed':'Processado','Approve':'Aprovar','Reject':'Rejeitar','Reason':'Motivo','Request':'Pedido','Requests':'Pedidos','No leave requests':'Sem pedidos de ausência','Select Leave Code / Motivo':'Seleccionar Código de Ausência / Motivo','Payroll & Reports':'Salários e Relatórios','Payroll':'Salários','Salary':'Salário','Salary Slip':'Recibo de Salário','Gross Salary':'Salário Bruto','Net Salary':'Salário Líquido','Base Salary':'Salário Base','Meal Allowance':'Subsídio de Alimentação','Transport Allowance':'Subsídio de Transporte','Bonus':'Prémio','Overtime':'Horas Extra','Overtime Approval':'Aprovação de Horas Extra','Net estimate':'Estimativa Líquida','Calculate Estimate':'Calcular Estimativa','Reports':'Relatórios','Report':'Relatório','Upload Salary Slip':'Carregar Recibo de Salário','Download Salary Slip':'Baixar Recibo de Salário','Employee Documents':'Documentos do Trabalhador','My Documents':'Meus Documentos','Notifications':'Notificações','Notification Center':'Centro de Notificações','ID Card':'Cartão de Identificação','Download ID Card':'Baixar Cartão de Identificação','Baixar / Download ID Card':'Baixar Cartão de Identificação','Calendar & Rota':'Calendário e Escala','Employee List':'Lista de Trabalhadores','Employee Cards':'Cartões dos Trabalhadores','Employee Information':'Informações do Trabalhador','Profile':'Perfil','My Profile':'Meu Perfil','Nationality':'Nacionalidade','HRMS Code':'Código HRMS','Identification':'Identificação','Contract Date':'Data de Contrato','Data de Contrato':'Data de Contrato','Create / Update':'Criar / Actualizar','Create Employee':'Criar Trabalhador','Update Employee':'Actualizar Trabalhador','Manage':'Gerir','Edit':'Editar','Delete':'Eliminar','Open':'Abrir','Download':'Baixar','Upload':'Carregar','Document':'Documento','Documents':'Documentos','No documents':'Sem documentos','Settings':'Definições','Logout':'Sair','User Management':'Gestão de Utilizadores','Password Management':'Gestão de Palavras-passe','Machine Management':'Gestão de Equipamentos','Permissions':'Permissões','Role':'Perfil de Acesso','Admin':'Administrador','Developer':'Programador','Blocked':'Bloqueado','Active':'Activo','Inactive':'Inactivo','Create User':'Criar Utilizador','Update User':'Actualizar Utilizador','Store View':'Vista da Loja','Developer View':'Vista do Programador','All Stores View':'Vista de Todas as Lojas','Workforce Automation Hub':'Centro de Automação da Força de Trabalho','Multi-store operations, compliance and employee self-service':'Operações multi-loja, conformidade e auto-serviço do trabalhador','Contract Alerts':'Alertas de Contrato','All Stores Attendance':'Assiduidade de Todas as Lojas','Biometric Sync History':'Histórico de Sincronização Biométrica','Manual Machine Check':'Verificação Manual do Equipamento','Check Now':'Verificar Agora','Last Sync':'Última Sincronização','Roster Copy':'Copiar Escala','Copy Week':'Copiar Semana','Copy Month':'Copiar Mês','Source Date':'Data de Origem','Target Date':'Data de Destino','Staffing Rules':'Regras de Dotação','Minimum Staffing Rules':'Regras de Dotação Mínima','Audit Log':'Registo de Auditoria','Audit Events':'Eventos de Auditoria','Employee QR Directory':'Directório QR dos Trabalhadores','Holiday Calendar':'Calendário de Feriados','National Holiday':'Feriado Nacional','Company Holiday':'Feriado da Empresa','Bridge Day':'Ponte','Paid':'Remunerado','Unpaid':'Não Remunerado','Late Escalation':'Escalonamento de Atrasos','Late Arrival Escalation':'Escalonamento de Chegadas Tardias','Onboarding Checklist':'Lista de Integração','Offboarding':'Desvinculação','Store Transfer':'Transferência de Loja','Employee Timeline':'Linha do Tempo do Trabalhador','Performance & Training':'Desempenho e Formação','Scheduled Reports':'Relatórios Programados','Offline Queue':'Fila Offline','Offline Biometric Queue':'Fila Biométrica Offline','Backup & Restore':'Cópia de Segurança e Restauro','Create Full Backup':'Criar Cópia de Segurança Completa','Backup History':'Histórico de Cópias de Segurança','System Health':'Estado do Sistema','Application Status':'Estado da Aplicação','Disk Used':'Disco Utilizado','Disk Free':'Disco Livre','Privacy Controls':'Controlos de Privacidade','Data Protection':'Protecção de Dados','Privacy':'Privacidade','Open module':'Abrir módulo','Back':'Voltar','Back to Dashboard':'Voltar ao Painel','Type':'Tipo','Name':'Nome','Title':'Título','Available':'Disponível','Used':'Usado','Annual':'Anual','Total Employees':'Total de Trabalhadores','No notifications':'Sem notificações','Manual Sync':'Sincronização Manual','Training':'Formação','Training Name':'Nome da Formação','Training Date':'Data da Formação','Expiry':'Validade','Expiry Date':'Data de Validade','Remarks':'Observações','Manager Remarks':'Observações do Gestor','Score':'Pontuação','Privacy Notice':'Aviso de Privacidade','Data Subject Rights':'Direitos do Titular dos Dados','Purpose Limitation':'Limitação da Finalidade','Retention':'Conservação','Security':'Segurança','Confidential':'Confidencial','Confidential Document':'Documento Confidencial','Submit':'Enviar','Submit Request':'Enviar Pedido','Save Rule':'Guardar Regra','Save Holiday':'Guardar Feriado','Save Schedule':'Guardar Programação','Apply Filters':'Aplicar Filtros','Clear':'Limpar','Select':'Seleccionar','Choose':'Escolher','Required':'Obrigatório','Optional':'Opcional','Success':'Sucesso','Error':'Erro','Warning':'Aviso','Attention':'Atenção','Critical':'Crítico','Normal':'Normal','System':'Sistema','Application':'Aplicação','User':'Utilizador','Created At':'Criado em','Updated At':'Actualizado em','Effective Date':'Data de Efeito','From Store':'Loja de Origem','To Store':'Loja de Destino','Exit Reason':'Motivo de Saída','Final Settlement':'Acerto Final','Documents Returned':'Documentos Devolvidos','Biometric Registration':'Registo Biométrico','Employee Photo':'Fotografia do Trabalhador','Contract Document':'Documento do Contrato','Store Assignment':'Atribuição de Loja','Default Shift':'Turno Padrão','ID Card Generated':'Cartão de Identificação Gerado','Apply Roster':'Aplicar Escala','All Weeks (Monday-Sunday)':'Todas as Semanas (Segunda a Domingo)','Monday':'Segunda-feira','Tuesday':'Terça-feira','Wednesday':'Quarta-feira','Thursday':'Quinta-feira','Friday':'Sexta-feira','Saturday':'Sábado','Sunday':'Domingo'};
+function hrmsTranslate(root=document.body){
+ if(window.HRMS_LANGUAGE!=='pt'||!root)return;
+ const keys=Object.keys(window.HRMS_PT).sort((a,b)=>b.length-a.length);
+ const cv=(value)=>{let t=value||'';keys.forEach(k=>{t=t.split(k).join(window.HRMS_PT[k])});return t};
+ const walker=document.createTreeWalker(root,NodeFilter.SHOW_TEXT);const nodes=[];while(walker.nextNode())nodes.push(walker.currentNode);
+ nodes.forEach(n=>{if(!n.parentElement||['SCRIPT','STYLE','TEXTAREA'].includes(n.parentElement.tagName))return;n.nodeValue=cv(n.nodeValue)});
+ root.querySelectorAll('[placeholder],[title],[aria-label],input[type="button"],input[type="submit"]').forEach(el=>{
+   ['placeholder','title','aria-label','value'].forEach(a=>{const v=el.getAttribute(a);if(v)el.setAttribute(a,cv(v))});
+ });
+ document.documentElement.lang='pt';document.title=cv(document.title);
+}
+document.addEventListener('DOMContentLoaded',()=>hrmsTranslate());
+new MutationObserver(ms=>{if(window.HRMS_LANGUAGE==='pt')ms.forEach(m=>m.addedNodes.forEach(n=>{if(n.nodeType===1)hrmsTranslate(n)}))}).observe(document.documentElement,{childList:true,subtree:true});
+</script>
+<script id="universal-table-sort">
+(function(){
+  function value(cell,type){const text=(cell?.innerText||'').trim();if(type==='number'){const n=parseFloat(text.replace(/[^0-9.-]/g,''));return Number.isNaN(n)?-Infinity:n;}return text.toLocaleLowerCase();}
+  function enhance(root=document){root.querySelectorAll('table').forEach((table,ti)=>{if(table.dataset.sortReady)return;table.dataset.sortReady='1';const heads=table.querySelectorAll('thead th');heads.forEach((th,ci)=>{if(th.dataset.noSort==='1')return;th.style.cursor='pointer';th.style.userSelect='none';if(!/[↕↑↓]/.test(th.textContent))th.insertAdjacentText('beforeend',' ↕');th.title='Click to sort';th.addEventListener('click',()=>{const tbody=table.tBodies[0];if(!tbody)return;const rows=Array.from(tbody.rows).filter(r=>r.cells.length>ci&&!r.querySelector('[colspan]'));const asc=th.dataset.direction!=='asc';heads.forEach(h=>{h.dataset.direction='';h.textContent=h.textContent.replace(/ [↑↓]$/,' ↕');});th.dataset.direction=asc?'asc':'desc';th.textContent=th.textContent.replace(/ ↕$/,'')+(asc?' ↑':' ↓');const type=th.dataset.sortType||((rows.every(r=>/^[-+]?\d[\d.,]*$/.test((r.cells[ci]?.innerText||'').trim())))?'number':'text');rows.sort((a,b)=>{const av=value(a.cells[ci],type),bv=value(b.cells[ci],type);return (av>bv?1:av<bv?-1:0)*(asc?1:-1);});rows.forEach(r=>tbody.appendChild(r));});});});}
+  window.applyKviFilters=function(){const q=(document.getElementById('kvi-search')?.value||'').trim().toLowerCase();const type=document.getElementById('kvi-type-filter')?.value||'ALL';let visible=0;document.querySelectorAll('.kvi-row').forEach(r=>{let rt=(r.dataset.type||'OTHER').trim().toUpperCase();if(rt.includes('KVI')&&rt.includes('POWER'))rt='KVI+POWER';else if(rt.includes('KVI'))rt='KVI';else if(rt.includes('POWER'))rt='POWER SKU';const typeOk=type==='ALL'||(type==='OTHER'&&!['KVI','KVI+POWER','POWER SKU'].includes(rt))||rt===type;const searchOk=!q||(r.dataset.search||'').includes(q);const show=typeOk&&searchOk;r.style.display=show?'':'none';if(show)visible++;});const box=document.getElementById('kvi-filter-count');if(box)box.textContent=visible+' article(s) shown';};
+  window.filterKviType=function(type){const sel=document.getElementById('kvi-type-filter');if(sel)sel.value=type;window.applyKviFilters();document.getElementById('kvi-article-table')?.scrollIntoView({behavior:'smooth',block:'start'});};
+  document.addEventListener('DOMContentLoaded',()=>{enhance(document);if(window.applyKviFilters)window.applyKviFilters();});window.enhanceSortableTables=enhance;
+})();
+</script></body>
 </html>
 """
 
@@ -1949,7 +2190,7 @@ ID_CARD_TEMPLATE = """
         }
         .download-btn:hover { background-color: #047857; }
     </style>
-</head>
+<style id="id-card-mobile-fix">@media(max-width:640px){body{padding:10px;overflow-x:hidden}.id-card{width:min(340px,94vw)!important}.download-btn{width:min(340px,94vw);margin-left:auto;margin-right:auto}}</style></head>
 <body>
     <div class="id-card" id="id-card-element">
         <div class="logo-wrap"><img src="{{ url_for('static', filename='fresmart.png') }}" alt="Fresmart Logo" class="logo"></div>
@@ -1963,11 +2204,11 @@ ID_CARD_TEMPLATE = """
         <div class="emp-name">{{ employee.name }}</div>
 
         <div class="details">
-            <div><span>Nationality</span> <span>: Angola</span></div>
+            
             <div><span>HRMS Code</span> <span>: {{ employee.emp_code }}</span></div>
             <div><span>Designation</span> <span class="designation-value">: {{ employee.designation or employee.dept or 'Employee' }}</span></div>
             <div><span>Identificação</span> <span>: {{ employee.identificacao or '-' }}</span></div>
-            <div><span>Número do INSS</span> <span>: {{ employee.numero_inss or '-' }}</span></div>
+            
             <div><span>Data de Contrato</span> <span>: {{ employee.data_de_contrato or '-' }}</span></div>
         </div>
 
@@ -1998,6 +2239,11 @@ ID_CARD_TEMPLATE = """
 </body>
 </html>
 """
+
+@app.errorhandler(413)
+def upload_too_large(error):
+    flash(f"Selected files exceed the {int(app.config['MAX_CONTENT_LENGTH']/1024/1024)} MB total upload limit.",'danger')
+    return redirect(request.referrer or url_for('index'))
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -2156,12 +2402,43 @@ def manage_user():
         if not stores: stores=old.get('stores') or [request.form.get('store','LM11').upper()]
         perms=[x for x in request.form.getlist('permissions') if x in PERMISSIONS]
         if not perms: perms=ROLE_PRESETS.get(job,ROLE_PRESETS['EMPLOYEE'])[:]
-        db[uid]=normalize_user_record({**old,'name':(request.form.get('name') or old.get('name') or uid).strip(),'password':(request.form.get('password') or old.get('password') or '123').strip(),'role':role if role in ['admin','employee'] else 'employee','designation':(request.form.get('designation') or old.get('designation') or 'Employee').strip(),'email':(request.form.get('email') or old.get('email') or '').strip(),'identificacao':(request.form.get('identificacao') or old.get('identificacao') or '').strip(),'numero_inss':(request.form.get('numero_inss') or old.get('numero_inss') or '').strip(),'data_de_contrato':(request.form.get('data_de_contrato') or old.get('data_de_contrato') or '').strip(),'job_role':job,'stores':stores,'store':stores[0],'permissions':perms,'status':request.form.get('status','active'),'dept':(request.form.get('dept') or old.get('dept') or 'General').strip()})
+        db[uid]=normalize_user_record({**old,'name':(request.form.get('name') or old.get('name') or uid).strip(),'password':(request.form.get('password') or old.get('password') or '123').strip(),'role':role if role in ['admin','employee'] else 'employee','designation':(request.form.get('designation') or old.get('designation') or 'Employee').strip(),'email':(request.form.get('email') or old.get('email') or '').strip(),'identificacao':(request.form.get('identificacao') or old.get('identificacao') or '').strip(),'data_de_contrato':(request.form.get('data_de_contrato') or old.get('data_de_contrato') or '').strip(),'job_role':job,'stores':stores,'store':stores[0],'permissions':perms,'status':request.form.get('status','active'),'dept':(request.form.get('dept') or old.get('dept') or 'General').strip()})
         flash(f'User {uid} created/updated successfully.','success')
     elif action=='toggle_status' and uid in db:
         db[uid]=normalize_user_record(db[uid]); db[uid]['status']='blocked' if db[uid].get('status')=='active' else 'active'; flash(f'User {uid} status changed to {db[uid]["status"]}.','success')
     elif action=='delete' and uid in db: del db[uid]; flash(f'User {uid} deleted permanently.','success')
     save_json_file(USERS_DB_FILE,db); return redirect(url_for('index'))
+
+@app.route('/developer_user_rights/<uid>',methods=['POST'])
+def developer_user_rights(uid):
+    if session.get('role')!='developer':return 'Developer access required',403
+    uid=uid.upper();db=load_users_db()
+    if uid not in db:return 'User not found',404
+    info=normalize_user_record(db[uid]);selected=[p for p in request.form.getlist('permissions') if p in PERMISSIONS]
+    info['permissions']=selected
+    if request.form.get('role') in ['admin','employee']:info['role']=request.form.get('role')
+    stores=[x for x in request.form.getlist('stores') if x in MACHINES and x!='DEV']
+    if stores:info['stores']=stores;info['store']=stores[0]
+    info['rights_updated_at']=datetime.now().strftime('%Y-%m-%d %H:%M:%S');info['rights_updated_by']=session.get('user_name')
+    db[uid]=info;save_json_file(USERS_DB_FILE,db)
+    flash(f'Portal rights updated for {info.get("name",uid)}.','success');return redirect(url_for('index'))
+
+@app.route('/admin_employee_photo/<uid>',methods=['POST'])
+def admin_employee_photo(uid):
+    if session.get('role') not in ['admin','developer']:return redirect(url_for('login'))
+    uid=uid.upper();db=load_users_db();info=normalize_user_record(db.get(uid,{}))
+    if not info or info.get('role')!='employee':return 'Employee not found',404
+    if session.get('role')!='developer' and info.get('store') not in get_user_stores():return 'Unauthorized',403
+    f=request.files.get('profile_photo')
+    if not f or not f.filename:flash('Select an employee photo.','danger');return redirect(url_for('index'))
+    ext=Path(f.filename).suffix.lower()
+    if ext not in ['.png','.jpg','.jpeg','.webp']:flash('Only JPG, JPEG, PNG or WEBP photos are allowed.','danger');return redirect(url_for('index'))
+    old=info.get('profile_photo','');filename=secure_filename(f'profile_{uid}_{uuid.uuid4().hex}{ext}');path=os.path.join(app.config['UPLOAD_FOLDER'],filename);f.save(path)
+    if old and os.path.isfile(os.path.join(app.config['UPLOAD_FOLDER'],old)):
+        try:os.remove(os.path.join(app.config['UPLOAD_FOLDER'],old))
+        except OSError:pass
+    info['profile_photo']=filename;info['photo_updated_at']=datetime.now().strftime('%Y-%m-%d %H:%M:%S');db[uid]=info;save_json_file(USERS_DB_FILE,db)
+    flash(f'Photo updated for {info.get("name",uid)}.','success');return redirect(url_for('index'))
 
 @app.route('/upload_profile_photo', methods=['POST'])
 def upload_profile_photo():
@@ -2198,6 +2475,11 @@ def manage_machine():
     except ValueError: flash('Port invalid hai.','danger'); return redirect(url_for('index'))
     machines[code]={'ip':(request.form.get('ip') or '').strip(),'port':port,'name':(request.form.get('name') or code).strip(),'admin':(request.form.get('admin') or '').strip()}; save_json_file(MACHINES_DB_FILE,machines); load_machines_db(); flash(f'{code} biometric portal save ho gaya.','success'); return redirect(url_for('index'))
 
+@app.route('/set_language/<lang>')
+def set_language(lang):
+    session['ui_language'] = 'pt' if lang == 'pt' else 'en'
+    return redirect(request.referrer or url_for('index'))
+
 @app.route('/logout')
 def logout():
     role = session.get('role')
@@ -2213,6 +2495,9 @@ def index():
         return redirect(url_for('login'))
         
     role=session.get('role'); logged_user_id=session.get('user_id'); db_all=load_users_db()
+    ui_language=session.get('ui_language','pt' if role=='employee' else 'en')
+    if ui_language not in ['en','pt']: ui_language='en'
+    session['ui_language']=ui_language
     current_user=normalize_user_record(db_all.get(logged_user_id,{'name':session.get('user_name','')})) if role!='developer' else {'name':'Sonu Kumar (Dev)','profile_photo':'','designation':'Developer','job_role':'DEVELOPER','stores':list(MACHINES.keys()),'permissions':PERMISSIONS}
     accessible_stores=get_user_stores(logged_user_id)
     requested_store=(request.args.get('store') or session.get('store') or (accessible_stores[0] if accessible_stores else 'LM11')).upper()
@@ -2252,7 +2537,8 @@ def index():
         elif roster_value=='Weekly Off': employee_roster_counts['weekly_off']+=1
         else: employee_roster_counts['default']+=1
         employee_month_roster.append({'date':roster_date_str,'display_date':roster_date.strftime('%d/%m/%Y'),'weekday_en':roster_date.strftime('%A'),'weekday_pt':pt_weekdays[roster_date.weekday()],'value':roster_value,'value_en':roster_value or 'Default','value_pt':{'Shift A':'Turno A','Shift B':'Turno B','Weekly Off':'Folga Semanal'}.get(roster_value,'Padrão'),'is_today':roster_date.date()==datetime.now().date()})
-    employee_roster_month_label=roster_first.strftime('%B %Y')
+    pt_months={1:'Janeiro',2:'Fevereiro',3:'Março',4:'Abril',5:'Maio',6:'Junho',7:'Julho',8:'Agosto',9:'Setembro',10:'Outubro',11:'Novembro',12:'Dezembro'}
+    employee_roster_month_label=(f"{pt_months[roster_first.month]} {roster_first.year}" if ui_language=='pt' else roster_first.strftime('%B %Y'))
         
     shift_reqs = load_shift_requests()
     pending_shifts_count = sum(1 for req in shift_reqs if req.get('status') == 'Pending')
@@ -2270,6 +2556,17 @@ def index():
         reset_requests = []
         pending_resets_count = 0
     
+    overtime_all=load_overtime_approvals()
+    overtime_visible=[x for x in overtime_all if role=='developer' or (role=='admin' and x.get('store') in accessible_stores) or x.get('user_id')==logged_user_id]
+    pending_overtime_count=sum(1 for x in overtime_visible if x.get('status')=='Pending')
+    # Flash new workflow notifications once in the intended portal.
+    notif_rows=suite_load(NOTIFICATIONS_FILE,[]);notif_changed=False
+    for n in notif_rows:
+        intended=((role=='employee' and n.get('user_id')==logged_user_id and 'approved' in n.get('title','').lower()) or (role=='admin' and n.get('user_id') in accessible_stores) or role=='developer')
+        if intended and not n.get('flash_seen',False) and ('Overtime' in n.get('title','') or 'overtime' in n.get('title','')):
+            flash(f"{n.get('title')}: {n.get('message')}",'success' if 'approved' in n.get('title','').lower() else 'danger' if 'rejected' in n.get('title','').lower() else 'success')
+            n['flash_seen']=True;notif_changed=True
+    if notif_changed:suite_save(NOTIFICATIONS_FILE,notif_rows)
     all_salary_slips = load_salary_slips()
     
     # FIX: List comprehension applied here to show only the logged-in employee's slips
@@ -2281,7 +2578,7 @@ def index():
         emp_info=normalize_user_record(emp_info_raw)
         if emp_info.get('role')!='employee': continue
         if role!='developer' and not any(st in accessible_stores for st in emp_info.get('stores',[])): continue
-        employee_cards.append({'user_id':emp_id,'name':emp_info.get('name',emp_id),'designation':emp_info.get('designation') or emp_info.get('dept','Employee'),'dept':emp_info.get('dept','General'),'email':emp_info.get('email',''),'profile_photo':emp_info.get('profile_photo',''),'stores':emp_info.get('stores',[])})
+        employee_cards.append({'user_id':emp_id,'name':emp_info.get('name',emp_id),'designation':emp_info.get('designation') or emp_info.get('dept','Employee'),'dept':emp_info.get('dept','General'),'email':emp_info.get('email',''),'profile_photo':emp_info.get('profile_photo',''),'photo_updated_at':emp_info.get('photo_updated_at',''),'identificacao':emp_info.get('identificacao',''),'data_de_contrato':emp_info.get('data_de_contrato',''),'stores':emp_info.get('stores',[])})
     employee_cards.sort(key=lambda x:x['name'])
     employee_designations=sorted({x['designation'] for x in employee_cards if x['designation']})
 
@@ -2296,7 +2593,7 @@ def index():
         leave_requests=current_user_leave_requests, pending_leaves_count=pending_leaves_count,
         shift_requests=my_shift_reqs, pending_shifts_count=pending_shifts_count,
         reset_requests=reset_requests, pending_resets_count=pending_resets_count,
-        salary_slips=my_salary_slips, users_db=users_db, store=store, accessible_stores=accessible_stores, current_user=current_user, machine_status=machine_status, current_machine=current_machine, machines=MACHINES, permission_list=PERMISSIONS, role_presets=ROLE_PRESETS, employee_cards=employee_cards, employee_designations=employee_designations, employee_month_roster=employee_month_roster, employee_roster_counts=employee_roster_counts, employee_roster_month_label=employee_roster_month_label, leave_code_names=LEAVE_CODE_NAMES
+        salary_slips=my_salary_slips, users_db=users_db, store=store, accessible_stores=accessible_stores, current_user=current_user, machine_status=machine_status, current_machine=current_machine, machines=MACHINES, permission_list=PERMISSIONS, permission_labels=PERMISSION_LABELS, role_presets=ROLE_PRESETS, employee_cards=employee_cards, employee_designations=employee_designations, employee_month_roster=employee_month_roster, employee_roster_counts=employee_roster_counts, employee_roster_month_label=employee_roster_month_label, leave_code_names=LEAVE_CODE_NAMES, ui_language=ui_language, overtime_rows=overtime_visible, pending_overtime_count=pending_overtime_count
     )
 
 # --- BULK SALARY SLIP APIs ---
@@ -2485,7 +2782,7 @@ def api_roster_matrix():
     except ValueError: return jsonify({'error':'Invalid month'}),400
     next_month=(first.replace(day=28)+timedelta(days=4)).replace(day=1)
     days=(next_month-first).days
-    dates=[{'date':(first+timedelta(days=i)).strftime('%Y-%m-%d'),'day':i+1,'weekday':(first+timedelta(days=i)).strftime('%a')} for i in range(days)]
+    weekday_pt=['Seg','Ter','Qua','Qui','Sex','Sáb','Dom']; dates=[{'date':(first+timedelta(days=i)).strftime('%Y-%m-%d'),'day':i+1,'weekday':(weekday_pt[(first+timedelta(days=i)).weekday()] if session.get('ui_language')=='pt' else (first+timedelta(days=i)).strftime('%a'))} for i in range(days)]
     all_roster=load_roster(); db=load_users_db(); stores=get_user_stores(); role=session.get('role')
     employees=[]; summary={d['date']:{'shift_a':0,'shift_b':0,'weekly_off':0} for d in dates}
     for uid,raw in db.items():
@@ -2625,6 +2922,24 @@ def update_shift_req(req_id, action):
     save_shift_requests(reqs)
     return redirect(url_for('index'))
 
+@app.route('/overtime_action/<rid>/<action>')
+def overtime_action(rid,action):
+    if session.get('role') not in ['admin','developer']:return redirect(url_for('login'))
+    rows=load_overtime_approvals();rec=next((x for x in rows if x.get('id')==rid),None)
+    if not rec:return redirect(url_for('index'))
+    if session.get('role')!='developer' and rec.get('store') not in get_user_stores():return 'Unauthorized',403
+    if action not in ['approve','reject']:return 'Invalid action',400
+    rec['status']='Approved' if action=='approve' else 'Rejected';rec['reviewed_by']=session.get('user_name');rec['reviewed_at']=datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    save_overtime_approvals(rows)
+    mins=int(rec.get('minutes',0))
+    if rec['status']=='Approved':
+        suite_notify(rec['user_id'],'Overtime approved',f"{mins} extra minutes on {rec['date']} were approved by {rec['reviewed_by']}.",rec.get('store',''))
+        flash(f"Overtime approved for {rec['name']}: {mins} minutes.",'success')
+    else:
+        # Rejection remains in manager history only. No employee notification is generated.
+        flash(f"Overtime rejected for {rec['name']}. Credited working time adjusted to 8h.",'success')
+    return redirect(url_for('index'))
+
 # --- QUICK EDIT API ---
 @app.route('/quick_edit')
 def quick_edit():
@@ -2641,7 +2956,11 @@ def quick_edit():
     if new_time == '' or new_time == '-':
         if field in overrides[date_str][emp_id]: del overrides[date_str][emp_id][field]
     else:
-        if len(new_time.split(':')) == 2: new_time += ":00"
+        if len(new_time.split(':')) == 2: new_time += ':00'
+        try:
+            datetime.strptime(new_time,'%H:%M:%S')
+        except ValueError:
+            flash('Invalid time. Use HH:MM or HH:MM:SS.','danger');return redirect(request.referrer or url_for('index'))
         overrides[date_str][emp_id][field] = new_time
 
     save_overrides(overrides)
@@ -2701,6 +3020,31 @@ def update_leave(req_id, action):
 def uploaded_file(filename):
     if not session.get('logged_in'): return redirect(url_for('login'))
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+
+@app.route('/export_last_six_months')
+def export_last_six_months():
+    if session.get('role') not in ['admin','developer'] or not session_has_permission('payroll'):
+        return redirect(url_for('index'))
+    today=datetime.now().date();start_month=today.month-5;start_year=today.year
+    while start_month<=0:start_month+=12;start_year-=1
+    start_date=f'{start_year:04d}-{start_month:02d}-01';end_date=today.strftime('%Y-%m-%d')
+    wb=openpyxl.Workbook();ws=wb.active;ws.title='Six Month Attendance'
+    headers=['Store','Date','Employee ID','Employee Name','Department','Store In','Lunch Out','Lunch In','Out Time','Lunch Duration','Credited Working Hours','Overtime Status','Credited Overtime','Attendance Status']
+    ws.append(headers)
+    for c in ws[1]:c.font=openpyxl.styles.Font(bold=True,color='FFFFFF');c.fill=openpyxl.styles.PatternFill('solid',fgColor='0F172A')
+    stores=get_user_stores() if session.get('role')=='admin' else [x for x in MACHINES if x!='DEV']
+    for st in stores:
+        try:logs,*_=fetch_attendance_data(start_date,end_date,'ALL',st)
+        except Exception as e:
+            ws.append([st,'ERROR','','',str(e)]);continue
+        for x in sorted(logs,key=lambda r:(r.get('date',''),r.get('name',''))):
+            ws.append([st,x.get('date'),x.get('user_id'),x.get('name'),x.get('dept'),x.get('store_in'),x.get('lunch_out'),x.get('lunch_in'),x.get('out_time'),x.get('total_lunch'),x.get('total_hours'),x.get('overtime_status','None'),(f"{int(x.get('overtime_minutes',0))//60}h" if x.get('overtime_status')=='Approved' else '0h'),x.get('status')])
+    ws.freeze_panes='A2';ws.auto_filter.ref=ws.dimensions
+    widths=[12,13,16,30,22,12,12,12,12,16,22,18,18,18]
+    for i,w in enumerate(widths,1):ws.column_dimensions[openpyxl.utils.get_column_letter(i)].width=w
+    summary=wb.create_sheet('Rules & Summary');summary.append(['Export Period',start_date,end_date]);summary.append(['Normal shift with valid lunch','8 hours']);summary.append(['Normal shift without lunch','7 hours']);summary.append(['Overtime qualification','Minimum 45 extra minutes = 1 credited hour']);summary.append(['Access','Admin: assigned stores; Developer: all stores'])
+    out=io.BytesIO();wb.save(out);out.seek(0)
+    return send_file(out,as_attachment=True,download_name=f'Attendance_Last_6_Months_{start_date}_to_{end_date}.xlsx',mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
 @app.route('/export')
 def export_excel():
@@ -2779,7 +3123,7 @@ def export_matrix():
 @app.route('/shutdown')
 def shutdown():
     dev_pass = os.getenv('DEV_PWD', 'Shama@8577')
-    if session.get('role') in ['admin', 'developer'] and request.args.get('pwd') == dev_pass:
+    if session.get('role') == 'developer' and dev_pass and request.args.get('pwd') == dev_pass:
         func = request.environ.get('werkzeug.server.shutdown')
         if func: func()
         else: sys.exit(0)
@@ -2835,6 +3179,600 @@ def view_employee_id(emp_code):
     emp_data.update(EMPLOYEE_IDENTITY_DATA.get(emp_code.upper(), {}))
     return render_template_string(ID_CARD_TEMPLATE, employee=emp_data)
 
+
+
+BUSINESS_PAGE_TEMPLATE='''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{title}}</title><script src="https://cdn.tailwindcss.com"></script><style>th,td{padding:.65rem;text-align:left;vertical-align:top}img{image-orientation:from-image}input,button{min-height:40px}@media(max-width:640px){main{padding:.65rem!important}.wide{min-width:720px}}</style></head><body class="bg-slate-100 text-slate-800"><header class="bg-slate-950 text-white p-4 flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between"><div><h1 class="text-xl font-black">{{icon}} {{title}}</h1><p class="text-xs text-slate-300">{{subtitle}}</p></div><div class="flex gap-2"><a href="/" class="rounded-xl bg-white/10 px-4 py-2 text-sm font-bold">← Dashboard</a></div></header><main class="p-5 space-y-4">{{body|safe}}</main><script id="universal-table-sort">
+(function(){
+  function value(cell,type){const text=(cell?.innerText||'').trim();if(type==='number'){const n=parseFloat(text.replace(/[^0-9.-]/g,''));return Number.isNaN(n)?-Infinity:n;}return text.toLocaleLowerCase();}
+  function enhance(root=document){root.querySelectorAll('table').forEach((table,ti)=>{if(table.dataset.sortReady)return;table.dataset.sortReady='1';const heads=table.querySelectorAll('thead th');heads.forEach((th,ci)=>{if(th.dataset.noSort==='1')return;th.style.cursor='pointer';th.style.userSelect='none';if(!/[↕↑↓]/.test(th.textContent))th.insertAdjacentText('beforeend',' ↕');th.title='Click to sort';th.addEventListener('click',()=>{const tbody=table.tBodies[0];if(!tbody)return;const rows=Array.from(tbody.rows).filter(r=>r.cells.length>ci&&!r.querySelector('[colspan]'));const asc=th.dataset.direction!=='asc';heads.forEach(h=>{h.dataset.direction='';h.textContent=h.textContent.replace(/ [↑↓]$/,' ↕');});th.dataset.direction=asc?'asc':'desc';th.textContent=th.textContent.replace(/ ↕$/,'')+(asc?' ↑':' ↓');const type=th.dataset.sortType||((rows.every(r=>/^[-+]?\d[\d.,]*$/.test((r.cells[ci]?.innerText||'').trim())))?'number':'text');rows.sort((a,b)=>{const av=value(a.cells[ci],type),bv=value(b.cells[ci],type);return (av>bv?1:av<bv?-1:0)*(asc?1:-1);});rows.forEach(r=>tbody.appendChild(r));});});});}
+  window.applyKviFilters=function(){const q=(document.getElementById('kvi-search')?.value||'').trim().toLowerCase();const type=document.getElementById('kvi-type-filter')?.value||'ALL';document.querySelectorAll('.kvi-row').forEach(r=>{let rt=(r.dataset.type||'OTHER').trim().toUpperCase();if(rt.includes('KVI')&&rt.includes('POWER'))rt='KVI+POWER';else if(rt.includes('KVI'))rt='KVI';else if(rt.includes('POWER'))rt='POWER SKU';const typeOk=type==='ALL'||(type==='OTHER'&&!['KVI','KVI+POWER','POWER SKU'].includes(rt))||rt===type;const searchOk=!q||(r.dataset.search||'').includes(q);r.style.display=typeOk&&searchOk?'':'none';});};
+  window.filterKviType=function(type){const sel=document.getElementById('kvi-type-filter');if(sel)sel.value=type;window.applyKviFilters();document.getElementById('kvi-article-table')?.scrollIntoView({behavior:'smooth',block:'start'});};
+  document.addEventListener('DOMContentLoaded',()=>enhance(document));window.enhanceSortableTables=enhance;
+})();
+</script><script>function toggleAllKvi(master){document.querySelectorAll('.kvi-row').forEach(r=>{const cb=r.querySelector('.kvi-select');if(cb&&r.style.display!=='none')cb.checked=master.checked;});}
+function deleteSelectedKvi(){const count=document.querySelectorAll('.kvi-select:checked').length;if(!count){alert('Select at least one article.');return;}if(confirm('Delete '+count+' selected article(s)? This cannot be undone.')){document.getElementById('kvi-delete-action').value='selected';document.getElementById('kvi-delete-form').submit();}}
+function deleteAllKvi(){if(confirm('Delete ALL existing KVI, KVI+Power and Power SKU article data? This cannot be undone.')){document.getElementById('kvi-delete-action').value='all';document.getElementById('kvi-delete-form').submit();}}
+function showSelectedFiles(input,targetId){const box=document.getElementById(targetId);const files=Array.from(input.files||[]);if(!box)return;box.textContent=files.length?files.length+' file(s) selected: '+files.map(f=>f.name).join(', '):'You can select multiple files at once.';}</script></body></html>'''
+
+def business_page(title,icon,subtitle,body):
+    return render_template_string(BUSINESS_PAGE_TEMPLATE,title=title,icon=icon,subtitle=subtitle,body=body)
+
+def _business_docs(path):
+    data=load_json_file(path);return data if isinstance(data,list) else []
+
+def _save_business_docs(path,data):save_json_file(path,data[-1000:])
+
+def _business_upload(meta_file,category):
+    if session.get('role') not in ['admin','developer']:return [],'Only Admin or Developer can upload documents.'
+    files=[f for f in request.files.getlist('document') if f and f.filename]
+    if not files:return [],'Select one or more documents first.'
+    allowed={'.pdf','.xlsx','.xls','.doc','.docx','.png','.jpg','.jpeg','.webp'}
+    bad=[f.filename for f in files if Path(f.filename).suffix.lower() not in allowed]
+    if bad:return [],'Unsupported files: '+', '.join(bad)
+    rows=_business_docs(meta_file);saved=[];common_title=(request.form.get('title') or '').strip();now=datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    for position,f in enumerate(files,1):
+        filename=secure_filename(f'{category}_{datetime.now().strftime("%Y%m%d%H%M%S")}_{uuid.uuid4().hex[:8]}_{f.filename}')
+        f.save(os.path.join(BUSINESS_DOC_FOLDER,filename))
+        file_title=(f'{common_title} - {position}' if common_title and len(files)>1 else (common_title or Path(f.filename).stem))
+        item={'id':uuid.uuid4().hex,'category':category,'filename':filename,'original':f.filename,'title':file_title,'period_id':(request.form.get('period_id') or '').strip(),'uploaded_by':session.get('user_name'),'uploaded_at':now,'batch_size':len(files),'batch_position':position};rows.append(item);saved.append(item)
+    _save_business_docs(meta_file,rows)
+    return saved,''
+
+def _doc_cards(rows):
+    if not rows:
+        return '<div class="rounded-2xl border border-dashed bg-white p-8 text-center text-slate-400">No documents uploaded yet.</div>'
+    image_ext={'.png','.jpg','.jpeg','.webp','.gif'}
+    cards=[]
+    for x in rows:
+        ext=Path(x.get('original','')).suffix.lower()
+        meta='<div class="border-t bg-white px-4 py-3"><b class="block text-sm">{}</b><span class="block text-xs text-slate-500">{}</span><span class="mt-1 block text-[10px] text-slate-400">{} · {}</span></div>'.format(x.get('title','Document'),x.get('original',''),x.get('uploaded_by',''),x.get('uploaded_at',''))
+        if ext in image_ext:
+            cards.append('<article class="overflow-hidden rounded-2xl border bg-white shadow-sm"><a href="/business_file/{}" target="_blank" title="Open full image"><img src="/business_file/{}" loading="lazy" alt="{}" class="block h-auto w-full bg-white object-contain"></a>{}</article>'.format(x['id'],x['id'],x.get('title','Promotion image'),meta))
+        else:
+            cards.append('<a href="/business_file/{}" target="_blank" class="block rounded-2xl border bg-white p-4 shadow-sm hover:border-indigo-400"><b class="block text-sm">Document: {}</b><span class="mt-2 block text-xs text-slate-500">{}</span><span class="mt-2 block text-[10px] text-slate-400">{} · {}</span><span class="mt-3 inline-block rounded-lg bg-slate-900 px-3 py-2 text-xs font-bold text-white">Open Document</span></a>'.format(x['id'],x.get('title','Document'),x.get('original',''),x.get('uploaded_by',''),x.get('uploaded_at','')))
+    return '<div class="mx-auto flex w-full max-w-5xl flex-col gap-5">'+''.join(cards)+'</div>'
+
+@app.route('/duplicate_punches')
+def duplicate_punches_page():
+    if session.get('role') not in ['admin','developer']:return redirect(url_for('index'))
+    rows=load_json_file(DUPLICATE_PUNCHES_FILE)
+    if not isinstance(rows,list):rows=[]
+    if session.get('role')=='admin':rows=[x for x in rows if x.get('store') in get_user_stores()]
+    uid=(request.args.get('uid') or '').strip().upper();date=(request.args.get('date') or '').strip()
+    if uid:rows=[x for x in rows if uid in str(x.get('user_id','')).upper() or uid in str(x.get('name','')).upper()]
+    if date:rows=[x for x in rows if x.get('date')==date]
+    trs=''.join(f"<tr class='border-b'><td>{x.get('date','')}</td><td><b>{x.get('name','')}</b><br>{x.get('user_id','')}</td><td>{x.get('store','')}</td><td>{x.get('kept_time','')}</td><td class='font-bold text-rose-600'>{x.get('duplicate_time','')}</td><td>{x.get('gap_seconds',0)} sec</td><td>{x.get('reason','')}</td></tr>" for x in reversed(rows))
+    body=f'''<form class="grid grid-cols-1 gap-2 rounded-2xl border bg-white p-4 sm:grid-cols-[1fr_1fr_auto]"><input name="uid" value="{uid}" placeholder="Employee name or code" class="rounded-xl border px-3 py-2"><input type="date" name="date" value="{date}" class="rounded-xl border px-3 py-2"><button class="rounded-xl bg-orange-600 px-5 py-2 font-black text-white">Filter</button></form><div class="rounded-xl bg-orange-50 p-3 text-sm text-orange-900">The first punch is retained. Any later punch by the same employee within 60 seconds is stored here and excluded from attendance calculation.</div><div class="overflow-auto rounded-2xl border bg-white"><table class="wide w-full text-sm"><thead class="bg-slate-900 text-white"><tr><th>Date</th><th>Employee</th><th>Store</th><th>Kept Punch</th><th>Duplicate Punch</th><th>Gap</th><th>Reason</th></tr></thead><tbody>{trs or '<tr><td colspan="7" class="p-8 text-center text-slate-400">No duplicate punches found.</td></tr>'}</tbody></table></div>'''
+    return business_page('Duplicate Punches','👆','Automatic one-minute duplicate filtering',body)
+
+@app.route('/app_version')
+def app_version():
+    return {'build':APP_BUILD,'offer_periods':True,'promotion_period_route':'/promotion/period/<period_id>'}
+
+@app.route('/promotion',methods=['GET','POST'])
+def promotion_page():
+    if not session.get('logged_in'):return redirect(url_for('login'))
+    periods=_business_docs(PROMOTION_PERIODS_FILE)
+    rows=_business_docs(PROMOTION_DOCUMENTS_FILE)
+    can_manage=session.get('role') in ['admin','developer']
+    if request.method=='POST':
+        if not can_manage:return 'Only Admin or Developer can manage offers.',403
+        action=request.form.get('action','upload')
+        if action=='create_period':
+            title=(request.form.get('period_title') or '').strip();start_date=request.form.get('start_date','');end_date=request.form.get('end_date','')
+            if not title:flash('Offer period title is required.','danger')
+            else:
+                periods.append({'id':uuid.uuid4().hex,'title':title,'start_date':start_date,'end_date':end_date,'created_by':session.get('user_name'),'created_at':datetime.now().strftime('%Y-%m-%d %H:%M:%S')});_save_business_docs(PROMOTION_PERIODS_FILE,periods);flash('Offer period created.','success')
+            return redirect(url_for('promotion_page'))
+        saved,msg=_business_upload(PROMOTION_DOCUMENTS_FILE,'promotion')
+        if not msg:flash(f'{len(saved)} promotion picture(s) uploaded.','success');return redirect(url_for('promotion_page'))
+        flash(msg,'danger');return redirect(url_for('promotion_page'))
+    # Existing pictures without a period remain accessible under a generated link.
+    unassigned=sum(1 for x in rows if not x.get('period_id'))
+    cards=[]
+    for period in reversed(periods):
+        count=sum(1 for x in rows if x.get('period_id')==period.get('id'))
+        dates=''
+        if period.get('start_date') or period.get('end_date'):dates=f"<span class='block text-xs text-slate-500'>{period.get('start_date','')} → {period.get('end_date','')}</span>"
+        admin=''
+        if can_manage:
+            admin=f'''<div class="mt-3 flex gap-2"><a href="/promotion/period/{period['id']}/edit" class="rounded-lg bg-indigo-600 px-3 py-2 text-xs font-bold text-white">Edit / Upload</a><form method="post" action="/promotion/period/{period['id']}/delete" onsubmit="return confirm('Delete this period and all its pictures?')"><button class="rounded-lg bg-rose-600 px-3 py-2 text-xs font-bold text-white">Delete</button></form></div>'''
+        cards.append(f'''<article class="rounded-2xl border bg-white p-5 shadow-sm"><a href="/promotion/period/{period['id']}" class="block"><span class="text-2xl">🗓️</span><h3 class="mt-2 text-lg font-black text-fuchsia-800">{period.get('title','Offer Period')}</h3>{dates}<span class="mt-3 inline-block rounded-full bg-fuchsia-100 px-3 py-1 text-xs font-bold text-fuchsia-700">{count} picture(s)</span></a>{admin}</article>''')
+    if unassigned:
+        cards.append(f'''<article class="rounded-2xl border bg-white p-5 shadow-sm"><a href="/promotion/period/unassigned" class="block"><span class="text-2xl">🖼️</span><h3 class="mt-2 text-lg font-black text-slate-800">Previous / Unassigned Offers</h3><span class="mt-3 inline-block rounded-full bg-slate-100 px-3 py-1 text-xs font-bold">{unassigned} picture(s)</span></a></article>''')
+    admin_panel=''
+    if can_manage:
+        options=''.join(f"<option value='{x['id']}'>{x.get('title','Offer Period')}</option>" for x in periods)
+        admin_panel=f'''<div class="grid grid-cols-1 gap-4 xl:grid-cols-2"><form method="post" class="rounded-2xl border bg-white p-4"><input type="hidden" name="action" value="create_period"><h2 class="mb-3 font-black">Create Offer Period Link</h2><input name="period_title" placeholder="Example: Weekend Offer 10–15 October" required class="mb-2 w-full rounded-xl border px-3 py-2"><div class="grid grid-cols-2 gap-2"><input type="date" name="start_date" class="rounded-xl border px-3 py-2"><input type="date" name="end_date" class="rounded-xl border px-3 py-2"></div><button class="mt-3 w-full rounded-xl bg-fuchsia-600 py-2 font-black text-white">Create Offer Period</button></form><form method="post" enctype="multipart/form-data" class="rounded-2xl border bg-white p-4"><input type="hidden" name="action" value="upload"><h2 class="mb-3 font-black">Upload Pictures to Offer Period</h2><select name="period_id" required class="mb-2 w-full rounded-xl border px-3 py-2"><option value="">Select offer period</option>{options}</select><input name="title" placeholder="Picture title (optional)" class="mb-2 w-full rounded-xl border px-3 py-2"><input type="file" name="document" multiple accept=".jpg,.jpeg,.png,.webp,.gif" required class="w-full rounded-xl border p-2 text-xs"><button class="mt-3 w-full rounded-xl bg-indigo-600 py-2 font-black text-white">Upload Pictures</button></form></div>'''
+    directory='<div class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">'+(''.join(cards) if cards else '<div class="col-span-full rounded-2xl border border-dashed bg-white p-8 text-center text-slate-400">No offer period created yet.</div>')+'</div>'
+    body='<div class="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-fuchsia-50 p-3 text-sm text-fuchsia-900"><span>Employees can open an offer period link and view pictures only. Admin and Developer can create, edit, upload and delete.</span><span class="rounded-full bg-fuchsia-200 px-3 py-1 text-[10px] font-black">OFFER PERIODS V2</span></div>'+admin_panel+'<section><h2 class="mb-3 font-black">Offer Period Links</h2>'+directory+'</section>'
+    return business_page('Promotion','📣','Offer periods and promotion pictures',body)
+
+@app.route('/promotion/period/<period_id>')
+def promotion_period_view(period_id):
+    if not session.get('logged_in'):return redirect(url_for('login'))
+    periods=_business_docs(PROMOTION_PERIODS_FILE);rows=_business_docs(PROMOTION_DOCUMENTS_FILE)
+    if period_id=='unassigned':title='Previous / Unassigned Offers';pictures=[x for x in rows if not x.get('period_id')]
+    else:
+        period=next((x for x in periods if x.get('id')==period_id),None)
+        if not period:return 'Offer period not found',404
+        title=period.get('title','Offer Period');pictures=[x for x in rows if x.get('period_id')==period_id]
+    image_ext={'.jpg','.jpeg','.png','.webp','.gif'}
+    images=[]
+    for x in pictures:
+        if Path(x.get('original','')).suffix.lower() in image_ext:
+            images.append(f'''<a href="/business_file/{x['id']}" target="_blank" class="block overflow-hidden rounded-2xl bg-white shadow"><img src="/business_file/{x['id']}" class="h-auto w-full object-contain" loading="lazy" alt="Offer picture"></a>''')
+    admin_link=''
+    if session.get('role') in ['admin','developer'] and period_id!='unassigned':admin_link=f'<a href="/promotion/period/{period_id}/edit" class="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-bold text-white">Edit Offer Period</a>'
+    body=f'''<div class="flex justify-end">{admin_link}</div><div class="mx-auto flex w-full max-w-5xl flex-col gap-5">{''.join(images) if images else '<div class="rounded-2xl border border-dashed bg-white p-10 text-center text-slate-400">No pictures available in this offer period.</div>'}</div>'''
+    return business_page(title,'🖼️','Promotion pictures',body)
+
+@app.route('/promotion/period/<period_id>/edit',methods=['GET','POST'])
+def promotion_period_edit(period_id):
+    if session.get('role') not in ['admin','developer']:return redirect(url_for('promotion_period_view',period_id=period_id))
+    periods=_business_docs(PROMOTION_PERIODS_FILE);period=next((x for x in periods if x.get('id')==period_id),None)
+    if not period:return 'Offer period not found',404
+    if request.method=='POST':
+        action=request.form.get('action','update')
+        if action=='update':
+            period['title']=(request.form.get('period_title') or period.get('title')).strip();period['start_date']=request.form.get('start_date','');period['end_date']=request.form.get('end_date','');_save_business_docs(PROMOTION_PERIODS_FILE,periods);flash('Offer period updated.','success')
+        elif action=='upload':
+            saved,msg=_business_upload(PROMOTION_DOCUMENTS_FILE,'promotion')
+            if msg:flash(msg,'danger')
+            else:flash(f'{len(saved)} picture(s) uploaded.','success')
+        return redirect(url_for('promotion_period_edit',period_id=period_id))
+    pictures=[x for x in _business_docs(PROMOTION_DOCUMENTS_FILE) if x.get('period_id')==period_id]
+    pic_cards=''.join(f'''<article class="overflow-hidden rounded-xl border bg-white"><img src="/business_file/{x['id']}" class="h-52 w-full object-contain"><div class="p-3"><b class="text-xs">{x.get('title','Picture')}</b><form method="post" action="/promotion/picture/{x['id']}/delete" onsubmit="return confirm('Delete this picture?')"><input type="hidden" name="period_id" value="{period_id}"><button class="mt-2 rounded-lg bg-rose-600 px-3 py-2 text-xs font-bold text-white">Delete Picture</button></form></div></article>''' for x in pictures)
+    body=f'''<div class="grid grid-cols-1 gap-4 lg:grid-cols-2"><form method="post" class="rounded-2xl border bg-white p-4"><input type="hidden" name="action" value="update"><h2 class="mb-3 font-black">Edit Offer Period</h2><input name="period_title" value="{period.get('title','')}" required class="mb-2 w-full rounded-xl border px-3 py-2"><div class="grid grid-cols-2 gap-2"><input type="date" name="start_date" value="{period.get('start_date','')}" class="rounded-xl border px-3 py-2"><input type="date" name="end_date" value="{period.get('end_date','')}" class="rounded-xl border px-3 py-2"></div><button class="mt-3 w-full rounded-xl bg-indigo-600 py-2 font-black text-white">Save Changes</button></form><form method="post" enctype="multipart/form-data" class="rounded-2xl border bg-white p-4"><input type="hidden" name="action" value="upload"><input type="hidden" name="period_id" value="{period_id}"><h2 class="mb-3 font-black">Upload More Pictures</h2><input name="title" placeholder="Picture title (optional)" class="mb-2 w-full rounded-xl border px-3 py-2"><input type="file" name="document" multiple accept=".jpg,.jpeg,.png,.webp,.gif" required class="w-full rounded-xl border p-2 text-xs"><button class="mt-3 w-full rounded-xl bg-fuchsia-600 py-2 font-black text-white">Upload Pictures</button></form></div><section><h2 class="mb-3 font-black">Manage Pictures</h2><div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">{pic_cards or '<div class="col-span-full rounded-xl border border-dashed bg-white p-8 text-center text-slate-400">No pictures uploaded.</div>'}</div></section>'''
+    return business_page('Edit: '+period.get('title','Offer Period'),'✏️','Admin promotion management',body)
+
+@app.route('/promotion/picture/<picture_id>/delete',methods=['POST'])
+def promotion_picture_delete(picture_id):
+    if session.get('role') not in ['admin','developer']:return 'Unauthorized',403
+    rows=_business_docs(PROMOTION_DOCUMENTS_FILE);target=next((x for x in rows if x.get('id')==picture_id),None);period_id=request.form.get('period_id','')
+    if target:
+        path=os.path.join(BUSINESS_DOC_FOLDER,target.get('filename',''))
+        if os.path.isfile(path):
+            try:os.remove(path)
+            except OSError:pass
+        rows=[x for x in rows if x.get('id')!=picture_id];_save_business_docs(PROMOTION_DOCUMENTS_FILE,rows);flash('Picture deleted.','success')
+    return redirect(url_for('promotion_period_edit',period_id=period_id))
+
+@app.route('/promotion/period/<period_id>/delete',methods=['POST'])
+def promotion_period_delete(period_id):
+    if session.get('role') not in ['admin','developer']:return 'Unauthorized',403
+    periods=[x for x in _business_docs(PROMOTION_PERIODS_FILE) if x.get('id')!=period_id];rows=_business_docs(PROMOTION_DOCUMENTS_FILE)
+    for x in [a for a in rows if a.get('period_id')==period_id]:
+        path=os.path.join(BUSINESS_DOC_FOLDER,x.get('filename',''))
+        if os.path.isfile(path):
+            try:os.remove(path)
+            except OSError:pass
+    rows=[x for x in rows if x.get('period_id')!=period_id];_save_business_docs(PROMOTION_PERIODS_FILE,periods);_save_business_docs(PROMOTION_DOCUMENTS_FILE,rows);flash('Offer period and pictures deleted.','success')
+    return redirect(url_for('promotion_page'))
+
+
+def _normalize_article_type(value):
+    raw=str(value or '').strip().upper()
+    t=' '.join(raw.replace('_',' ').replace('-',' ').replace('+',' ').split())
+    has_kvi='KVI' in t
+    has_power='POWER' in t
+    if has_kvi and has_power:return 'KVI+POWER'
+    if has_kvi:return 'KVI'
+    if has_power:return 'POWER SKU'
+    return t or 'OTHER'
+
+def _read_kvi_excel(path):
+    wb=openpyxl.load_workbook(path,data_only=True,read_only=True);ws=wb.active
+    rows=list(ws.iter_rows(values_only=True))
+    if not rows:return []
+    header_index=0
+    for i,row in enumerate(rows[:15]):
+        text=' '.join(str(x or '').lower() for x in row)
+        if 'article' in text and ('code' in text or 'name' in text):header_index=i;break
+    header=[str(x or '').strip().lower() for x in rows[header_index]]
+    def col(words,fallback):
+        for i,h in enumerate(header):
+            if any(w in h for w in words):return i
+        return fallback
+    type_i=col(['article type','type','tipo'],0);code_i=col(['article code','code','codigo','código'],1);name_i=col(['article name','name','description','nome'],2)
+    data=[]
+    for row in rows[header_index+1:]:
+        vals=list(row)
+        if not any(v not in [None,''] for v in vals):continue
+        typ=_normalize_article_type(vals[type_i] if type_i<len(vals) else '')
+        code=str(vals[code_i] if code_i<len(vals) and vals[code_i] is not None else '').strip()
+        name=str(vals[name_i] if name_i<len(vals) and vals[name_i] is not None else '').strip()
+        if not code and not name:continue
+        data.append({'id':uuid.uuid4().hex,'article_type':typ,'article_code':code,'article_name':name})
+    return data
+
+@app.route('/kvi_power_sku/delete',methods=['POST'])
+def delete_kvi_articles():
+    if session.get('role') not in ['admin','developer']:
+        return 'Only Admin or Developer can delete KVI data.',403
+    payload=load_json_file(KVI_POWER_DATA_FILE)
+    if not isinstance(payload,dict):payload={'items':[]}
+    items=payload.get('items',[]) if isinstance(payload.get('items',[]),list) else []
+    action=request.form.get('action','selected')
+    if action=='all':
+        deleted=len(items);payload['items']=[]
+    else:
+        selected=set(request.form.getlist('article_ids'))
+        if not selected:
+            flash('Select at least one article to delete.','danger');return redirect(url_for('kvi_power_page'))
+        before=len(items);payload['items']=[x for x in items if x.get('id') not in selected];deleted=before-len(payload['items'])
+    payload['updated_at']=datetime.now().strftime('%Y-%m-%d %H:%M:%S');payload['updated_by']=session.get('user_name')
+    save_json_file(KVI_POWER_DATA_FILE,payload)
+    flash(f'{deleted} article(s) deleted successfully.','success')
+    return redirect(url_for('kvi_power_page'))
+
+@app.route('/kvi_power_sku',methods=['GET','POST'])
+def kvi_power_page():
+    if not session.get('logged_in'):return redirect(url_for('login'))
+    msg=''
+    if request.method=='POST':
+        if session.get('role') not in ['admin','developer']:return 'Only Admin or Developer can upload.',403
+        action=request.form.get('action','document')
+        if action=='excel':
+            f=request.files.get('excel')
+            if not f or not f.filename.lower().endswith('.xlsx'):msg='Upload an XLSX file.'
+            else:
+                fn=secure_filename(f'kvi_power_{datetime.now().strftime("%Y%m%d%H%M%S")}_{f.filename}');path=os.path.join(BUSINESS_DOC_FOLDER,fn);f.save(path)
+                try:
+                    data=_read_kvi_excel(path);save_json_file(KVI_POWER_DATA_FILE,{'uploaded_at':datetime.now().strftime('%Y-%m-%d %H:%M:%S'),'uploaded_by':session.get('user_name'),'source_file':f.filename,'items':data});flash(f'{len(data)} articles imported from Excel.','success');return redirect(url_for('kvi_power_page'))
+                except Exception as e:msg=f'Excel import failed: {e}'
+        else:
+            saved,msg=_business_upload(KVI_POWER_DOCUMENTS_FILE,'kvi_power')
+            if not msg:flash(f'{len(saved)} KVI + Power SKU document(s) uploaded.','success');return redirect(url_for('kvi_power_page'))
+    payload=load_json_file(KVI_POWER_DATA_FILE);items=payload.get('items',[]) if isinstance(payload,dict) else []
+    # Upgrade old saved values (for example KVI-ART) in memory and persist canonical categories.
+    changed=False
+    for item in items:
+        if not item.get('id'):
+            item['id']=uuid.uuid4().hex;changed=True
+        canonical=_normalize_article_type(item.get('article_type'))
+        if item.get('article_type')!=canonical:
+            item['article_type']=canonical;changed=True
+    if changed and isinstance(payload,dict):
+        payload['items']=items;save_json_file(KVI_POWER_DATA_FILE,payload)
+    total=len(items)
+    kvi_only=sum(1 for x in items if x.get('article_type')=='KVI')
+    kvi_power=sum(1 for x in items if x.get('article_type')=='KVI+POWER')
+    power=sum(1 for x in items if x.get('article_type')=='POWER SKU')
+    summary=f'''<div class="grid grid-cols-2 gap-3 lg:grid-cols-4"><button type="button" onclick="filterKviType('ALL')" class="rounded-2xl bg-slate-900 p-5 text-left text-white"><span class="text-xs">Total Articles</span><b class="block text-3xl">{total}</b></button><button type="button" onclick="filterKviType('KVI')" class="rounded-2xl bg-emerald-600 p-5 text-left text-white"><span class="text-xs">KVI</span><b class="block text-3xl">{kvi_only}</b></button><button type="button" onclick="filterKviType('KVI+POWER')" class="rounded-2xl bg-violet-600 p-5 text-left text-white"><span class="text-xs">KVI + Power</span><b class="block text-3xl">{kvi_power}</b></button><button type="button" onclick="filterKviType('POWER SKU')" class="rounded-2xl bg-amber-500 p-5 text-left text-white"><span class="text-xs">Power SKU</span><b class="block text-3xl">{power}</b></button></div>'''
+    upload=''
+    if session.get('role') in ['admin','developer']:
+        upload='''<div class="grid grid-cols-1 gap-3 lg:grid-cols-2"><form method="post" enctype="multipart/form-data" class="rounded-2xl border bg-white p-4"><input type="hidden" name="action" value="excel"><h3 class="mb-2 font-black">Import Article Excel</h3><p class="mb-3 text-xs text-slate-500">Expected columns: Article Type, Article Code, Article Name</p><input type="file" name="excel" accept=".xlsx" required class="w-full rounded-xl border p-2 text-xs"><button class="mt-3 w-full rounded-xl bg-amber-500 py-2 font-black">Upload & Import Excel</button></form><form method="post" enctype="multipart/form-data" class="rounded-2xl border bg-white p-4"><input type="hidden" name="action" value="document"><h3 class="mb-2 font-black">Upload Supporting Document</h3><input name="title" placeholder="Document title" class="mb-2 w-full rounded-xl border px-3 py-2"><input type="file" name="document" multiple required onchange="showSelectedFiles(this,'kvi-support-file-list')" class="w-full rounded-xl border p-2 text-xs"><p id="kvi-support-file-list" class="mt-1 text-[10px] text-slate-500">You can select multiple files at once.</p><button class="mt-3 w-full rounded-xl bg-indigo-600 py-2 font-black text-white">Upload Document</button></form></div>'''
+    can_delete=session.get('role') in ['admin','developer']
+    row_parts=[]
+    for x in items:
+        checkbox=''
+        if can_delete:
+            checkbox='<td><input class="kvi-select" type="checkbox" name="article_ids" value="{}"></td>'.format(x.get('id',''))
+        row_parts.append("<tr class='kvi-row border-b' data-type='{}' data-search='{} {} {}'>{}<td>{}</td><td class='font-mono'>{}</td><td>{}</td></tr>".format(x.get('article_type',''),str(x.get('article_type','')).lower(),str(x.get('article_code','')).lower(),str(x.get('article_name','')).lower(),checkbox,x.get('article_type',''),x.get('article_code',''),x.get('article_name','')))
+    trs=''.join(row_parts)
+    controls='''<div class="grid grid-cols-1 gap-2 rounded-2xl border bg-white p-3 sm:grid-cols-2"><input id="kvi-search" oninput="applyKviFilters()" placeholder="Search article code or name" class="rounded-xl border px-3 py-2 text-sm"><select id="kvi-type-filter" onchange="applyKviFilters()" class="rounded-xl border px-3 py-2 text-sm"><option value="ALL">All Article Types</option><option value="KVI">KVI</option><option value="KVI+POWER">KVI + Power</option><option value="POWER SKU">Power SKU</option><option value="OTHER">Other</option></select><div id="kvi-filter-count" class="sm:col-span-2 text-xs font-bold text-slate-500"></div></div>'''
+    delete_toolbar=''
+    select_header=''
+    empty_colspan=3
+    if can_delete:
+        empty_colspan=4
+        select_header='<th data-no-sort="1"><input type="checkbox" onchange="toggleAllKvi(this)" title="Select all visible rows"></th>'
+        delete_toolbar='''<div class="flex flex-wrap gap-2 rounded-2xl border border-rose-200 bg-rose-50 p-3"><button type="button" onclick="deleteSelectedKvi()" class="rounded-xl bg-rose-600 px-4 py-2 text-xs font-black text-white">Delete Selected</button><button type="button" onclick="deleteAllKvi()" class="rounded-xl border border-rose-300 bg-white px-4 py-2 text-xs font-black text-rose-700">Delete All Existing Data</button><span class="self-center text-xs text-rose-700">Deletion is permanent.</span></div>'''
+    table=f'''{controls}<form id="kvi-delete-form" method="post" action="/kvi_power_sku/delete">{delete_toolbar}<input type="hidden" id="kvi-delete-action" name="action" value="selected"><div class="overflow-auto rounded-2xl border bg-white"><table id="kvi-article-table" class="wide sortable-table w-full text-sm"><thead class="bg-slate-900 text-white"><tr>{select_header}<th data-sort-type="text">Article Type ↕</th><th data-sort-type="number">Article Code ↕</th><th data-sort-type="text">Article Name ↕</th></tr></thead><tbody>{trs or f'<tr><td colspan="{empty_colspan}" class="p-8 text-center text-slate-400">No Excel data imported yet.</td></tr>'}</tbody></table></div></form>'''
+    docs=_doc_cards(_business_docs(KVI_POWER_DOCUMENTS_FILE))
+    meta=f"<p class='text-xs text-slate-500'>Last Excel: {payload.get('source_file','-') if isinstance(payload,dict) else '-'} · {payload.get('uploaded_at','-') if isinstance(payload,dict) else '-'}</p>"
+    body=(summary+meta+(f'<p class="text-rose-600">{msg}</p>' if msg else '')+upload+'<section><h2 class="mb-3 font-black">Article Data</h2>'+table+'</section><section><h2 class="mb-3 font-black">Supporting Documents</h2>'+docs+'</section>')
+    return business_page('KVI + Power SKU','⚡','Live article summary shared with every employee',body)
+
+@app.route('/business_file/<did>')
+def business_file(did):
+    if not session.get('logged_in'):return redirect(url_for('login'))
+    rows=_business_docs(PROMOTION_DOCUMENTS_FILE)+_business_docs(KVI_POWER_DOCUMENTS_FILE);x=next((a for a in rows if a.get('id')==did),None)
+    if not x:return 'Document not found',404
+    return send_from_directory(BUSINESS_DOC_FOLDER,x['filename'],as_attachment=False,download_name=x.get('original',x['filename']))
+
+# === WORKFORCE AUTOMATION SUITE ===
+def suite_load(path, default):
+    data=load_json_file(path)
+    return data if isinstance(data,type(default)) else default
+
+def suite_save(path, data):
+    save_json_file(path,data)
+
+def suite_allowed_stores():
+    return [x for x in get_user_stores() if x!='DEV']
+
+def suite_store_allowed(store):
+    return session.get('role')=='developer' or store in suite_allowed_stores()
+
+def suite_audit(action, target='', old='', new='', store=''):
+    rows=suite_load(AUDIT_LOG_FILE,[])
+    rows.append({'id':uuid.uuid4().hex,'time':datetime.now().strftime('%Y-%m-%d %H:%M:%S'),'user_id':session.get('user_id','SYSTEM'),'user_name':session.get('user_name','SYSTEM'),'role':session.get('role','system'),'store':store or session.get('store',''),'action':action,'target':target,'old':str(old),'new':str(new),'ip':request.remote_addr or ''})
+    suite_save(AUDIT_LOG_FILE,rows[-5000:])
+
+def suite_notify(user_id, title, message, store=''):
+    rows=suite_load(NOTIFICATIONS_FILE,[])
+    rows.append({'id':uuid.uuid4().hex,'user_id':user_id,'title':title,'message':message,'store':store,'created_at':datetime.now().strftime('%Y-%m-%d %H:%M:%S'),'read':False})
+    suite_save(NOTIFICATIONS_FILE,rows[-5000:])
+
+def suite_employee_store(info):
+    return (info.get('store') or (info.get('stores') or [''])[0]).upper()
+
+def suite_leave_balance(uid):
+    balances=suite_load(LEAVE_BALANCES_FILE,{})
+    base=balances.get(uid,{'annual':18,'used':0,'pending':0})
+    base['available']=max(0,int(base.get('annual',18))-int(base.get('used',0))-int(base.get('pending',0)))
+    return base
+
+WORKFORCE_HUB_TEMPLATE='''
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Workforce Automation Hub</title><script src="https://cdn.tailwindcss.com"></script></head>
+<body class="bg-slate-100 text-slate-800" data-language="{{ ui_language }}"><header class="bg-slate-950 text-white px-3 sm:px-6 py-4 flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between"><div><h1 class="font-black text-xl">⚙️ Workforce Automation Hub</h1><p class="text-xs text-slate-300">Multi-store operations, compliance and employee self-service</p></div><div class="flex gap-2 flex-wrap"><select onchange="location.href='/set_language/'+this.value" class="text-slate-900 text-xs p-2 rounded"><option value="en" {% if ui_language=='en' %}selected{% endif %}>English</option><option value="pt" {% if ui_language=='pt' %}selected{% endif %}>Português</option></select><a href="/" class="bg-white/10 px-4 py-2 rounded-xl text-sm font-bold">← Dashboard</a></div></header>
+<main class="p-5 space-y-5">
+<div class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-3">{% for x in cards %}<div class="bg-white rounded-2xl p-4 border shadow-sm"><div class="text-[10px] uppercase text-slate-500 font-bold">{{x.label}}</div><div class="text-2xl font-black mt-1 {{x.color}}">{{x.value}}</div></div>{% endfor %}</div>
+<section class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+<div class="bg-white rounded-2xl p-4 border"><div class="flex justify-between mb-3"><h2 class="font-black">🏬 Store Comparison</h2><span class="text-xs text-slate-500">{{today}}</span></div><div class="overflow-auto"><table class="w-full text-xs"><thead class="bg-slate-100"><tr><th class="p-2 text-left">Store</th><th>Machine</th><th>Present</th><th>Absent</th><th>Off</th><th>Late</th></tr></thead><tbody>{% for x in store_rows %}<tr class="border-b"><td class="p-2 font-black">{{x.store}}</td><td class="text-center">{{'Online' if x.online else 'Offline'}}</td><td class="text-center text-emerald-600 font-bold">{{x.present}}</td><td class="text-center text-rose-600 font-bold">{{x.absent}}</td><td class="text-center">{{x.off}}</td><td class="text-center text-amber-600">{{x.late}}</td></tr>{% endfor %}</tbody></table></div></div>
+<div class="bg-white rounded-2xl p-4 border"><h2 class="font-black mb-3">🚨 Contract Alerts</h2><div class="max-h-60 overflow-auto space-y-2">{% for x in contract_alerts %}<div class="border rounded-xl p-3 text-xs flex justify-between"><div><b>{{x.name}}</b><br><span class="text-slate-500">{{x.uid}} · {{x.store}}</span></div><div class="text-right"><b>{{x.date}}</b><br><span class="{{x.color}}">{{x.label}}</span></div></div>{% else %}<p class="text-sm text-slate-400">No contract alerts.</p>{% endfor %}</div></div>
+</section>
+<section class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+{% for tool in tools %}<a href="{{tool.url}}" class="bg-white border rounded-2xl p-5 hover:border-cyan-400 hover:shadow-md transition"><div class="text-2xl">{{tool.icon}}</div><h3 class="font-black mt-2">{{tool.title}}</h3><p class="text-xs text-slate-500 mt-1">{{tool.desc}}</p></a>{% endfor %}
+</section></main>
+<script id="universal-table-sort">
+(function(){
+  function value(cell,type){const text=(cell?.innerText||'').trim();if(type==='number'){const n=parseFloat(text.replace(/[^0-9.-]/g,''));return Number.isNaN(n)?-Infinity:n;}return text.toLocaleLowerCase();}
+  function enhance(root=document){root.querySelectorAll('table').forEach((table,ti)=>{if(table.dataset.sortReady)return;table.dataset.sortReady='1';const heads=table.querySelectorAll('thead th');heads.forEach((th,ci)=>{if(th.dataset.noSort==='1')return;th.style.cursor='pointer';th.style.userSelect='none';if(!/[↕↑↓]/.test(th.textContent))th.insertAdjacentText('beforeend',' ↕');th.title='Click to sort';th.addEventListener('click',()=>{const tbody=table.tBodies[0];if(!tbody)return;const rows=Array.from(tbody.rows).filter(r=>r.cells.length>ci&&!r.querySelector('[colspan]'));const asc=th.dataset.direction!=='asc';heads.forEach(h=>{h.dataset.direction='';h.textContent=h.textContent.replace(/ [↑↓]$/,' ↕');});th.dataset.direction=asc?'asc':'desc';th.textContent=th.textContent.replace(/ ↕$/,'')+(asc?' ↑':' ↓');const type=th.dataset.sortType||((rows.every(r=>/^[-+]?\d[\d.,]*$/.test((r.cells[ci]?.innerText||'').trim())))?'number':'text');rows.sort((a,b)=>{const av=value(a.cells[ci],type),bv=value(b.cells[ci],type);return (av>bv?1:av<bv?-1:0)*(asc?1:-1);});rows.forEach(r=>tbody.appendChild(r));});});});}
+  window.applyKviFilters=function(){const q=(document.getElementById('kvi-search')?.value||'').trim().toLowerCase();const type=document.getElementById('kvi-type-filter')?.value||'ALL';document.querySelectorAll('.kvi-row').forEach(r=>{let rt=(r.dataset.type||'OTHER').trim().toUpperCase();if(rt.includes('KVI')&&rt.includes('POWER'))rt='KVI+POWER';else if(rt.includes('KVI'))rt='KVI';else if(rt.includes('POWER'))rt='POWER SKU';const typeOk=type==='ALL'||(type==='OTHER'&&!['KVI','KVI+POWER','POWER SKU'].includes(rt))||rt===type;const searchOk=!q||(r.dataset.search||'').includes(q);r.style.display=typeOk&&searchOk?'':'none';});};
+  window.filterKviType=function(type){const sel=document.getElementById('kvi-type-filter');if(sel)sel.value=type;window.applyKviFilters();document.getElementById('kvi-article-table')?.scrollIntoView({behavior:'smooth',block:'start'});};
+  document.addEventListener('DOMContentLoaded',()=>enhance(document));window.enhanceSortableTables=enhance;
+})();
+</script>
+<script>
+window.HRMS_LANGUAGE={{ ui_language|tojson }};
+window.HRMS_PT={'Correction Rejected':'Correcção Rejeitada','Correction Approved':'Correcção Aprovada','Correction Request':'Pedido de Correcção','New Document':'Novo Documento','was Rejected':'foi rejeitada','was Approved':'foi aprovada','Your correction':'A sua correcção','Your roster':'A sua escala','Month select karke Load Month click karein':'Seleccione o mês e clique em Carregar Mês','Employee-wise Shift A, Shift B and Weekly Off allocation':'Alocação por trabalhador de Turno A, Turno B e Folga Semanal','Public Holiday':'Feriado Público','Half Day':'Meio Dia','Full Day':'Dia Completo','Full Month':'Mês Completo','Clear All':'Limpar Tudo','Select All':'Seleccionar Tudo','Uploaded By':'Carregado por','Updated By':'Actualizado por','Created On':'Criado em','Created By':'Criado por','Records':'Registos','Record':'Registo','Summary':'Resumo','Details':'Detalhes','Code':'Código','Address':'Endereço','Phone':'Telefone','Email':'E-mail','Photo':'Fotografia','Store Access':'Acesso à Loja','Apply Selected':'Aplicar Seleccionados','Copy Previous Month':'Copiar Mês Anterior','Copy Previous Week':'Copiar Semana Anterior','Monthly roster saved':'Escala mensal guardada','Kam se kam ek option select karein.':'Seleccione pelo menos uma opção.','Month select karein':'Seleccione o mês','Galat User ID ya Password!':'ID do utilizador ou palavra-passe incorrectos!','Sirf PDF files allowed hain!':'Apenas ficheiros PDF são permitidos!','Sabhi fields bharna zaroori hai!':'Todos os campos são obrigatórios!','This roster shows only your shifts and weekly-off dates for the current month.':'Esta escala mostra apenas os seus turnos e folgas semanais do mês actual.','Overtime Minutes':'Minutos de Horas Extra','Submit Overtime':'Enviar Horas Extra','Email - requires SMTP':'E-mail - requer SMTP','Internal Notification':'Notificação Interna','Download Center':'Centro de Transferências','Monthly':'Mensal','Weekly':'Semanal','Daily':'Diário','Delivery':'Entrega','Frequency':'Frequência','File':'Ficheiro','Uploaded At':'Carregado em','Created':'Criado','To':'Para','From':'De','Effective':'Efectivo','Estimate':'Estimativa','Employer':'Empregador','Gross':'Bruto','Configurable estimate using 2026 settings. Validate payroll categories, taxable base and exemptions before finalisation.':'Estimativa configurável com definições de 2026. Valide as categorias salariais, a base tributável e as isenções antes da finalização.','Identification masking':'Ocultação da Identificação','Document access log':'Registo de Acesso a Documentos','Access audit':'Auditoria de Acesso','Last backups':'Últimas Cópias de Segurança','Number of Users':'Número de Utilizadores','Application Version':'Versão da Aplicação','retry required':'nova tentativa necessária','Last saved attendance remains available':'A última assiduidade guardada continua disponível','Queue State':'Estado da Fila','Level':'Nível','Late Count':'Número de Atrasos','Rolling 30-day view.':'Vista móvel de 30 dias.','roster cells copied':'células de escala copiadas','assignments saved':'alocações guardadas','Copy failed':'Falha ao copiar','Save Lifecycle Event':'Guardar Evento do Ciclo de Vida','Employee Lifecycle':'Ciclo de Vida do Trabalhador','New Records':'Novos Registos','Records Received':'Registos Recebidos','Machine Status':'Estado do Equipamento','Store Code':'Código da Loja','Payroll, holidays, lifecycle, overtime, backups and privacy controls.':'Salários, feriados, ciclo de vida, horas extra, cópias de segurança e controlos de privacidade.','Privacy-safe QR verification cards.':'Cartões QR de verificação com protecção de privacidade.','Internal leave, shift, payroll and contract notices.':'Avisos internos de ausências, turnos, salários e contratos.','Track user, store, action, IP and changes.':'Acompanhar utilizador, loja, acção, IP e alterações.','Minimum staffing rules and shortage warnings.':'Regras de dotação mínima e avisos de falta de pessoal.','Copy week or month schedules.':'Copiar escalas semanais ou mensais.','Contracts, IDs and certificates.':'Contratos, documentos de identificação e certificados.','Annual, used, pending and available balances.':'Saldos anuais, usados, pendentes e disponíveis.','Approve missing-punch correction requests.':'Aprovar pedidos de correcção de marcações em falta.','Machine status, manual checks and sync history.':'Estado dos equipamentos, verificações manuais e histórico de sincronização.','Combined attendance with store code and Excel export.':'Assiduidade combinada com código da loja e exportação Excel.','Multi-store operations, compliance and employee self-service':'Operações multi-loja, conformidade e auto-serviço do trabalhador','No contract alerts.':'Sem alertas de contrato.','Audit Events':'Eventos de Auditoria','Contracts':'Contratos','Corrections':'Correcções','Machine':'Equipamento','Store Comparison':'Comparação de Lojas','Monthly Summary':'Resumo Mensal','Default Schedule':'Horário Padrão','All Allocations':'Todas as Alocações','Designations Selected':'Funções Seleccionadas','All Designations Selected':'Todas as Funções Seleccionadas','Same Weekday for Full Month':'Mesmo Dia da Semana durante Todo o Mês','Monday-Sunday':'Segunda a Domingo','Last Week':'Última Semana','5th Week':'5.ª Semana','4th Week':'4.ª Semana','3rd Week':'3.ª Semana','2nd Week':'2.ª Semana','1st Week':'1.ª Semana','All Weeks (Monday-Sunday)':'Todas as Semanas (Segunda a Domingo)','Not in this month':'Não existe neste mês','options selected':'opções seleccionadas','option selected':'opção seleccionada','Apply to selected date':'Aplicar à data seleccionada','Month & Year':'Mês e Ano','load month':'carregar mês','Select Month':'Seleccionar Mês','No shift requests':'Sem pedidos de turno','Current Assignment':'Alocação Actual','Requested':'Solicitado','Shift Request':'Pedido de Turno','Request Shift / Off':'Pedir Turno / Folga','Select Employee':'Seleccionar Trabalhador','Bulk Upload':'Carregamento em Massa','Standard Row':'Linha Padrão','Monthly grid':'Grelha mensal','Master':'Principal','Individual Slip':'Recibo Individual','Split':'Separar','All Personnel':'Todo o Pessoal','No requests':'Sem pedidos','Minutes':'Minutos','ALL':'TODOS','Change':'Alteração','Emp':'Trab.','Remove Photo':'Remover Fotografia','STORE ACCESS':'ACESSO À LOJA','Create login and employee profile':'Criar início de sessão e perfil do trabalhador','No employees found.':'Nenhum trabalhador encontrado.','Select Designation':'Seleccionar Função','Add Employee':'Adicionar Trabalhador','Search, review and maintain workforce profiles':'Pesquisar, rever e manter perfis dos trabalhadores','Open Roster Planner':'Abrir Planeador de Escala','Use Roster Planner to assign shifts and weekly-off rotations.':'Utilize o Planeador de Escala para atribuir turnos e rotações de folga semanal.','Rota Rotation and Shift Schedules are integrated with the':'A rotação da escala e os horários de turno estão integrados com o','No salary slips uploaded yet.':'Ainda não foram carregados recibos de salário.','View':'Ver','PDF File':'Ficheiro PDF','-- Select Employee --':'-- Seleccionar Trabalhador --','Individual Slip Upload':'Carregar Recibo Individual','Split & Upload':'Separar e Carregar','Master PDF':'PDF Principal','Bulk Upload (Merged PDF)':'Carregamento em Massa (PDF Unido)','Monthly grid with Leave Codes':'Grelha mensal com códigos de ausência','Employee Matrix':'Matriz de Trabalhadores','Individual records per date':'Registos individuais por data','Standard Row Export':'Exportação em Linhas','Download Attendance Reports':'Baixar Relatórios de Assiduidade','Total Summary':'Resumo Total','No attendance records found for this selection.':'Nenhum registo de assiduidade encontrado para esta selecção.','Status ↕':'Estado ↕','Working Hrs ↕':'Horas Trabalhadas ↕','Total Lunch ↕':'Total de Almoço ↕','Out Time ↕':'Hora de Saída ↕','Store In ↕':'Entrada na Loja ↕','Dept ↕':'Departamento ↕','Employee Name ↕':'Nome do Trabalhador ↕','Date ↕':'Data ↕','Last Month':'Mês Passado','This Month':'Este Mês','This Week':'Esta Semana','Yesterday':'Ontem','Quick Range':'Intervalo Rápido','Rota':'Escala','Export':'Exportar','Logged In As':'Sessão Iniciada Como','-- All Personnel --':'-- Todo o Pessoal --','Employee Filter':'Filtro de Trabalhadores','Tot Hrs':'Total de Horas','Mis Punch':'Marcação em Falta','Mis-Punch':'Marcação em Falta','Late Arr.':'Chegada Tardia','Week Off':'Folga Semanal','Shutdown':'Encerrar','Sync':'Sincronização','Device':'Equipamento','Leaves':'Ausências','Dev':'Programador','Biometric live tracking active for Attendance Portal.':'Acompanhamento biométrico em tempo real activo no Portal de Assiduidade.','Announcements':'Comunicados','Employees Info (ID Card)':'Informações dos Trabalhadores (Cartão de Identificação)','Manage Passwords':'Gerir Palavras-passe','Biometric Machines':'Equipamentos Biométricos','Shift Approvals':'Aprovações de Turno','Reset':'Repor','Off':'Folga','Daily manpower summary':'Resumo diário de efectivos','Loading monthly roster...':'A carregar a escala mensal...','Send Request for Approval':'Enviar Pedido para Aprovação','Developed by':'Desenvolvido por','Attendance Portal':'Portal de Assiduidade','Sign in to access your dashboard':'Inicie sessão para aceder ao seu painel','User ID':'ID do Utilizador','Password':'Palavra-passe','Secure Login':'Iniciar Sessão','Forgot/Reset Password?':'Esqueceu/Redefinir Palavra-passe?','Reset Password':'Redefinir Palavra-passe','Create a new password request':'Criar um novo pedido de palavra-passe','Submit Reset Request':'Enviar Pedido de Redefinição','Back to Login':'Voltar ao Início de Sessão','Current Password':'Palavra-passe Actual','New Password':'Nova Palavra-passe','Confirm Password':'Confirmar Palavra-passe','Dashboard':'Painel','Good day':'Bom dia','Main Menu':'Menu Principal','Team Management':'Gestão da Equipa','Quick Actions':'Acções Rápidas','Search':'Pesquisar','Search code or employee name':'Pesquisar código ou nome do trabalhador','Filter':'Filtrar','Reset Filters':'Limpar Filtros','Close':'Fechar','Save':'Guardar','Cancel':'Cancelar','Apply':'Aplicar','Load':'Carregar','Load Month':'Carregar Mês','Export Excel':'Exportar Excel','English':'Inglês','Portuguese':'Português','Language':'Idioma','Employee':'Trabalhador','Employees':'Trabalhadores','Employee Code':'Código do Trabalhador','Employee Name':'Nome do Trabalhador','Employee ID':'ID do Trabalhador','Designation':'Função','Department':'Departamento','Store':'Loja','Stores':'Lojas','All Stores':'Todas as Lojas','All Designations':'Todas as Funções','All Allocations':'Todas as Alocações','All Weeks':'Todas as Semanas','Selected':'Seleccionado','Selected Date Only':'Apenas a Data Seleccionada','Same Weekday for Full Month':'Mesmo Dia da Semana em Todo o Mês','First Week':'Primeira Semana','Second Week':'Segunda Semana','Third Week':'Terceira Semana','Fourth Week':'Quarta Semana','Fifth Week':'Quinta Semana','Last Week':'Última Semana','Week calculation':'Cálculo da semana','Monday is the first day and Sunday is the last day':'Segunda-feira é o primeiro dia e Domingo é o último dia','Attendance':'Assiduidade','Attendance Correction':'Correcção de Assiduidade','Attendance Corrections':'Correcções de Assiduidade','Present':'Presente','Absent':'Ausente','Late':'Atrasado','Late Arrival':'Chegada Tardia','Early Departure':'Saída Antecipada','Weekly Off':'Folga Semanal','Shift A':'Turno A','Shift B':'Turno B','Default':'Padrão','Roster Planner':'Planeador de Escala','Monthly Roster':'Escala Mensal','Monthly Roster Matrix':'Matriz de Escala Mensal','Save Monthly Roster':'Guardar Escala Mensal','Daily manpower summary':'Resumo diário de efectivos','Shift Allocation':'Alocação de Turno','Date & Day':'Data e Dia','My Monthly Roster':'Minha Escala Mensal','Shift / Weekly Off':'Turno / Folga Semanal','Today':'Hoje','Scheduled':'Programado','Date':'Data','Day':'Dia','Month':'Mês','Year':'Ano','Hours':'Horas','Minutes':'Minutos','Time':'Hora','Store In':'Entrada na Loja','Lunch Out':'Saída para Almoço','Lunch In':'Regresso do Almoço','Out Time':'Hora de Saída','Working Hours':'Horas Trabalhadas','Total Hours':'Total de Horas','Lunch Hours':'Horas de Almoço','Variance':'Variação','Device':'Equipamento','Online':'Online','Offline':'Offline','Loading':'A carregar','No data':'Sem dados','No records found':'Nenhum registo encontrado','Leave Portal':'Portal de Ausências','Leave Management':'Gestão de Ausências','Leave Balances':'Saldos de Ausências','Leave Type':'Tipo de Ausência','Leave Code':'Código de Ausência','Submit Leave':'Enviar Pedido','Start Date':'Data Inicial','End Date':'Data Final','Supporting Document':'Documento Comprovativo','Status':'Estado','Action':'Acção','Pending':'Pendente','Approved':'Aprovado','Rejected':'Rejeitado','Processed':'Processado','Approve':'Aprovar','Reject':'Rejeitar','Reason':'Motivo','Request':'Pedido','Requests':'Pedidos','No leave requests':'Sem pedidos de ausência','Select Leave Code / Motivo':'Seleccionar Código de Ausência / Motivo','Payroll & Reports':'Salários e Relatórios','Payroll':'Salários','Salary':'Salário','Salary Slip':'Recibo de Salário','Gross Salary':'Salário Bruto','Net Salary':'Salário Líquido','Base Salary':'Salário Base','Meal Allowance':'Subsídio de Alimentação','Transport Allowance':'Subsídio de Transporte','Bonus':'Prémio','Overtime':'Horas Extra','Overtime Approval':'Aprovação de Horas Extra','Net estimate':'Estimativa Líquida','Calculate Estimate':'Calcular Estimativa','Reports':'Relatórios','Report':'Relatório','Upload Salary Slip':'Carregar Recibo de Salário','Download Salary Slip':'Baixar Recibo de Salário','Employee Documents':'Documentos do Trabalhador','My Documents':'Meus Documentos','Notifications':'Notificações','Notification Center':'Centro de Notificações','ID Card':'Cartão de Identificação','Download ID Card':'Baixar Cartão de Identificação','Baixar / Download ID Card':'Baixar Cartão de Identificação','Calendar & Rota':'Calendário e Escala','Employee List':'Lista de Trabalhadores','Employee Cards':'Cartões dos Trabalhadores','Employee Information':'Informações do Trabalhador','Profile':'Perfil','My Profile':'Meu Perfil','Nationality':'Nacionalidade','HRMS Code':'Código HRMS','Identification':'Identificação','Contract Date':'Data de Contrato','Data de Contrato':'Data de Contrato','Create / Update':'Criar / Actualizar','Create Employee':'Criar Trabalhador','Update Employee':'Actualizar Trabalhador','Manage':'Gerir','Edit':'Editar','Delete':'Eliminar','Open':'Abrir','Download':'Baixar','Upload':'Carregar','Document':'Documento','Documents':'Documentos','No documents':'Sem documentos','Settings':'Definições','Logout':'Sair','User Management':'Gestão de Utilizadores','Password Management':'Gestão de Palavras-passe','Machine Management':'Gestão de Equipamentos','Permissions':'Permissões','Role':'Perfil de Acesso','Admin':'Administrador','Developer':'Programador','Blocked':'Bloqueado','Active':'Activo','Inactive':'Inactivo','Create User':'Criar Utilizador','Update User':'Actualizar Utilizador','Store View':'Vista da Loja','Developer View':'Vista do Programador','All Stores View':'Vista de Todas as Lojas','Workforce Automation Hub':'Centro de Automação da Força de Trabalho','Multi-store operations, compliance and employee self-service':'Operações multi-loja, conformidade e auto-serviço do trabalhador','Contract Alerts':'Alertas de Contrato','All Stores Attendance':'Assiduidade de Todas as Lojas','Biometric Sync History':'Histórico de Sincronização Biométrica','Manual Machine Check':'Verificação Manual do Equipamento','Check Now':'Verificar Agora','Last Sync':'Última Sincronização','Roster Copy':'Copiar Escala','Copy Week':'Copiar Semana','Copy Month':'Copiar Mês','Source Date':'Data de Origem','Target Date':'Data de Destino','Staffing Rules':'Regras de Dotação','Minimum Staffing Rules':'Regras de Dotação Mínima','Audit Log':'Registo de Auditoria','Audit Events':'Eventos de Auditoria','Employee QR Directory':'Directório QR dos Trabalhadores','Holiday Calendar':'Calendário de Feriados','National Holiday':'Feriado Nacional','Company Holiday':'Feriado da Empresa','Bridge Day':'Ponte','Paid':'Remunerado','Unpaid':'Não Remunerado','Late Escalation':'Escalonamento de Atrasos','Late Arrival Escalation':'Escalonamento de Chegadas Tardias','Onboarding Checklist':'Lista de Integração','Offboarding':'Desvinculação','Store Transfer':'Transferência de Loja','Employee Timeline':'Linha do Tempo do Trabalhador','Performance & Training':'Desempenho e Formação','Scheduled Reports':'Relatórios Programados','Offline Queue':'Fila Offline','Offline Biometric Queue':'Fila Biométrica Offline','Backup & Restore':'Cópia de Segurança e Restauro','Create Full Backup':'Criar Cópia de Segurança Completa','Backup History':'Histórico de Cópias de Segurança','System Health':'Estado do Sistema','Application Status':'Estado da Aplicação','Disk Used':'Disco Utilizado','Disk Free':'Disco Livre','Privacy Controls':'Controlos de Privacidade','Data Protection':'Protecção de Dados','Privacy':'Privacidade','Open module':'Abrir módulo','Back':'Voltar','Back to Dashboard':'Voltar ao Painel','Type':'Tipo','Name':'Nome','Title':'Título','Available':'Disponível','Used':'Usado','Annual':'Anual','Total Employees':'Total de Trabalhadores','No notifications':'Sem notificações','Manual Sync':'Sincronização Manual','Training':'Formação','Training Name':'Nome da Formação','Training Date':'Data da Formação','Expiry':'Validade','Expiry Date':'Data de Validade','Remarks':'Observações','Manager Remarks':'Observações do Gestor','Score':'Pontuação','Privacy Notice':'Aviso de Privacidade','Data Subject Rights':'Direitos do Titular dos Dados','Purpose Limitation':'Limitação da Finalidade','Retention':'Conservação','Security':'Segurança','Confidential':'Confidencial','Confidential Document':'Documento Confidencial','Submit':'Enviar','Submit Request':'Enviar Pedido','Save Rule':'Guardar Regra','Save Holiday':'Guardar Feriado','Save Schedule':'Guardar Programação','Apply Filters':'Aplicar Filtros','Clear':'Limpar','Select':'Seleccionar','Choose':'Escolher','Required':'Obrigatório','Optional':'Opcional','Success':'Sucesso','Error':'Erro','Warning':'Aviso','Attention':'Atenção','Critical':'Crítico','Normal':'Normal','System':'Sistema','Application':'Aplicação','User':'Utilizador','Created At':'Criado em','Updated At':'Actualizado em','Effective Date':'Data de Efeito','From Store':'Loja de Origem','To Store':'Loja de Destino','Exit Reason':'Motivo de Saída','Final Settlement':'Acerto Final','Documents Returned':'Documentos Devolvidos','Biometric Registration':'Registo Biométrico','Employee Photo':'Fotografia do Trabalhador','Contract Document':'Documento do Contrato','Store Assignment':'Atribuição de Loja','Default Shift':'Turno Padrão','ID Card Generated':'Cartão de Identificação Gerado','Apply Roster':'Aplicar Escala','All Weeks (Monday-Sunday)':'Todas as Semanas (Segunda a Domingo)','Monday':'Segunda-feira','Tuesday':'Terça-feira','Wednesday':'Quarta-feira','Thursday':'Quinta-feira','Friday':'Sexta-feira','Saturday':'Sábado','Sunday':'Domingo'};
+function hrmsTranslate(root=document.body){
+ if(window.HRMS_LANGUAGE!=='pt'||!root)return;
+ const keys=Object.keys(window.HRMS_PT).sort((a,b)=>b.length-a.length);
+ const cv=(value)=>{let t=value||'';keys.forEach(k=>{t=t.split(k).join(window.HRMS_PT[k])});return t};
+ const walker=document.createTreeWalker(root,NodeFilter.SHOW_TEXT);const nodes=[];while(walker.nextNode())nodes.push(walker.currentNode);
+ nodes.forEach(n=>{if(!n.parentElement||['SCRIPT','STYLE','TEXTAREA'].includes(n.parentElement.tagName))return;n.nodeValue=cv(n.nodeValue)});
+ root.querySelectorAll('[placeholder],[title],[aria-label],input[type="button"],input[type="submit"]').forEach(el=>{
+   ['placeholder','title','aria-label','value'].forEach(a=>{const v=el.getAttribute(a);if(v)el.setAttribute(a,cv(v))});
+ });
+ document.documentElement.lang='pt';document.title=cv(document.title);
+}
+document.addEventListener('DOMContentLoaded',()=>hrmsTranslate());
+new MutationObserver(ms=>{if(window.HRMS_LANGUAGE==='pt')ms.forEach(m=>m.addedNodes.forEach(n=>{if(n.nodeType===1)hrmsTranslate(n)}))}).observe(document.documentElement,{childList:true,subtree:true});
+</script>
+</body></html>'''
+
+@app.route('/workforce_hub')
+def workforce_hub():
+    if not session_has_permission('workforce_hub'): return redirect(url_for('index'))
+    if session.get('role') not in ['admin','developer']: return redirect(url_for('index'))
+    stores=suite_allowed_stores(); today=datetime.now().strftime('%Y-%m-%d'); store_rows=[]
+    totals={'present':0,'absent':0,'off':0,'late':0}
+    for st in stores:
+        try:
+            _,_,_,_,_,_,stats=fetch_attendance_data(today,today,'ALL',st)
+            row={'store':st,'online':bool(stats.get('device_online')),'present':stats.get('present',0),'absent':stats.get('absent',0),'off':stats.get('off',0),'late':stats.get('late_arrival',0)}
+        except Exception:
+            row={'store':st,'online':False,'present':0,'absent':0,'off':0,'late':0}
+        store_rows.append(row)
+        for k in totals: totals[k]+=row[k]
+    db=load_users_db(); alerts=[]; now=datetime.now().date()
+    for uid,raw in db.items():
+        info=normalize_user_record(raw); st=suite_employee_store(info)
+        if info.get('role')!='employee' or st not in stores: continue
+        ds=info.get('data_de_contrato','')
+        try:
+            d=datetime.strptime(ds,'%m/%d/%y').date() if '/' in ds else datetime.strptime(ds,'%Y-%m-%d').date()
+            delta=(d-now).days
+            if delta<=90:
+                label='Expired' if delta<0 else f'{delta} days remaining'; color='text-rose-600' if delta<=30 else 'text-amber-600'
+                alerts.append({'uid':uid,'name':info.get('name',uid),'store':st,'date':ds,'label':label,'color':color})
+        except Exception: pass
+    cards=[{'label':'Stores','value':len(stores),'color':'text-cyan-700'},{'label':'Present','value':totals['present'],'color':'text-emerald-600'},{'label':'Absent','value':totals['absent'],'color':'text-rose-600'},{'label':'Weekly Off','value':totals['off'],'color':'text-slate-700'},{'label':'Late','value':totals['late'],'color':'text-amber-600'},{'label':'Corrections','value':sum(1 for x in suite_load(CORRECTIONS_FILE,[]) if x.get('status')=='Pending'),'color':'text-indigo-600'},{'label':'Contracts','value':len(alerts),'color':'text-orange-600'},{'label':'Audit Events','value':len(suite_load(AUDIT_LOG_FILE,[])),'color':'text-purple-600'}]
+    tools=[
+      {'url':'/suite/all_stores','icon':'🏬','title':'All Stores Attendance','desc':'Combined attendance with store code and Excel export.'},
+      {'url':'/suite/sync','icon':'🔄','title':'Biometric Sync History','desc':'Machine status, manual checks and sync history.'},
+      {'url':'/suite/corrections','icon':'✍️','title':'Attendance Corrections','desc':'Approve missing-punch correction requests.'},
+      {'url':'/suite/leave_balances','icon':'🏖️','title':'Leave Balances','desc':'Annual, used, pending and available balances.'},
+      {'url':'/suite/documents','icon':'📁','title':'Employee Documents','desc':'Contracts, IDs and certificates.'},
+      {'url':'/suite/roster_copy','icon':'📋','title':'Roster Copy','desc':'Copy week or month schedules.'},
+      {'url':'/suite/staffing','icon':'👥','title':'Staffing Rules','desc':'Minimum staffing rules and shortage warnings.'},
+      {'url':'/suite/audit','icon':'🛡️','title':'Audit Log','desc':'Track user, store, action, IP and changes.'},
+      {'url':'/suite/notifications','icon':'🔔','title':'Notification Center','desc':'Internal leave, shift, payroll and contract notices.'},
+      {'url':'/suite/qr_directory','icon':'▦','title':'Employee QR Directory','desc':'Privacy-safe QR verification cards.'}
+    ]
+    return render_template_string(WORKFORCE_HUB_TEMPLATE,cards=cards,store_rows=store_rows,contract_alerts=alerts,tools=tools,today=today,ui_language=session.get('ui_language','en'))
+
+SUITE_TABLE='''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>{{title}}</title><script src="https://cdn.tailwindcss.com"></script><style>html,body{max-width:100%;overflow-x:hidden}main{overflow-x:auto;-webkit-overflow-scrolling:touch}input,select,textarea,button{max-width:100%;min-height:42px}table{min-width:640px}th,td{padding:8px;white-space:nowrap}@media(max-width:640px){header{flex-direction:column;align-items:stretch!important;gap:10px}header>div{display:flex;flex-wrap:wrap}main{padding:10px!important}form{grid-template-columns:1fr!important}form button{width:100%}.grid{gap:8px}.rounded-2xl{border-radius:14px}}</style></head><body class="bg-slate-100"><header class="bg-slate-950 text-white p-3 sm:p-4 flex flex-col sm:flex-row gap-2 sm:justify-between sm:items-center"><h1 class="font-black">{{icon}} {{title}}</h1><div class="flex gap-2 items-center"><select onchange="location.href='/set_language/'+this.value" class="text-slate-900 text-xs p-2 rounded"><option value="en" {% if ui_language=='en' %}selected{% endif %}>English</option><option value="pt" {% if ui_language=='pt' %}selected{% endif %}>Português</option></select><a href="/workforce_hub" class="font-bold">← Hub</a></div></header><main class="p-3 sm:p-5 pb-[max(1rem,env(safe-area-inset-bottom))]">{{body|safe}}</main><script id="universal-table-sort">
+(function(){
+  function value(cell,type){const text=(cell?.innerText||'').trim();if(type==='number'){const n=parseFloat(text.replace(/[^0-9.-]/g,''));return Number.isNaN(n)?-Infinity:n;}return text.toLocaleLowerCase();}
+  function enhance(root=document){root.querySelectorAll('table').forEach((table,ti)=>{if(table.dataset.sortReady)return;table.dataset.sortReady='1';const heads=table.querySelectorAll('thead th');heads.forEach((th,ci)=>{if(th.dataset.noSort==='1')return;th.style.cursor='pointer';th.style.userSelect='none';if(!/[↕↑↓]/.test(th.textContent))th.insertAdjacentText('beforeend',' ↕');th.title='Click to sort';th.addEventListener('click',()=>{const tbody=table.tBodies[0];if(!tbody)return;const rows=Array.from(tbody.rows).filter(r=>r.cells.length>ci&&!r.querySelector('[colspan]'));const asc=th.dataset.direction!=='asc';heads.forEach(h=>{h.dataset.direction='';h.textContent=h.textContent.replace(/ [↑↓]$/,' ↕');});th.dataset.direction=asc?'asc':'desc';th.textContent=th.textContent.replace(/ ↕$/,'')+(asc?' ↑':' ↓');const type=th.dataset.sortType||((rows.every(r=>/^[-+]?\d[\d.,]*$/.test((r.cells[ci]?.innerText||'').trim())))?'number':'text');rows.sort((a,b)=>{const av=value(a.cells[ci],type),bv=value(b.cells[ci],type);return (av>bv?1:av<bv?-1:0)*(asc?1:-1);});rows.forEach(r=>tbody.appendChild(r));});});});}
+  window.applyKviFilters=function(){const q=(document.getElementById('kvi-search')?.value||'').trim().toLowerCase();const type=document.getElementById('kvi-type-filter')?.value||'ALL';document.querySelectorAll('.kvi-row').forEach(r=>{let rt=(r.dataset.type||'OTHER').trim().toUpperCase();if(rt.includes('KVI')&&rt.includes('POWER'))rt='KVI+POWER';else if(rt.includes('KVI'))rt='KVI';else if(rt.includes('POWER'))rt='POWER SKU';const typeOk=type==='ALL'||(type==='OTHER'&&!['KVI','KVI+POWER','POWER SKU'].includes(rt))||rt===type;const searchOk=!q||(r.dataset.search||'').includes(q);r.style.display=typeOk&&searchOk?'':'none';});};
+  window.filterKviType=function(type){const sel=document.getElementById('kvi-type-filter');if(sel)sel.value=type;window.applyKviFilters();document.getElementById('kvi-article-table')?.scrollIntoView({behavior:'smooth',block:'start'});};
+  document.addEventListener('DOMContentLoaded',()=>enhance(document));window.enhanceSortableTables=enhance;
+})();
+</script></body></html>'''
+
+
+def tr_ui(text):
+    if session.get('ui_language','en')!='pt': return text
+    mapping={
+      'All Stores Attendance':'Assiduidade de Todas as Lojas','Biometric Sync History':'Histórico de Sincronização Biométrica',
+      'Attendance Corrections':'Correcções de Assiduidade','Leave Balances':'Saldos de Ausências','Employee Documents':'Documentos do Trabalhador',
+      'Roster Copy':'Copiar Escala','Minimum Staffing Rules':'Regras de Dotação Mínima','Audit Log':'Registo de Auditoria',
+      'Notification Center':'Centro de Notificações','Employee QR Directory':'Directório QR dos Trabalhadores',
+      'Holiday Calendar':'Calendário de Feriados',
+      'Bulk Roster Assignment':'Atribuição de Escala em Massa',
+      'Overtime Approval':'Aprovação de Horas Extra','Employee Lifecycle':'Ciclo de Vida do Trabalhador','Employee Timeline':'Linha do Tempo do Trabalhador',
+      'Performance & Training':'Desempenho e Formação','Scheduled Reports':'Relatórios Programados','Late Arrival Escalation':'Escalonamento de Chegadas Tardias',
+      'Offline Biometric Queue':'Fila Biométrica Offline','Backup & Restore':'Cópia de Segurança e Restauro','System Health':'Estado do Sistema','Privacy Controls':'Controlos de Privacidade'
+    }
+    return mapping.get(text,text)
+
+def suite_page(title,icon,body): return render_template_string(SUITE_TABLE,title=tr_ui(title),icon=icon,body=body,ui_language=session.get('ui_language','en'))
+
+@app.route('/suite/all_stores')
+def suite_all_stores():
+    if not session_has_permission('all_stores_attendance'): return redirect(url_for('index'))
+    if session.get('role') not in ['admin','developer']: return redirect(url_for('index'))
+    date=request.args.get('date',datetime.now().strftime('%Y-%m-%d')); rows=[]
+    for st in suite_allowed_stores():
+        try:
+            logs,*_=fetch_attendance_data(date,date,'ALL',st)
+            for x in logs: rows.append({**x,'store':st})
+        except Exception: pass
+    tr=''.join(f"<tr class=\"border-b\"><td class=\"p-2 font-bold\">{x['store']}</td><td>{x['user_id']}</td><td>{x['name']}</td><td>{x['dept']}</td><td>{x['store_in']}</td><td>{x['out_time']}</td><td>{x['status']}</td></tr>" for x in rows)
+    body=f'''<form class="mb-4 flex gap-2"><input type="date" name="date" value="{date}" class="border p-2 rounded"><button class="bg-cyan-600 text-white px-4 rounded font-bold">Load</button><a href="/suite/all_stores_export?date={date}" class="bg-emerald-600 text-white px-4 py-2 rounded font-bold">Export Excel</a></form><div class="bg-white rounded-xl border overflow-auto"><table class="w-full text-xs min-w-[800px]"><thead class="bg-slate-100"><tr><th class="p-2">Store</th><th>ID</th><th>Name</th><th>Dept</th><th>In</th><th>Out</th><th>Status</th></tr></thead><tbody>{tr or '<tr><td colspan=7 class="p-8 text-center">No data</td></tr>'}</tbody></table></div>'''
+    return suite_page('All Stores Attendance','🏬',body)
+
+@app.route('/suite/all_stores_export')
+def suite_all_stores_export():
+    if session.get('role') not in ['admin','developer']: return redirect(url_for('index'))
+    date=request.args.get('date',datetime.now().strftime('%Y-%m-%d')); wb=openpyxl.Workbook();ws=wb.active;ws.title='All Stores'
+    ws.append(['Store','Date','Employee Code','Employee Name','Department','Store In','Out Time','Working Hours','Status'])
+    for st in suite_allowed_stores():
+        try:
+            logs,*_=fetch_attendance_data(date,date,'ALL',st)
+            for x in logs: ws.append([st,x['date'],x['user_id'],x['name'],x['dept'],x['store_in'],x['out_time'],x['total_hours'],x['status']])
+        except Exception: pass
+    out=io.BytesIO();wb.save(out);out.seek(0);suite_audit('EXPORT_ALL_STORES',date,store='ALL')
+    return send_file(out,as_attachment=True,download_name=f'All_Stores_Attendance_{date}.xlsx',mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+@app.route('/suite/sync',methods=['GET','POST'])
+def suite_sync():
+    if not session_has_permission('biometric_sync'): return redirect(url_for('index'))
+    if session.get('role') not in ['admin','developer']: return redirect(url_for('index'))
+    if request.method=='POST':
+        st=request.form.get('store','').upper()
+        if suite_store_allowed(st):
+            online=check_device_connectivity(st); rows=suite_load(SYNC_HISTORY_FILE,[]); rows.append({'time':datetime.now().strftime('%Y-%m-%d %H:%M:%S'),'store':st,'online':online,'user':session.get('user_name')});suite_save(SYNC_HISTORY_FILE,rows[-1000:]);suite_audit('MANUAL_MACHINE_CHECK',st,new='Online' if online else 'Offline',store=st)
+    rows=list(reversed(suite_load(SYNC_HISTORY_FILE,[])))[:100]
+    options=''.join(f'<option>{x}</option>' for x in suite_allowed_stores()); tr=''.join(f"<tr class='border-b'><td class='p-2'>{x['time']}</td><td>{x['store']}</td><td>{'Online' if x['online'] else 'Offline'}</td><td>{x['user']}</td></tr>" for x in rows)
+    return suite_page('Biometric Sync History','🔄',f'''<form method="post" class="bg-white p-4 rounded-xl border mb-4 flex gap-2"><select name="store" class="border p-2 rounded">{options}</select><button class="bg-cyan-600 text-white px-4 rounded font-bold">Check Now</button></form><div class="bg-white border rounded-xl"><table class="w-full text-xs"><thead><tr><th>Time</th><th>Store</th><th>Status</th><th>User</th></tr></thead><tbody>{tr}</tbody></table></div>''')
+
+@app.route('/suite/corrections',methods=['GET','POST'])
+def suite_corrections():
+    if not session.get('logged_in'): return redirect(url_for('login'))
+    rows=suite_load(CORRECTIONS_FILE,[])
+    if request.method=='POST' and session.get('role')=='employee':
+        rows.append({'id':uuid.uuid4().hex,'user_id':session.get('user_id'),'name':session.get('user_name'),'store':session.get('store'),'date':request.form.get('date'),'field':request.form.get('field'),'expected_time':request.form.get('expected_time'),'reason':request.form.get('reason'),'status':'Pending','created_at':datetime.now().strftime('%Y-%m-%d %H:%M:%S')});suite_save(CORRECTIONS_FILE,rows);suite_notify(session.get('store'),'Correction Request',f"{session.get('user_name')} requested attendance correction",session.get('store'));suite_audit('SUBMIT_CORRECTION',session.get('user_id'),new=request.form.get('date'))
+    visible=[x for x in rows if session.get('role')=='developer' or (session.get('role')=='admin' and x.get('store') in suite_allowed_stores()) or x.get('user_id')==session.get('user_id')]
+    form='''<form method="post" class="grid grid-cols-1 md:grid-cols-5 gap-2 bg-white p-4 rounded-xl border mb-4"><input type="date" name="date" required class="border p-2 rounded"><select name="field" class="border p-2 rounded"><option value="store_in">Store In</option><option value="lunch_out">Lunch Out</option><option value="lunch_in">Lunch In</option><option value="out_time">Out Time</option></select><input type="time" step="1" name="expected_time" required class="border p-2 rounded"><input name="reason" required placeholder="Reason" class="border p-2 rounded"><button class="bg-indigo-600 text-white rounded font-bold">Submit</button></form>''' if session.get('role')=='employee' else ''
+    tr=''.join(f"<tr class='border-b'><td class='p-2'>{x['date']}</td><td>{x['user_id']}<br>{x['name']}</td><td>{x['field']} → {x['expected_time']}</td><td>{x['reason']}</td><td>{x['status']}</td><td>{('<a class=\"text-emerald-600 font-bold\" href=\"/suite/correction/'+x['id']+'/approve\">Approve</a> · <a class=\"text-rose-600 font-bold\" href=\"/suite/correction/'+x['id']+'/reject\">Reject</a>') if session.get('role') in ['admin','developer'] and x['status']=='Pending' else '-'}</td></tr>" for x in reversed(visible))
+    return suite_page('Attendance Corrections','✍️',form+f'''<div class="bg-white border rounded-xl overflow-auto"><table class="w-full text-xs"><thead><tr><th>Date</th><th>Employee</th><th>Change</th><th>Reason</th><th>Status</th><th>Action</th></tr></thead><tbody>{tr}</tbody></table></div>''')
+
+@app.route('/suite/correction/<rid>/<action>')
+def suite_correction_action(rid,action):
+    if session.get('role') not in ['admin','developer']: return redirect(url_for('index'))
+    rows=suite_load(CORRECTIONS_FILE,[])
+    for x in rows:
+        if x.get('id')==rid and x.get('store') in suite_allowed_stores():
+            if action=='approve':
+                old=load_overrides(); old.setdefault(x['date'],{}).setdefault(x['user_id'],{})[x['field']]=x['expected_time'];save_overrides(old);x['status']='Approved'
+            elif action=='reject': x['status']='Rejected'
+            suite_notify(x['user_id'],'Correction '+x['status'],f"Your correction for {x['date']} was {x['status']}",x['store']);suite_audit('CORRECTION_'+x['status'].upper(),x['user_id'],new=x['date'],store=x['store'])
+    suite_save(CORRECTIONS_FILE,rows);return redirect(url_for('suite_corrections'))
+
+@app.route('/suite/leave_balances',methods=['GET','POST'])
+def suite_leave_balances():
+    if not session_has_permission('leave_balances'): return redirect(url_for('index'))
+    if session.get('role') not in ['admin','developer']: return redirect(url_for('index'))
+    balances=suite_load(LEAVE_BALANCES_FILE,{})
+    if request.method=='POST':
+        uid=request.form.get('uid','').upper(); db=load_users_db();info=normalize_user_record(db.get(uid,{}))
+        if info and suite_employee_store(info) in suite_allowed_stores(): balances[uid]={'annual':int(request.form.get('annual',18)),'used':int(request.form.get('used',0)),'pending':int(request.form.get('pending',0))};suite_save(LEAVE_BALANCES_FILE,balances);suite_audit('UPDATE_LEAVE_BALANCE',uid,new=balances[uid])
+    db=load_users_db(); opts=[];rows=[]
+    for uid,raw in db.items():
+        info=normalize_user_record(raw);st=suite_employee_store(info)
+        if info.get('role')!='employee' or st not in suite_allowed_stores():continue
+        b=suite_leave_balance(uid);opts.append(f'<option value="{uid}">{uid} - {info.get("name")}</option>');rows.append(f'<tr class="border-b"><td class="p-2">{uid}</td><td>{info.get("name")}</td><td>{st}</td><td>{b["annual"]}</td><td>{b["used"]}</td><td>{b["pending"]}</td><td class="font-bold text-emerald-600">{b["available"]}</td></tr>')
+    return suite_page('Leave Balances','🏖️',f'''<form method="post" class="bg-white border p-4 rounded-xl grid md:grid-cols-5 gap-2 mb-4"><select name="uid" class="border p-2 rounded">{''.join(opts)}</select><input type="number" name="annual" value="18" class="border p-2 rounded"><input type="number" name="used" value="0" class="border p-2 rounded"><input type="number" name="pending" value="0" class="border p-2 rounded"><button class="bg-emerald-600 text-white rounded">Save</button></form><div class="bg-white border rounded-xl overflow-auto"><table class="w-full text-xs"><thead><tr><th>ID</th><th>Name</th><th>Store</th><th>Annual</th><th>Used</th><th>Pending</th><th>Available</th></tr></thead><tbody>{''.join(rows)}</tbody></table></div>''')
+
+@app.route('/suite/documents',methods=['GET','POST'])
+def suite_documents():
+    if not session.get('logged_in'): return redirect(url_for('login'))
+    rows=suite_load(DOCUMENTS_FILE,[])
+    if request.method=='POST' and session.get('role') in ['admin','developer']:
+        uid=request.form.get('uid','').upper();db=load_users_db();info=normalize_user_record(db.get(uid,{}));f=request.files.get('document')
+        if f and f.filename and suite_employee_store(info) in suite_allowed_stores():
+            fn=secure_filename(f'{uid}_{uuid.uuid4().hex}_{f.filename}');f.save(os.path.join(EMPLOYEE_DOC_FOLDER,fn));rows.append({'id':uuid.uuid4().hex,'user_id':uid,'name':info.get('name',uid),'store':suite_employee_store(info),'type':request.form.get('type'),'filename':fn,'original':f.filename,'uploaded_at':datetime.now().strftime('%Y-%m-%d %H:%M:%S')});suite_save(DOCUMENTS_FILE,rows);suite_notify(uid,'New Document',f"{request.form.get('type')} uploaded",suite_employee_store(info));suite_audit('UPLOAD_DOCUMENT',uid,new=request.form.get('type'))
+    visible=[x for x in rows if x.get('user_id')==session.get('user_id') or (session.get('role') in ['admin','developer'] and x.get('store') in suite_allowed_stores())]
+    opts=''.join(f'<option value="{uid}">{uid} - {normalize_user_record(raw).get("name")}</option>' for uid,raw in load_users_db().items() if normalize_user_record(raw).get('role')=='employee' and suite_employee_store(normalize_user_record(raw)) in suite_allowed_stores())
+    form=f'''<form method="post" enctype="multipart/form-data" class="bg-white border rounded-xl p-4 grid md:grid-cols-4 gap-2 mb-4"><select name="uid" class="border p-2 rounded">{opts}</select><select name="type" class="border p-2 rounded"><option>ID Document</option><option>Contract</option><option>Medical Certificate</option><option>Training Certificate</option><option>Other</option></select><input type="file" name="document" required class="border p-2 rounded"><button class="bg-indigo-600 text-white rounded">Upload</button></form>''' if session.get('role') in ['admin','developer'] else ''
+    cards=''.join(f'''<div class="bg-white border rounded-xl p-4"><b>{x['type']}</b><p class="text-xs text-slate-500">{x['user_id']} · {x['name']} · {x['uploaded_at']}</p><a class="text-cyan-700 font-bold text-sm" href="/suite/document/{x['id']}">Open</a></div>''' for x in reversed(visible))
+    return suite_page('Employee Documents','📁',form+f'<div class="grid md:grid-cols-3 gap-3">{cards or "No documents"}</div>')
+
+@app.route('/suite/document/<did>')
+def suite_document_open(did):
+    rows=suite_load(DOCUMENTS_FILE,[]);x=next((a for a in rows if a.get('id')==did),None)
+    if not x:return 'Not found',404
+    if not (x.get('user_id')==session.get('user_id') or (session.get('role') in ['admin','developer'] and x.get('store') in suite_allowed_stores())):return 'Unauthorized',403
+    return send_from_directory(EMPLOYEE_DOC_FOLDER,x['filename'],as_attachment=False)
+
+@app.route('/suite/roster_copy',methods=['GET','POST'])
+def suite_roster_copy():
+    if not session_has_permission('roster_copy'): return redirect(url_for('index'))
+    if session.get('role') not in ['admin','developer']:return redirect(url_for('index'))
+    msg=''
+    if request.method=='POST':
+        source=request.form.get('source');target=request.form.get('target');scope=request.form.get('scope');uid=request.form.get('uid','').upper();roster=load_roster();db=load_users_db();count=0
+        try:
+            src=datetime.strptime(source,'%Y-%m-%d');dst=datetime.strptime(target,'%Y-%m-%d');days=7 if scope=='week' else ((src.replace(day=28)+timedelta(days=4)).replace(day=1)-src.replace(day=1)).days;src=src if scope=='week' else src.replace(day=1);dst=dst if scope=='week' else dst.replace(day=1)
+            ids=[uid] if uid else [k for k,v in db.items() if normalize_user_record(v).get('role')=='employee' and suite_employee_store(normalize_user_record(v)) in suite_allowed_stores()]
+            for emp in ids:
+                roster.setdefault(emp,{})
+                for i in range(days):
+                    sv=(src+timedelta(days=i)).strftime('%Y-%m-%d');tv=(dst+timedelta(days=i)).strftime('%Y-%m-%d')
+                    if sv in roster.get(emp,{}):roster[emp][tv]=roster[emp][sv];count+=1
+            save_roster(roster);suite_audit('COPY_ROSTER',uid or 'ALL',old=source,new=target);msg=f'{count} roster cells copied.'
+        except Exception as e:msg='Copy failed: '+str(e)
+    return suite_page('Roster Copy','📋',f'''<div class="bg-white border rounded-xl p-5"><p class="text-emerald-700 font-bold mb-3">{msg}</p><form method="post" class="grid md:grid-cols-5 gap-3"><select name="scope" class="border p-2 rounded"><option value="week">Copy Week</option><option value="month">Copy Month</option></select><input type="date" name="source" required class="border p-2 rounded"><input type="date" name="target" required class="border p-2 rounded"><input name="uid" placeholder="Employee ID or blank for all" class="border p-2 rounded"><button class="bg-indigo-600 text-white rounded font-bold">Copy</button></form><p class="text-xs text-slate-500 mt-3">Week copy preserves seven consecutive days; monthly copy preserves date positions.</p></div>''')
+
+@app.route('/suite/staffing',methods=['GET','POST'])
+def suite_staffing():
+    if not session_has_permission('staffing_rules'): return redirect(url_for('index'))
+    if session.get('role') not in ['admin','developer']:return redirect(url_for('index'))
+    rules=suite_load(STAFFING_RULES_FILE,[])
+    if request.method=='POST':
+        rules=[x for x in rules if not (x.get('store')==request.form.get('store') and x.get('designation')==request.form.get('designation'))];rules.append({'store':request.form.get('store'),'designation':request.form.get('designation'),'shift_a':int(request.form.get('shift_a',0)),'shift_b':int(request.form.get('shift_b',0))});suite_save(STAFFING_RULES_FILE,rules);suite_audit('UPDATE_STAFFING_RULE',request.form.get('designation'),new=request.form.to_dict(),store=request.form.get('store'))
+    opts=''.join(f'<option>{x}</option>' for x in suite_allowed_stores());tr=''.join(f"<tr class='border-b'><td class='p-2'>{x['store']}</td><td>{x['designation']}</td><td>{x['shift_a']}</td><td>{x['shift_b']}</td></tr>" for x in rules if x.get('store') in suite_allowed_stores())
+    return suite_page('Minimum Staffing Rules','👥',f'''<form method="post" class="bg-white border rounded-xl p-4 grid md:grid-cols-5 gap-2 mb-4"><select name="store" class="border p-2 rounded">{opts}</select><input name="designation" required placeholder="Designation" class="border p-2 rounded"><input type="number" name="shift_a" value="1" class="border p-2 rounded"><input type="number" name="shift_b" value="1" class="border p-2 rounded"><button class="bg-emerald-600 text-white rounded">Save Rule</button></form><div class="bg-white border rounded-xl"><table class="w-full text-xs"><thead><tr><th>Store</th><th>Designation</th><th>Shift A Min</th><th>Shift B Min</th></tr></thead><tbody>{tr}</tbody></table></div>''')
+
+@app.route('/suite/audit')
+def suite_audit_page():
+    if not session_has_permission('audit_log'): return redirect(url_for('index'))
+    if session.get('role')!='developer':return redirect(url_for('index'))
+    rows=list(reversed(suite_load(AUDIT_LOG_FILE,[])))[:500];tr=''.join(f"<tr class='border-b'><td class='p-2'>{x['time']}</td><td>{x['user_name']}<br>{x['role']}</td><td>{x['store']}</td><td>{x['action']}</td><td>{x['target']}</td><td>{x['old']} → {x['new']}</td><td>{x['ip']}</td></tr>" for x in rows)
+    return suite_page('Audit Log','🛡️',f'<div class="bg-white border rounded-xl overflow-auto"><table class="w-full text-xs min-w-[900px]"><thead><tr><th>Time</th><th>User</th><th>Store</th><th>Action</th><th>Target</th><th>Change</th><th>IP</th></tr></thead><tbody>{tr}</tbody></table></div>')
+
+@app.route('/suite/notifications')
+def suite_notifications():
+    if not session.get('logged_in'):return redirect(url_for('login'))
+    rows=suite_load(NOTIFICATIONS_FILE,[]);visible=[x for x in rows if (session.get('role')=='employee' and x.get('user_id')==session.get('user_id') and 'approved' in x.get('title','').lower()) or (session.get('role')=='admin' and x.get('user_id') in [session.get('store'),session.get('user_id')]) or session.get('role')=='developer'];cards=''.join(f"<div class='bg-white border rounded-xl p-4'><b>{x['title']}</b><p class='text-sm'>{x['message']}</p><span class='text-xs text-slate-500'>{x['created_at']}</span></div>" for x in reversed(visible))
+    return suite_page('Notification Center','🔔',f'<div class="space-y-2">{cards or "No notifications"}</div>')
+
+@app.route('/suite/qr_directory')
+def suite_qr_directory():
+    if not session_has_permission('qr_directory'): return redirect(url_for('index'))
+    if session.get('role') not in ['admin','developer']:return redirect(url_for('index'))
+    cards=[]
+    for uid,raw in load_users_db().items():
+        info=normalize_user_record(raw);st=suite_employee_store(info)
+        if info.get('role')=='employee' and st in suite_allowed_stores():cards.append(f'''<div class="bg-white border rounded-xl p-4 text-center"><img src="/suite/employee_qr/{uid}" class="w-32 h-32 mx-auto"><b>{info.get('name')}</b><p class="text-xs">{uid} · {st} · {info.get('designation')}</p></div>''')
+    return suite_page('Employee QR Directory','▦',f'<div class="grid md:grid-cols-4 gap-3">{"".join(cards)}</div>')
+
+@app.route('/suite/employee_qr/<uid>')
+def suite_employee_qr(uid):
+    db=load_users_db();info=normalize_user_record(db.get(uid,{}));st=suite_employee_store(info)
+    if not info or not (session.get('role')=='developer' or st in suite_allowed_stores() or uid==session.get('user_id')):return 'Unauthorized',403
+    payload=json.dumps({'employee_code':uid,'name':info.get('name'),'store':st,'designation':info.get('designation'),'status':info.get('status')},ensure_ascii=False)
+    img=qrcode.make(payload);out=io.BytesIO();img.save(out,format='PNG');out.seek(0);return send_file(out,mimetype='image/png')
+
+
+
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 5000))
-    app.run(host='0.0.0.0', port=port, debug=True)
+    app.run(host='0.0.0.0', port=port, debug=False, threaded=True)

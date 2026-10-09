@@ -1,0 +1,32 @@
+[
+    {
+        "id": "6168d98b3f954921ad9d015d5a33dffe",
+        "user_id": "NWC2981",
+        "name": "ANTONIO JOSE BANDOLA",
+        "store": "LM11",
+        "date": "2026-10-09",
+        "minutes": 120,
+        "actual_seconds": 32173,
+        "target_seconds": 25200,
+        "status": "Pending",
+        "created_at": "2026-10-09 20:07:25",
+        "updated_at": "2026-10-09 20:11:44",
+        "reviewed_by": "",
+        "reviewed_at": ""
+    },
+    {
+        "id": "5932b08faf664f8296b837977dd4d17e",
+        "user_id": "NWC6661",
+        "name": "FRANCISCO MUNDELE CHIVELA",
+        "store": "LM11",
+        "date": "2026-10-09",
+        "minutes": 120,
+        "actual_seconds": 31574,
+        "target_seconds": 25200,
+        "status": "Pending",
+        "created_at": "2026-10-09 20:07:25",
+        "updated_at": "2026-10-09 20:11:44",
+        "reviewed_by": "",
+        "reviewed_at": ""
+    }
+]

@@ -1,0 +1,86 @@
+[
+    {
+        "id": "1bb5ab9621094fcf9ba7d95d1429d49d",
+        "category": "promotion",
+        "filename": "promotion_20261009201119_cb106dc9_10.jpeg",
+        "original": "10.jpeg",
+        "title": "10",
+        "period_id": "bdba95641df34c4686936838a2aa9235",
+        "uploaded_by": "Admin (LM11)",
+        "uploaded_at": "2026-10-09 20:11:19",
+        "batch_size": 7,
+        "batch_position": 1
+    },
+    {
+        "id": "68d823e395004cdc8a1bc57eea0d39f7",
+        "category": "promotion",
+        "filename": "promotion_20261009201119_63f3753f_9.jpeg",
+        "original": "9.jpeg",
+        "title": "9",
+        "period_id": "bdba95641df34c4686936838a2aa9235",
+        "uploaded_by": "Admin (LM11)",
+        "uploaded_at": "2026-10-09 20:11:19",
+        "batch_size": 7,
+        "batch_position": 2
+    },
+    {
+        "id": "3b2216c40e1342e187c34c5bcf03e091",
+        "category": "promotion",
+        "filename": "promotion_20261009201119_c8c14c92_8.jpeg",
+        "original": "8.jpeg",
+        "title": "8",
+        "period_id": "bdba95641df34c4686936838a2aa9235",
+        "uploaded_by": "Admin (LM11)",
+        "uploaded_at": "2026-10-09 20:11:19",
+        "batch_size": 7,
+        "batch_position": 3
+    },
+    {
+        "id": "42dba8de25f9423db2dc3bb92d089f64",
+        "category": "promotion",
+        "filename": "promotion_20261009201119_4530af88_7.jpeg",
+        "original": "7.jpeg",
+        "title": "7",
+        "period_id": "bdba95641df34c4686936838a2aa9235",
+        "uploaded_by": "Admin (LM11)",
+        "uploaded_at": "2026-10-09 20:11:19",
+        "batch_size": 7,
+        "batch_position": 4
+    },
+    {
+        "id": "059c8b3853b7404b90a9ba3aef1e6df2",
+        "category": "promotion",
+        "filename": "promotion_20261009201119_13603c58_6.jpeg",
+        "original": "6.jpeg",
+        "title": "6",
+        "period_id": "bdba95641df34c4686936838a2aa9235",
+        "uploaded_by": "Admin (LM11)",
+        "uploaded_at": "2026-10-09 20:11:19",
+        "batch_size": 7,
+        "batch_position": 5
+    },
+    {
+        "id": "32ef863acb924cf783a98dd4a190ddb5",
+        "category": "promotion",
+        "filename": "promotion_20261009201119_72e40590_5.jpeg",
+        "original": "5.jpeg",
+        "title": "5",
+        "period_id": "bdba95641df34c4686936838a2aa9235",
+        "uploaded_by": "Admin (LM11)",
+        "uploaded_at": "2026-10-09 20:11:19",
+        "batch_size": 7,
+        "batch_position": 6
+    },
+    {
+        "id": "4024843472ac48eca46f1d8f13c0264e",
+        "category": "promotion",
+        "filename": "promotion_20261009201119_ecdba4ad_4.jpeg",
+        "original": "4.jpeg",
+        "title": "4",
+        "period_id": "bdba95641df34c4686936838a2aa9235",
+        "uploaded_by": "Admin (LM11)",
+        "uploaded_at": "2026-10-09 20:11:19",
+        "batch_size": 7,
+        "batch_position": 7
+    }
+]

@@ -1,0 +1,14 @@
+[
+    {
+        "id": "LM11|NWC2652|2026-10-09 12:55:41",
+        "store": "LM11",
+        "user_id": "NWC2652",
+        "name": "DULCE LUSITANO",
+        "date": "2026-10-09",
+        "duplicate_time": "12:55:41",
+        "kept_time": "12:55:03",
+        "gap_seconds": 38,
+        "reason": "Second punch within 1 minute",
+        "detected_at": "2026-10-09 20:07:25"
+    }
+]

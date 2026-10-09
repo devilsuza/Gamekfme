@@ -1,0 +1,1 @@
+Build 2026-10-09-OFFER-PERIODS-V2. The Promotion page now shows Offer Period links. Verify at /app_version and look for OFFER PERIODS V2 badge on /promotion.

@@ -1,0 +1,22 @@
+[
+    {
+        "id": "b09540352be44f7fbd2dd03f97b8d862",
+        "user_id": "LM11",
+        "title": "Overtime approval required",
+        "message": "ANTONIO JOSE BANDOLA (NWC2981) worked 120 extra minutes on 2026-10-09.",
+        "store": "LM11",
+        "created_at": "2026-10-09 20:07:25",
+        "read": false,
+        "flash_seen": true
+    },
+    {
+        "id": "28dccf46dc064af296f1ea513c05d4cf",
+        "user_id": "LM11",
+        "title": "Overtime approval required",
+        "message": "FRANCISCO MUNDELE CHIVELA (NWC6661) worked 120 extra minutes on 2026-10-09.",
+        "store": "LM11",
+        "created_at": "2026-10-09 20:07:25",
+        "read": false,
+        "flash_seen": true
+    }
+]

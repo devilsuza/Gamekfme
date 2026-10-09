@@ -15,12 +15,16 @@
         ],
         "permissions": [
             "dashboard",
-            "profile",
-            "payroll"
+            "attendance_view",
+            "calendar",
+            "payroll",
+            "employee_documents",
+            "attendance_corrections",
+            "notifications",
+            "profile"
         ],
         "profile_photo": "",
         "identificacao": "",
-        "numero_inss": "",
         "data_de_contrato": ""
     },
     "NWC3127": {
@@ -39,12 +43,16 @@
         ],
         "permissions": [
             "dashboard",
-            "profile",
-            "payroll"
+            "attendance_view",
+            "calendar",
+            "payroll",
+            "employee_documents",
+            "attendance_corrections",
+            "notifications",
+            "profile"
         ],
         "profile_photo": "",
         "identificacao": "",
-        "numero_inss": "",
         "data_de_contrato": ""
     },
     "NWC1525": {
@@ -63,12 +71,16 @@
         ],
         "permissions": [
             "dashboard",
-            "profile",
-            "payroll"
+            "attendance_view",
+            "calendar",
+            "payroll",
+            "employee_documents",
+            "attendance_corrections",
+            "notifications",
+            "profile"
         ],
         "profile_photo": "",
         "identificacao": "",
-        "numero_inss": "",
         "data_de_contrato": ""
     },
     "NWC8328": {
@@ -87,12 +99,16 @@
         ],
         "permissions": [
             "dashboard",
-            "profile",
-            "payroll"
+            "attendance_view",
+            "calendar",
+            "payroll",
+            "employee_documents",
+            "attendance_corrections",
+            "notifications",
+            "profile"
         ],
         "profile_photo": "",
         "identificacao": "",
-        "numero_inss": "",
         "data_de_contrato": ""
     },
     "NWC6661": {
@@ -111,12 +127,16 @@
         ],
         "permissions": [
             "dashboard",
-            "profile",
-            "payroll"
+            "attendance_view",
+            "calendar",
+            "payroll",
+            "employee_documents",
+            "attendance_corrections",
+            "notifications",
+            "profile"
         ],
         "profile_photo": "",
         "identificacao": "",
-        "numero_inss": "",
         "data_de_contrato": ""
     },
     "NWC1553": {
@@ -135,12 +155,16 @@
         ],
         "permissions": [
             "dashboard",
-            "profile",
-            "payroll"
+            "attendance_view",
+            "calendar",
+            "payroll",
+            "employee_documents",
+            "attendance_corrections",
+            "notifications",
+            "profile"
         ],
         "profile_photo": "",
         "identificacao": "",
-        "numero_inss": "",
         "data_de_contrato": ""
     },
     "NWC8350": {
@@ -159,12 +183,16 @@
         ],
         "permissions": [
             "dashboard",
-            "profile",
-            "payroll"
+            "attendance_view",
+            "calendar",
+            "payroll",
+            "employee_documents",
+            "attendance_corrections",
+            "notifications",
+            "profile"
         ],
         "profile_photo": "",
         "identificacao": "",
-        "numero_inss": "",
         "data_de_contrato": ""
     },
     "NWC5187": {
@@ -183,12 +211,16 @@
         ],
         "permissions": [
             "dashboard",
-            "profile",
-            "payroll"
+            "attendance_view",
+            "calendar",
+            "payroll",
+            "employee_documents",
+            "attendance_corrections",
+            "notifications",
+            "profile"
         ],
         "profile_photo": "",
         "identificacao": "",
-        "numero_inss": "",
         "data_de_contrato": ""
     },
     "NWC1168": {
@@ -207,12 +239,16 @@
         ],
         "permissions": [
             "dashboard",
-            "profile",
-            "payroll"
+            "attendance_view",
+            "calendar",
+            "payroll",
+            "employee_documents",
+            "attendance_corrections",
+            "notifications",
+            "profile"
         ],
         "profile_photo": "",
         "identificacao": "",
-        "numero_inss": "",
         "data_de_contrato": ""
     },
     "NWC2652": {
@@ -231,12 +267,16 @@
         ],
         "permissions": [
             "dashboard",
-            "profile",
-            "payroll"
+            "attendance_view",
+            "calendar",
+            "payroll",
+            "employee_documents",
+            "attendance_corrections",
+            "notifications",
+            "profile"
         ],
         "profile_photo": "",
         "identificacao": "",
-        "numero_inss": "",
         "data_de_contrato": ""
     },
     "NWC3381": {
@@ -255,12 +295,16 @@
         ],
         "permissions": [
             "dashboard",
-            "profile",
-            "payroll"
+            "attendance_view",
+            "calendar",
+            "payroll",
+            "employee_documents",
+            "attendance_corrections",
+            "notifications",
+            "profile"
         ],
         "profile_photo": "",
         "identificacao": "",
-        "numero_inss": "",
         "data_de_contrato": ""
     },
     "NWC1983": {
@@ -279,12 +323,16 @@
         ],
         "permissions": [
             "dashboard",
-            "profile",
-            "payroll"
+            "attendance_view",
+            "calendar",
+            "payroll",
+            "employee_documents",
+            "attendance_corrections",
+            "notifications",
+            "profile"
         ],
         "profile_photo": "",
         "identificacao": "",
-        "numero_inss": "",
         "data_de_contrato": ""
     },
     "NWC8364": {
@@ -303,12 +351,16 @@
         ],
         "permissions": [
             "dashboard",
-            "profile",
-            "payroll"
+            "attendance_view",
+            "calendar",
+            "payroll",
+            "employee_documents",
+            "attendance_corrections",
+            "notifications",
+            "profile"
         ],
         "profile_photo": "",
         "identificacao": "",
-        "numero_inss": "",
         "data_de_contrato": ""
     },
     "NWC2788": {
@@ -327,12 +379,16 @@
         ],
         "permissions": [
             "dashboard",
-            "profile",
-            "payroll"
+            "attendance_view",
+            "calendar",
+            "payroll",
+            "employee_documents",
+            "attendance_corrections",
+            "notifications",
+            "profile"
         ],
         "profile_photo": "",
         "identificacao": "",
-        "numero_inss": "",
         "data_de_contrato": ""
     },
     "NWC1010": {
@@ -351,12 +407,16 @@
         ],
         "permissions": [
             "dashboard",
-            "profile",
-            "payroll"
+            "attendance_view",
+            "calendar",
+            "payroll",
+            "employee_documents",
+            "attendance_corrections",
+            "notifications",
+            "profile"
         ],
         "profile_photo": "",
         "identificacao": "",
-        "numero_inss": "",
         "data_de_contrato": ""
     },
     "NWC6638": {
@@ -375,12 +435,16 @@
         ],
         "permissions": [
             "dashboard",
-            "profile",
-            "payroll"
+            "attendance_view",
+            "calendar",
+            "payroll",
+            "employee_documents",
+            "attendance_corrections",
+            "notifications",
+            "profile"
         ],
         "profile_photo": "",
         "identificacao": "",
-        "numero_inss": "",
         "data_de_contrato": ""
     },
     "NWC5830": {
@@ -399,12 +463,16 @@
         ],
         "permissions": [
             "dashboard",
-            "profile",
-            "payroll"
+            "attendance_view",
+            "calendar",
+            "payroll",
+            "employee_documents",
+            "attendance_corrections",
+            "notifications",
+            "profile"
         ],
         "profile_photo": "",
         "identificacao": "",
-        "numero_inss": "",
         "data_de_contrato": ""
     },
     "NWC5529": {
@@ -423,12 +491,16 @@
         ],
         "permissions": [
             "dashboard",
-            "profile",
-            "payroll"
+            "attendance_view",
+            "calendar",
+            "payroll",
+            "employee_documents",
+            "attendance_corrections",
+            "notifications",
+            "profile"
         ],
         "profile_photo": "",
         "identificacao": "",
-        "numero_inss": "",
         "data_de_contrato": ""
     },
     "NWC5713": {
@@ -447,12 +519,16 @@
         ],
         "permissions": [
             "dashboard",
-            "profile",
-            "payroll"
+            "attendance_view",
+            "calendar",
+            "payroll",
+            "employee_documents",
+            "attendance_corrections",
+            "notifications",
+            "profile"
         ],
         "profile_photo": "",
         "identificacao": "",
-        "numero_inss": "",
         "data_de_contrato": ""
     },
     "NWC5396": {
@@ -471,12 +547,16 @@
         ],
         "permissions": [
             "dashboard",
-            "profile",
-            "payroll"
+            "attendance_view",
+            "calendar",
+            "payroll",
+            "employee_documents",
+            "attendance_corrections",
+            "notifications",
+            "profile"
         ],
         "profile_photo": "",
         "identificacao": "",
-        "numero_inss": "",
         "data_de_contrato": ""
     },
     "NWC8361": {
@@ -495,12 +575,16 @@
         ],
         "permissions": [
             "dashboard",
-            "profile",
-            "payroll"
+            "attendance_view",
+            "calendar",
+            "payroll",
+            "employee_documents",
+            "attendance_corrections",
+            "notifications",
+            "profile"
         ],
         "profile_photo": "",
         "identificacao": "",
-        "numero_inss": "",
         "data_de_contrato": ""
     },
     "NWC2300": {
@@ -519,12 +603,16 @@
         ],
         "permissions": [
             "dashboard",
-            "profile",
-            "payroll"
+            "attendance_view",
+            "calendar",
+            "payroll",
+            "employee_documents",
+            "attendance_corrections",
+            "notifications",
+            "profile"
         ],
         "profile_photo": "",
         "identificacao": "",
-        "numero_inss": "",
         "data_de_contrato": ""
     },
     "NWC5168": {
@@ -543,12 +631,16 @@
         ],
         "permissions": [
             "dashboard",
-            "profile",
-            "payroll"
+            "attendance_view",
+            "calendar",
+            "payroll",
+            "employee_documents",
+            "attendance_corrections",
+            "notifications",
+            "profile"
         ],
         "profile_photo": "",
         "identificacao": "",
-        "numero_inss": "",
         "data_de_contrato": ""
     },
     "NWC3711": {
@@ -567,12 +659,16 @@
         ],
         "permissions": [
             "dashboard",
-            "profile",
-            "payroll"
+            "attendance_view",
+            "calendar",
+            "payroll",
+            "employee_documents",
+            "attendance_corrections",
+            "notifications",
+            "profile"
         ],
         "profile_photo": "",
         "identificacao": "",
-        "numero_inss": "",
         "data_de_contrato": ""
     },
     "NWC5186": {
@@ -591,12 +687,16 @@
         ],
         "permissions": [
             "dashboard",
-            "profile",
-            "payroll"
+            "attendance_view",
+            "calendar",
+            "payroll",
+            "employee_documents",
+            "attendance_corrections",
+            "notifications",
+            "profile"
         ],
         "profile_photo": "",
         "identificacao": "",
-        "numero_inss": "",
         "data_de_contrato": ""
     },
     "NWC6702": {
@@ -615,12 +715,16 @@
         ],
         "permissions": [
             "dashboard",
-            "profile",
-            "payroll"
+            "attendance_view",
+            "calendar",
+            "payroll",
+            "employee_documents",
+            "attendance_corrections",
+            "notifications",
+            "profile"
         ],
         "profile_photo": "",
         "identificacao": "",
-        "numero_inss": "",
         "data_de_contrato": ""
     },
     "NWC3596": {
@@ -639,12 +743,16 @@
         ],
         "permissions": [
             "dashboard",
-            "profile",
-            "payroll"
+            "attendance_view",
+            "calendar",
+            "payroll",
+            "employee_documents",
+            "attendance_corrections",
+            "notifications",
+            "profile"
         ],
         "profile_photo": "",
         "identificacao": "",
-        "numero_inss": "",
         "data_de_contrato": ""
     },
     "NWC2757": {
@@ -663,12 +771,16 @@
         ],
         "permissions": [
             "dashboard",
-            "profile",
-            "payroll"
+            "attendance_view",
+            "calendar",
+            "payroll",
+            "employee_documents",
+            "attendance_corrections",
+            "notifications",
+            "profile"
         ],
         "profile_photo": "",
         "identificacao": "",
-        "numero_inss": "",
         "data_de_contrato": ""
     },
     "NWC4554": {
@@ -687,12 +799,16 @@
         ],
         "permissions": [
             "dashboard",
-            "profile",
-            "payroll"
+            "attendance_view",
+            "calendar",
+            "payroll",
+            "employee_documents",
+            "attendance_corrections",
+            "notifications",
+            "profile"
         ],
         "profile_photo": "",
         "identificacao": "",
-        "numero_inss": "",
         "data_de_contrato": ""
     },
     "NWC2624": {
@@ -711,12 +827,16 @@
         ],
         "permissions": [
             "dashboard",
-            "profile",
-            "payroll"
+            "attendance_view",
+            "calendar",
+            "payroll",
+            "employee_documents",
+            "attendance_corrections",
+            "notifications",
+            "profile"
         ],
         "profile_photo": "",
         "identificacao": "",
-        "numero_inss": "",
         "data_de_contrato": ""
     },
     "NWC3318": {
@@ -735,12 +855,16 @@
         ],
         "permissions": [
             "dashboard",
-            "profile",
-            "payroll"
+            "attendance_view",
+            "calendar",
+            "payroll",
+            "employee_documents",
+            "attendance_corrections",
+            "notifications",
+            "profile"
         ],
         "profile_photo": "",
         "identificacao": "",
-        "numero_inss": "",
         "data_de_contrato": ""
     },
     "NWC7347": {
@@ -759,12 +883,16 @@
         ],
         "permissions": [
             "dashboard",
-            "profile",
-            "payroll"
+            "attendance_view",
+            "calendar",
+            "payroll",
+            "employee_documents",
+            "attendance_corrections",
+            "notifications",
+            "profile"
         ],
         "profile_photo": "",
         "identificacao": "",
-        "numero_inss": "",
         "data_de_contrato": ""
     },
     "NWC8362": {
@@ -783,12 +911,16 @@
         ],
         "permissions": [
             "dashboard",
-            "profile",
-            "payroll"
+            "attendance_view",
+            "calendar",
+            "payroll",
+            "employee_documents",
+            "attendance_corrections",
+            "notifications",
+            "profile"
         ],
         "profile_photo": "",
         "identificacao": "",
-        "numero_inss": "",
         "data_de_contrato": ""
     },
     "NWC6715": {
@@ -807,12 +939,16 @@
         ],
         "permissions": [
             "dashboard",
-            "profile",
-            "payroll"
+            "attendance_view",
+            "calendar",
+            "payroll",
+            "employee_documents",
+            "attendance_corrections",
+            "notifications",
+            "profile"
         ],
         "profile_photo": "",
         "identificacao": "",
-        "numero_inss": "",
         "data_de_contrato": ""
     },
     "NWC6444": {
@@ -831,12 +967,16 @@
         ],
         "permissions": [
             "dashboard",
-            "profile",
-            "payroll"
+            "attendance_view",
+            "calendar",
+            "payroll",
+            "employee_documents",
+            "attendance_corrections",
+            "notifications",
+            "profile"
         ],
         "profile_photo": "",
         "identificacao": "",
-        "numero_inss": "",
         "data_de_contrato": ""
     },
     "LM11": {
@@ -855,21 +995,35 @@
         ],
         "permissions": [
             "dashboard",
+            "attendance_view",
+            "attendance_edit",
+            "employee_id_cards",
+            "employee_manage",
             "roster",
             "shift_approvals",
+            "overtime_approval",
+            "overtime_history",
             "password_management",
             "calendar",
             "leave_management",
             "payroll",
-            "employees_info",
-            "attendance_edit",
+            "employee_documents",
+            "attendance_corrections",
+            "notifications",
+            "workforce_hub",
+            "all_stores_attendance",
+            "biometric_sync",
+            "leave_balances",
+            "roster_copy",
+            "staffing_rules",
+            "audit_log",
+            "qr_directory",
             "user_management",
             "machine_management",
             "profile"
         ],
         "profile_photo": "",
         "identificacao": "",
-        "numero_inss": "",
         "data_de_contrato": ""
     },
     "LF07": {
@@ -888,21 +1042,35 @@
         ],
         "permissions": [
             "dashboard",
+            "attendance_view",
+            "attendance_edit",
+            "employee_id_cards",
+            "employee_manage",
             "roster",
             "shift_approvals",
+            "overtime_approval",
+            "overtime_history",
             "password_management",
             "calendar",
             "leave_management",
             "payroll",
-            "employees_info",
-            "attendance_edit",
+            "employee_documents",
+            "attendance_corrections",
+            "notifications",
+            "workforce_hub",
+            "all_stores_attendance",
+            "biometric_sync",
+            "leave_balances",
+            "roster_copy",
+            "staffing_rules",
+            "audit_log",
+            "qr_directory",
             "user_management",
             "machine_management",
             "profile"
         ],
         "profile_photo": "",
         "identificacao": "",
-        "numero_inss": "",
         "data_de_contrato": ""
     }
 }
