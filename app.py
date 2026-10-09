@@ -937,11 +937,11 @@ HTML_TEMPLATE = """
             }
         }
 
-        let timeLeft = 180;
+        let timeLeft = 900;
         let timerInterval;
         function startTimer() {
             clearInterval(timerInterval);
-            timeLeft = 180;
+            timeLeft = 900;
             timerInterval = setInterval(function() {
                 if (timeLeft <= 0) { window.location.reload(); } else {
                     let m = Math.floor(timeLeft / 60);
