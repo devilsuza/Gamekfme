@@ -19,7 +19,7 @@ from zk import ZK, const
 from pypdf import PdfReader, PdfWriter
 
 app = Flask(__name__)
-APP_BUILD = '2026-10-09-OFFER-PERIODS-V2'
+APP_BUILD = '2026-10-10-POPUP-SERVER-FIX-V7'
 app.secret_key = os.getenv('SECRET_KEY', 'gamek_fresmart_secret_key_sonu')
 
 UPLOAD_FOLDER = os.getenv('UPLOAD_FOLDER', 'uploads')
@@ -701,9 +701,9 @@ LOGIN_TEMPLATE = """
             <p class="text-xs text-slate-500 font-medium">Developed by Sonu Kumar <span class="text-emerald-600 font-semibold">(NCSA0608)</span></p>
         </div>
         {% with messages = get_flashed_messages(with_categories=true) %}
-            {% if messages %}{% for category, message in messages %}<div class="bg-{{ 'emerald' if category == 'success' else 'rose' }}-50 border-{{ 'emerald' if category == 'success' else 'rose' }}-200 text-{{ 'emerald' if category == 'success' else 'rose' }}-800 border text-xs font-semibold p-3.5 rounded-xl text-center">{{ message }}</div>{% endfor %}{% endif %}
+            {% if messages %}{% for category, message in messages %}<div class="hrms-flash hidden" data-category="{{ category }}" data-message="{{ message|e }}"></div>{% endfor %}{% endif %}
         {% endwith %}
-        {% if error %}<div class="bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold p-3.5 rounded-xl text-center">{{ error }}</div>{% endif %}
+        {% if error %}<div class="hrms-flash hidden" data-category="danger" data-message="{{ error|e }}"></div>{% endif %}
         <form method="POST" action="/login" class="space-y-4">
             <div>
                 <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Store/Employee Code</label>
@@ -729,7 +729,30 @@ LOGIN_TEMPLATE = """
    ['placeholder','title','aria-label','value'].forEach(a=>{const v=el.getAttribute(a);if(v)el.setAttribute(a,cv(v))});
  });
  document.documentElement.lang='pt';document.title=cv(document.title);
-}document.addEventListener('DOMContentLoaded',()=>hrmsTranslate());</script></body>
+}document.addEventListener('DOMContentLoaded',()=>hrmsTranslate());</script>
+<style id="hrms-toast-style">
+#hrms-toast-host{position:fixed;top:18px;right:18px;z-index:99999;width:min(420px,calc(100vw - 36px));display:flex;flex-direction:column;gap:10px;pointer-events:none}
+.hrms-toast{pointer-events:auto;display:flex;align-items:flex-start;gap:12px;padding:14px 16px;border-radius:14px;color:#fff;font:700 12px/1.45 Inter,system-ui,sans-serif;box-shadow:0 18px 45px rgba(15,23,42,.24);transform:translateX(0);opacity:1;transition:opacity .3s ease,transform .3s ease;overflow-wrap:anywhere}
+.hrms-toast-success{background:#059669}.hrms-toast-danger,.hrms-toast-error{background:#e11d48}.hrms-toast-warning{background:#d97706}.hrms-toast-info{background:#2563eb}
+.hrms-toast-hide{opacity:0;transform:translateX(30px)}.hrms-toast-message{flex:1}.hrms-toast-close{border:0;background:transparent;color:#fff;font-size:21px;line-height:1;cursor:pointer;min-height:0;padding:0 0 0 6px}
+@media(max-width:640px){ #hrms-toast-host{top:10px;right:10px;width:calc(100vw - 20px)}}
+</style>
+<script id="hrms-toast-script">
+(function(){
+  function host(){let h=document.getElementById('hrms-toast-host');if(!h){h=document.createElement('div');h.id='hrms-toast-host';h.setAttribute('aria-live','polite');h.setAttribute('aria-atomic','false');document.body.appendChild(h)}return h}
+  window.showToast=function(message,type='success'){
+    if(message===undefined||message===null||String(message).trim()==='')return;
+    const normalized=(type==='error'?'danger':type)||'info';
+    const t=document.createElement('div');t.className='hrms-toast hrms-toast-'+normalized;t.setAttribute('role',normalized==='danger'?'alert':'status');
+    const m=document.createElement('div');m.className='hrms-toast-message';m.textContent=String(message);
+    const x=document.createElement('button');x.type='button';x.className='hrms-toast-close';x.innerHTML='&times;';x.setAttribute('aria-label','Close notification');
+    const remove=()=>{if(t.dataset.closing)return;t.dataset.closing='1';t.classList.add('hrms-toast-hide');setTimeout(()=>t.remove(),300)};
+    x.addEventListener('click',remove);t.append(m,x);host().appendChild(t);setTimeout(remove,5000);
+  };
+  document.addEventListener('DOMContentLoaded',()=>document.querySelectorAll('.hrms-flash').forEach(el=>{showToast(el.dataset.message,el.dataset.category);el.remove()}));
+})();
+</script>
+</body>
 </html>
 """
 
@@ -754,15 +777,7 @@ RESET_TEMPLATE = """
             <p class="text-xs text-slate-500 font-medium">Create a new password request</p>
         </div>
 
-        {% with messages = get_flashed_messages(with_categories=true) %}
-            {% if messages %}
-                {% for category, message in messages %}
-                <div class="{% if category == 'success' %}bg-emerald-50 border-emerald-200 text-emerald-800{% else %}bg-rose-50 border-rose-200 text-rose-700{% endif %} border text-xs font-semibold p-3.5 rounded-xl text-center">
-                    {{ message }}
-                </div>
-                {% endfor %}
-            {% endif %}
-        {% endwith %}
+        {% with messages = get_flashed_messages(with_categories=true) %}{% if messages %}{% for category, message in messages %}<div class="hrms-flash hidden" data-category="{{ category }}" data-message="{{ message|e }}"></div>{% endfor %}{% endif %}{% endwith %}
 
         <form method="POST" action="/reset_password" class="space-y-4">
             <div>
@@ -791,7 +806,30 @@ RESET_TEMPLATE = """
    ['placeholder','title','aria-label','value'].forEach(a=>{const v=el.getAttribute(a);if(v)el.setAttribute(a,cv(v))});
  });
  document.documentElement.lang='pt';document.title=cv(document.title);
-}document.addEventListener('DOMContentLoaded',()=>hrmsTranslate());</script></body>
+}document.addEventListener('DOMContentLoaded',()=>hrmsTranslate());</script>
+<style id="hrms-toast-style">
+#hrms-toast-host{position:fixed;top:18px;right:18px;z-index:99999;width:min(420px,calc(100vw - 36px));display:flex;flex-direction:column;gap:10px;pointer-events:none}
+.hrms-toast{pointer-events:auto;display:flex;align-items:flex-start;gap:12px;padding:14px 16px;border-radius:14px;color:#fff;font:700 12px/1.45 Inter,system-ui,sans-serif;box-shadow:0 18px 45px rgba(15,23,42,.24);transform:translateX(0);opacity:1;transition:opacity .3s ease,transform .3s ease;overflow-wrap:anywhere}
+.hrms-toast-success{background:#059669}.hrms-toast-danger,.hrms-toast-error{background:#e11d48}.hrms-toast-warning{background:#d97706}.hrms-toast-info{background:#2563eb}
+.hrms-toast-hide{opacity:0;transform:translateX(30px)}.hrms-toast-message{flex:1}.hrms-toast-close{border:0;background:transparent;color:#fff;font-size:21px;line-height:1;cursor:pointer;min-height:0;padding:0 0 0 6px}
+@media(max-width:640px){ #hrms-toast-host{top:10px;right:10px;width:calc(100vw - 20px)}}
+</style>
+<script id="hrms-toast-script">
+(function(){
+  function host(){let h=document.getElementById('hrms-toast-host');if(!h){h=document.createElement('div');h.id='hrms-toast-host';h.setAttribute('aria-live','polite');h.setAttribute('aria-atomic','false');document.body.appendChild(h)}return h}
+  window.showToast=function(message,type='success'){
+    if(message===undefined||message===null||String(message).trim()==='')return;
+    const normalized=(type==='error'?'danger':type)||'info';
+    const t=document.createElement('div');t.className='hrms-toast hrms-toast-'+normalized;t.setAttribute('role',normalized==='danger'?'alert':'status');
+    const m=document.createElement('div');m.className='hrms-toast-message';m.textContent=String(message);
+    const x=document.createElement('button');x.type='button';x.className='hrms-toast-close';x.innerHTML='&times;';x.setAttribute('aria-label','Close notification');
+    const remove=()=>{if(t.dataset.closing)return;t.dataset.closing='1';t.classList.add('hrms-toast-hide');setTimeout(()=>t.remove(),300)};
+    x.addEventListener('click',remove);t.append(m,x);host().appendChild(t);setTimeout(remove,5000);
+  };
+  document.addEventListener('DOMContentLoaded',()=>document.querySelectorAll('.hrms-flash').forEach(el=>{showToast(el.dataset.message,el.dataset.category);el.remove()}));
+})();
+</script>
+</body>
 </html>
 """
 
@@ -829,7 +867,7 @@ HTML_TEMPLATE = """
         function resetInactivityTimer() {
             clearTimeout(inactivityTimer);
             inactivityTimer = setTimeout(() => {
-                alert("Session timeout ho gaya hai. Dobara login karein.");
+                showToast("Session timeout ho gaya hai. Dobara login karein.", "warning");
                 window.location.href = "/logout";
             }, INACTIVITY_LIMIT);
         }
@@ -1005,7 +1043,7 @@ HTML_TEMPLATE = """
         function loadRosterPlanner() {
             const monthStr = document.getElementById('rp-month').value;
             const table = document.getElementById('roster-matrix-table');
-            if (!monthStr) { alert('Month select karein'); return; }
+            if (!monthStr) { showToast('Month select karein','warning'); return; }
             table.innerHTML = '<div class="py-12 text-center text-slate-400">Loading monthly roster...</div>';
             fetch(`/api/roster_matrix?month=${encodeURIComponent(monthStr)}`)
             .then(r => { if(!r.ok) throw new Error('Roster load failed'); return r.json(); })
@@ -1093,7 +1131,7 @@ HTML_TEMPLATE = """
         function applyRosterWeekChoice() {
             if(!pendingRosterChange) return;
             const modes=[...document.querySelectorAll('input[name="week-apply-option"]:checked')].map(x=>x.value);
-            if(!modes.length){alert('Kam se kam ek option select karein.');return;}
+            if(!modes.length){showToast('Kam se kam ek option select karein.','warning');return;}
             const employee=rosterMatrixData.employees.find(e=>e.user_id===pendingRosterChange.empId);
             if(!employee) return;
             const dateSet=new Set();
@@ -1168,7 +1206,7 @@ HTML_TEMPLATE = """
         }
         function exportRosterExcel() {
             const month=document.getElementById('rp-month').value;
-            if(!month){alert('Month select karein');return;}
+            if(!month){showToast('Month select karein','warning');return;}
             window.location.href='/export_roster_excel?month='+encodeURIComponent(month);
         }
         function saveRoster() {
@@ -1176,8 +1214,8 @@ HTML_TEMPLATE = """
             document.querySelectorAll('.roster-matrix-select').forEach(x=>updates.push({emp_id:x.dataset.emp,date:x.dataset.date,value:x.value}));
             const btn=document.getElementById('save-roster-btn');btn.disabled=true;btn.textContent='Saving...';
             fetch('/api/save_roster_matrix',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({updates})})
-            .then(r=>r.json()).then(res=>{alert(res.message||'Monthly roster saved');btn.disabled=false;btn.textContent='Save Monthly Roster';const notice=document.getElementById('roster-unsaved-notice');if(notice)notice.classList.add('hidden');loadRosterPlanner()})
-            .catch(e=>{alert(e.message);btn.disabled=false;btn.textContent='Save Monthly Roster'});
+            .then(r=>r.json()).then(res=>{showToast(res.message||'Monthly roster saved','success');btn.disabled=false;btn.textContent='Save Monthly Roster';const notice=document.getElementById('roster-unsaved-notice');if(notice)notice.classList.add('hidden');loadRosterPlanner()})
+            .catch(e=>{showToast(e.message,'danger');btn.disabled=false;btn.textContent='Save Monthly Roster'});
         }
 
         document.addEventListener('DOMContentLoaded', function() {
@@ -1425,14 +1463,9 @@ HTML_TEMPLATE = """
         <main class="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
             
             {% with messages = get_flashed_messages(with_categories=true) %}
-                {% if messages %}
-                    {% for category, message in messages %}
-                    <div class="{% if category == 'success' %}bg-emerald-50 border-emerald-200 text-emerald-800{% else %}bg-rose-50 border-rose-200 text-rose-700{% endif %} border text-xs font-bold p-4 rounded-2xl shadow-sm flex items-center justify-between">
-                        <span>{{ message }}</span>
-                        <span class="cursor-pointer text-lg px-2" onclick="this.parentElement.style.display='none'">✕</span>
-                    </div>
-                    {% endfor %}
-                {% endif %}
+                {% if messages %}{% for category, message in messages %}
+                <div class="hrms-flash hidden" data-category="{{ category }}" data-message="{{ message|e }}"></div>
+                {% endfor %}{% endif %}
             {% endwith %}
 
             <!-- Quick Top Cards / Stat Overview -->
@@ -2142,7 +2175,30 @@ new MutationObserver(ms=>{if(window.HRMS_LANGUAGE==='pt')ms.forEach(m=>m.addedNo
   window.filterKviType=function(type){const sel=document.getElementById('kvi-type-filter');if(sel)sel.value=type;window.applyKviFilters();document.getElementById('kvi-article-table')?.scrollIntoView({behavior:'smooth',block:'start'});};
   document.addEventListener('DOMContentLoaded',()=>{enhance(document);if(window.applyKviFilters)window.applyKviFilters();});window.enhanceSortableTables=enhance;
 })();
-</script></body>
+</script>
+<style id="hrms-toast-style">
+#hrms-toast-host{position:fixed;top:18px;right:18px;z-index:99999;width:min(420px,calc(100vw - 36px));display:flex;flex-direction:column;gap:10px;pointer-events:none}
+.hrms-toast{pointer-events:auto;display:flex;align-items:flex-start;gap:12px;padding:14px 16px;border-radius:14px;color:#fff;font:700 12px/1.45 Inter,system-ui,sans-serif;box-shadow:0 18px 45px rgba(15,23,42,.24);transform:translateX(0);opacity:1;transition:opacity .3s ease,transform .3s ease;overflow-wrap:anywhere}
+.hrms-toast-success{background:#059669}.hrms-toast-danger,.hrms-toast-error{background:#e11d48}.hrms-toast-warning{background:#d97706}.hrms-toast-info{background:#2563eb}
+.hrms-toast-hide{opacity:0;transform:translateX(30px)}.hrms-toast-message{flex:1}.hrms-toast-close{border:0;background:transparent;color:#fff;font-size:21px;line-height:1;cursor:pointer;min-height:0;padding:0 0 0 6px}
+@media(max-width:640px){ #hrms-toast-host{top:10px;right:10px;width:calc(100vw - 20px)}}
+</style>
+<script id="hrms-toast-script">
+(function(){
+  function host(){let h=document.getElementById('hrms-toast-host');if(!h){h=document.createElement('div');h.id='hrms-toast-host';h.setAttribute('aria-live','polite');h.setAttribute('aria-atomic','false');document.body.appendChild(h)}return h}
+  window.showToast=function(message,type='success'){
+    if(message===undefined||message===null||String(message).trim()==='')return;
+    const normalized=(type==='error'?'danger':type)||'info';
+    const t=document.createElement('div');t.className='hrms-toast hrms-toast-'+normalized;t.setAttribute('role',normalized==='danger'?'alert':'status');
+    const m=document.createElement('div');m.className='hrms-toast-message';m.textContent=String(message);
+    const x=document.createElement('button');x.type='button';x.className='hrms-toast-close';x.innerHTML='&times;';x.setAttribute('aria-label','Close notification');
+    const remove=()=>{if(t.dataset.closing)return;t.dataset.closing='1';t.classList.add('hrms-toast-hide');setTimeout(()=>t.remove(),300)};
+    x.addEventListener('click',remove);t.append(m,x);host().appendChild(t);setTimeout(remove,5000);
+  };
+  document.addEventListener('DOMContentLoaded',()=>document.querySelectorAll('.hrms-flash').forEach(el=>{showToast(el.dataset.message,el.dataset.category);el.remove()}));
+})();
+</script>
+</body>
 </html>
 """
 
@@ -2236,6 +2292,29 @@ ID_CARD_TEMPLATE = """
             });
         }
     </script>
+
+<style id="hrms-toast-style">
+#hrms-toast-host{position:fixed;top:18px;right:18px;z-index:99999;width:min(420px,calc(100vw - 36px));display:flex;flex-direction:column;gap:10px;pointer-events:none}
+.hrms-toast{pointer-events:auto;display:flex;align-items:flex-start;gap:12px;padding:14px 16px;border-radius:14px;color:#fff;font:700 12px/1.45 Inter,system-ui,sans-serif;box-shadow:0 18px 45px rgba(15,23,42,.24);transform:translateX(0);opacity:1;transition:opacity .3s ease,transform .3s ease;overflow-wrap:anywhere}
+.hrms-toast-success{background:#059669}.hrms-toast-danger,.hrms-toast-error{background:#e11d48}.hrms-toast-warning{background:#d97706}.hrms-toast-info{background:#2563eb}
+.hrms-toast-hide{opacity:0;transform:translateX(30px)}.hrms-toast-message{flex:1}.hrms-toast-close{border:0;background:transparent;color:#fff;font-size:21px;line-height:1;cursor:pointer;min-height:0;padding:0 0 0 6px}
+@media(max-width:640px){ #hrms-toast-host{top:10px;right:10px;width:calc(100vw - 20px)}}
+</style>
+<script id="hrms-toast-script">
+(function(){
+  function host(){let h=document.getElementById('hrms-toast-host');if(!h){h=document.createElement('div');h.id='hrms-toast-host';h.setAttribute('aria-live','polite');h.setAttribute('aria-atomic','false');document.body.appendChild(h)}return h}
+  window.showToast=function(message,type='success'){
+    if(message===undefined||message===null||String(message).trim()==='')return;
+    const normalized=(type==='error'?'danger':type)||'info';
+    const t=document.createElement('div');t.className='hrms-toast hrms-toast-'+normalized;t.setAttribute('role',normalized==='danger'?'alert':'status');
+    const m=document.createElement('div');m.className='hrms-toast-message';m.textContent=String(message);
+    const x=document.createElement('button');x.type='button';x.className='hrms-toast-close';x.innerHTML='&times;';x.setAttribute('aria-label','Close notification');
+    const remove=()=>{if(t.dataset.closing)return;t.dataset.closing='1';t.classList.add('hrms-toast-hide');setTimeout(()=>t.remove(),300)};
+    x.addEventListener('click',remove);t.append(m,x);host().appendChild(t);setTimeout(remove,5000);
+  };
+  document.addEventListener('DOMContentLoaded',()=>document.querySelectorAll('.hrms-flash').forEach(el=>{showToast(el.dataset.message,el.dataset.category);el.remove()}));
+})();
+</script>
 </body>
 </html>
 """
@@ -3190,9 +3269,32 @@ BUSINESS_PAGE_TEMPLATE='''<!doctype html><html><head><meta charset="utf-8"><meta
   document.addEventListener('DOMContentLoaded',()=>enhance(document));window.enhanceSortableTables=enhance;
 })();
 </script><script>function toggleAllKvi(master){document.querySelectorAll('.kvi-row').forEach(r=>{const cb=r.querySelector('.kvi-select');if(cb&&r.style.display!=='none')cb.checked=master.checked;});}
-function deleteSelectedKvi(){const count=document.querySelectorAll('.kvi-select:checked').length;if(!count){alert('Select at least one article.');return;}if(confirm('Delete '+count+' selected article(s)? This cannot be undone.')){document.getElementById('kvi-delete-action').value='selected';document.getElementById('kvi-delete-form').submit();}}
+function deleteSelectedKvi(){const count=document.querySelectorAll('.kvi-select:checked').length;if(!count){showToast('Select at least one article.','warning');return;}if(confirm('Delete '+count+' selected article(s)? This cannot be undone.')){document.getElementById('kvi-delete-action').value='selected';document.getElementById('kvi-delete-form').submit();}}
 function deleteAllKvi(){if(confirm('Delete ALL existing KVI, KVI+Power and Power SKU article data? This cannot be undone.')){document.getElementById('kvi-delete-action').value='all';document.getElementById('kvi-delete-form').submit();}}
-function showSelectedFiles(input,targetId){const box=document.getElementById(targetId);const files=Array.from(input.files||[]);if(!box)return;box.textContent=files.length?files.length+' file(s) selected: '+files.map(f=>f.name).join(', '):'You can select multiple files at once.';}</script></body></html>'''
+function showSelectedFiles(input,targetId){const box=document.getElementById(targetId);const files=Array.from(input.files||[]);if(!box)return;box.textContent=files.length?files.length+' file(s) selected: '+files.map(f=>f.name).join(', '):'You can select multiple files at once.';}</script>
+<style id="hrms-toast-style">
+#hrms-toast-host{position:fixed;top:18px;right:18px;z-index:99999;width:min(420px,calc(100vw - 36px));display:flex;flex-direction:column;gap:10px;pointer-events:none}
+.hrms-toast{pointer-events:auto;display:flex;align-items:flex-start;gap:12px;padding:14px 16px;border-radius:14px;color:#fff;font:700 12px/1.45 Inter,system-ui,sans-serif;box-shadow:0 18px 45px rgba(15,23,42,.24);transform:translateX(0);opacity:1;transition:opacity .3s ease,transform .3s ease;overflow-wrap:anywhere}
+.hrms-toast-success{background:#059669}.hrms-toast-danger,.hrms-toast-error{background:#e11d48}.hrms-toast-warning{background:#d97706}.hrms-toast-info{background:#2563eb}
+.hrms-toast-hide{opacity:0;transform:translateX(30px)}.hrms-toast-message{flex:1}.hrms-toast-close{border:0;background:transparent;color:#fff;font-size:21px;line-height:1;cursor:pointer;min-height:0;padding:0 0 0 6px}
+@media(max-width:640px){ #hrms-toast-host{top:10px;right:10px;width:calc(100vw - 20px)}}
+</style>
+<script id="hrms-toast-script">
+(function(){
+  function host(){let h=document.getElementById('hrms-toast-host');if(!h){h=document.createElement('div');h.id='hrms-toast-host';h.setAttribute('aria-live','polite');h.setAttribute('aria-atomic','false');document.body.appendChild(h)}return h}
+  window.showToast=function(message,type='success'){
+    if(message===undefined||message===null||String(message).trim()==='')return;
+    const normalized=(type==='error'?'danger':type)||'info';
+    const t=document.createElement('div');t.className='hrms-toast hrms-toast-'+normalized;t.setAttribute('role',normalized==='danger'?'alert':'status');
+    const m=document.createElement('div');m.className='hrms-toast-message';m.textContent=String(message);
+    const x=document.createElement('button');x.type='button';x.className='hrms-toast-close';x.innerHTML='&times;';x.setAttribute('aria-label','Close notification');
+    const remove=()=>{if(t.dataset.closing)return;t.dataset.closing='1';t.classList.add('hrms-toast-hide');setTimeout(()=>t.remove(),300)};
+    x.addEventListener('click',remove);t.append(m,x);host().appendChild(t);setTimeout(remove,5000);
+  };
+  document.addEventListener('DOMContentLoaded',()=>document.querySelectorAll('.hrms-flash').forEach(el=>{showToast(el.dataset.message,el.dataset.category);el.remove()}));
+})();
+</script>
+</body></html>'''
 
 def business_page(title,icon,subtitle,body):
     return render_template_string(BUSINESS_PAGE_TEMPLATE,title=title,icon=icon,subtitle=subtitle,body=body)
@@ -3543,6 +3645,29 @@ function hrmsTranslate(root=document.body){
 document.addEventListener('DOMContentLoaded',()=>hrmsTranslate());
 new MutationObserver(ms=>{if(window.HRMS_LANGUAGE==='pt')ms.forEach(m=>m.addedNodes.forEach(n=>{if(n.nodeType===1)hrmsTranslate(n)}))}).observe(document.documentElement,{childList:true,subtree:true});
 </script>
+
+<style id="hrms-toast-style">
+#hrms-toast-host{position:fixed;top:18px;right:18px;z-index:99999;width:min(420px,calc(100vw - 36px));display:flex;flex-direction:column;gap:10px;pointer-events:none}
+.hrms-toast{pointer-events:auto;display:flex;align-items:flex-start;gap:12px;padding:14px 16px;border-radius:14px;color:#fff;font:700 12px/1.45 Inter,system-ui,sans-serif;box-shadow:0 18px 45px rgba(15,23,42,.24);transform:translateX(0);opacity:1;transition:opacity .3s ease,transform .3s ease;overflow-wrap:anywhere}
+.hrms-toast-success{background:#059669}.hrms-toast-danger,.hrms-toast-error{background:#e11d48}.hrms-toast-warning{background:#d97706}.hrms-toast-info{background:#2563eb}
+.hrms-toast-hide{opacity:0;transform:translateX(30px)}.hrms-toast-message{flex:1}.hrms-toast-close{border:0;background:transparent;color:#fff;font-size:21px;line-height:1;cursor:pointer;min-height:0;padding:0 0 0 6px}
+@media(max-width:640px){ #hrms-toast-host{top:10px;right:10px;width:calc(100vw - 20px)}}
+</style>
+<script id="hrms-toast-script">
+(function(){
+  function host(){let h=document.getElementById('hrms-toast-host');if(!h){h=document.createElement('div');h.id='hrms-toast-host';h.setAttribute('aria-live','polite');h.setAttribute('aria-atomic','false');document.body.appendChild(h)}return h}
+  window.showToast=function(message,type='success'){
+    if(message===undefined||message===null||String(message).trim()==='')return;
+    const normalized=(type==='error'?'danger':type)||'info';
+    const t=document.createElement('div');t.className='hrms-toast hrms-toast-'+normalized;t.setAttribute('role',normalized==='danger'?'alert':'status');
+    const m=document.createElement('div');m.className='hrms-toast-message';m.textContent=String(message);
+    const x=document.createElement('button');x.type='button';x.className='hrms-toast-close';x.innerHTML='&times;';x.setAttribute('aria-label','Close notification');
+    const remove=()=>{if(t.dataset.closing)return;t.dataset.closing='1';t.classList.add('hrms-toast-hide');setTimeout(()=>t.remove(),300)};
+    x.addEventListener('click',remove);t.append(m,x);host().appendChild(t);setTimeout(remove,5000);
+  };
+  document.addEventListener('DOMContentLoaded',()=>document.querySelectorAll('.hrms-flash').forEach(el=>{showToast(el.dataset.message,el.dataset.category);el.remove()}));
+})();
+</script>
 </body></html>'''
 
 @app.route('/workforce_hub')
@@ -3594,7 +3719,30 @@ SUITE_TABLE='''<!doctype html><html><head><meta charset="utf-8"><meta name="view
   window.filterKviType=function(type){const sel=document.getElementById('kvi-type-filter');if(sel)sel.value=type;window.applyKviFilters();document.getElementById('kvi-article-table')?.scrollIntoView({behavior:'smooth',block:'start'});};
   document.addEventListener('DOMContentLoaded',()=>enhance(document));window.enhanceSortableTables=enhance;
 })();
-</script></body></html>'''
+</script>
+<style id="hrms-toast-style">
+#hrms-toast-host{position:fixed;top:18px;right:18px;z-index:99999;width:min(420px,calc(100vw - 36px));display:flex;flex-direction:column;gap:10px;pointer-events:none}
+.hrms-toast{pointer-events:auto;display:flex;align-items:flex-start;gap:12px;padding:14px 16px;border-radius:14px;color:#fff;font:700 12px/1.45 Inter,system-ui,sans-serif;box-shadow:0 18px 45px rgba(15,23,42,.24);transform:translateX(0);opacity:1;transition:opacity .3s ease,transform .3s ease;overflow-wrap:anywhere}
+.hrms-toast-success{background:#059669}.hrms-toast-danger,.hrms-toast-error{background:#e11d48}.hrms-toast-warning{background:#d97706}.hrms-toast-info{background:#2563eb}
+.hrms-toast-hide{opacity:0;transform:translateX(30px)}.hrms-toast-message{flex:1}.hrms-toast-close{border:0;background:transparent;color:#fff;font-size:21px;line-height:1;cursor:pointer;min-height:0;padding:0 0 0 6px}
+@media(max-width:640px){ #hrms-toast-host{top:10px;right:10px;width:calc(100vw - 20px)}}
+</style>
+<script id="hrms-toast-script">
+(function(){
+  function host(){let h=document.getElementById('hrms-toast-host');if(!h){h=document.createElement('div');h.id='hrms-toast-host';h.setAttribute('aria-live','polite');h.setAttribute('aria-atomic','false');document.body.appendChild(h)}return h}
+  window.showToast=function(message,type='success'){
+    if(message===undefined||message===null||String(message).trim()==='')return;
+    const normalized=(type==='error'?'danger':type)||'info';
+    const t=document.createElement('div');t.className='hrms-toast hrms-toast-'+normalized;t.setAttribute('role',normalized==='danger'?'alert':'status');
+    const m=document.createElement('div');m.className='hrms-toast-message';m.textContent=String(message);
+    const x=document.createElement('button');x.type='button';x.className='hrms-toast-close';x.innerHTML='&times;';x.setAttribute('aria-label','Close notification');
+    const remove=()=>{if(t.dataset.closing)return;t.dataset.closing='1';t.classList.add('hrms-toast-hide');setTimeout(()=>t.remove(),300)};
+    x.addEventListener('click',remove);t.append(m,x);host().appendChild(t);setTimeout(remove,5000);
+  };
+  document.addEventListener('DOMContentLoaded',()=>document.querySelectorAll('.hrms-flash').forEach(el=>{showToast(el.dataset.message,el.dataset.category);el.remove()}));
+})();
+</script>
+</body></html>'''
 
 
 def tr_ui(text):
