@@ -19,7 +19,7 @@ from zk import ZK, const
 from pypdf import PdfReader, PdfWriter
 
 app = Flask(__name__)
-APP_BUILD = '2026-10-10-POPUP-SERVER-FIX-V7'
+APP_BUILD = '2026-10-10-ALL-EMP-ATTENDANCE-RIGHT-V8'
 app.secret_key = os.getenv('SECRET_KEY', 'gamek_fresmart_secret_key_sonu')
 
 UPLOAD_FOLDER = os.getenv('UPLOAD_FOLDER', 'uploads')
@@ -83,9 +83,9 @@ PASSWORD_RESETS_FILE = 'password_resets.json'
 USERS_DB_FILE = 'users_db.json'
 SALARY_SLIPS_FILE = 'salary_slips.json'
 MACHINES_DB_FILE = 'machines_db.json'
-PERMISSIONS = ['dashboard','attendance_view','attendance_edit','employee_id_cards','employee_manage','roster','shift_approvals','overtime_approval','overtime_history','password_management','calendar','leave_management','payroll','employee_documents','attendance_corrections','notifications','workforce_hub','all_stores_attendance','biometric_sync','leave_balances','roster_copy','staffing_rules','audit_log','qr_directory','user_management','machine_management','profile']
+PERMISSIONS = ['dashboard','attendance_view','view_all_employee_attendance','attendance_edit','employee_id_cards','employee_manage','roster','shift_approvals','overtime_approval','overtime_history','password_management','calendar','leave_management','payroll','employee_documents','attendance_corrections','notifications','workforce_hub','all_stores_attendance','biometric_sync','leave_balances','roster_copy','staffing_rules','audit_log','qr_directory','user_management','machine_management','profile']
 PERMISSION_LABELS = {
- 'dashboard':'Dashboard','attendance_view':'Attendance View','attendance_edit':'Edit Attendance Times','employee_id_cards':'Employee ID Cards','employee_manage':'Add / Manage Employees','roster':'Roster Planner','shift_approvals':'Shift Approvals','overtime_approval':'Overtime Approval','overtime_history':'Overtime History','password_management':'Password Management','calendar':'Calendar & Rota','leave_management':'Leave Management','payroll':'Payroll & Reports','employee_documents':'Employee Documents','attendance_corrections':'Attendance Corrections','notifications':'Notifications','workforce_hub':'Workforce Automation Hub','all_stores_attendance':'All Stores Attendance','biometric_sync':'Biometric Sync History','leave_balances':'Leave Balances','roster_copy':'Roster Copy','staffing_rules':'Staffing Rules','audit_log':'Audit Log','qr_directory':'Employee QR Directory','user_management':'User Management','machine_management':'Machine Management','profile':'My Profile'
+ 'dashboard':'Dashboard','attendance_view':'Attendance View','view_all_employee_attendance':'View All Employees Attendance','attendance_edit':'Edit Attendance Times','employee_id_cards':'Employee ID Cards','employee_manage':'Add / Manage Employees','roster':'Roster Planner','shift_approvals':'Shift Approvals','overtime_approval':'Overtime Approval','overtime_history':'Overtime History','password_management':'Password Management','calendar':'Calendar & Rota','leave_management':'Leave Management','payroll':'Payroll & Reports','employee_documents':'Employee Documents','attendance_corrections':'Attendance Corrections','notifications':'Notifications','workforce_hub':'Workforce Automation Hub','all_stores_attendance':'All Stores Attendance','biometric_sync':'Biometric Sync History','leave_balances':'Leave Balances','roster_copy':'Roster Copy','staffing_rules':'Staffing Rules','audit_log':'Audit Log','qr_directory':'Employee QR Directory','user_management':'User Management','machine_management':'Machine Management','profile':'My Profile'
 }
 
 # FIX: Added 'payroll' permission to EMPLOYEE role
@@ -1537,7 +1537,7 @@ HTML_TEMPLATE = """
                         <label class="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">End Date</label>
                         <input type="date" name="end_date" value="{{ end_date }}" onchange="this.form.submit()" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm font-medium focus:ring-2 focus:ring-emerald-500 focus:outline-none">
                     </div>
-                    {% if role == 'admin' or role == 'developer' %}
+                    {% if role == 'admin' or role == 'developer' or can_view_all_employee_attendance %}
                     <div>
                         <label class="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">Employee Filter</label>
                         <select name="employee" onchange="this.form.submit()" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm font-medium focus:ring-2 focus:ring-emerald-500 focus:outline-none">
@@ -2581,7 +2581,12 @@ def index():
     accessible_stores=get_user_stores(logged_user_id)
     requested_store=(request.args.get('store') or session.get('store') or (accessible_stores[0] if accessible_stores else 'LM11')).upper()
     store=requested_store if requested_store in accessible_stores else (accessible_stores[0] if accessible_stores else 'LM11'); session['store']=store; session['stores']=accessible_stores
-    portal_name=MACHINES.get(store,MACHINES.get('LM11'))['name']; logged_user_name=session.get('user_name'); selected_emp=logged_user_id if role=='employee' else request.args.get('employee','ALL')
+    portal_name=MACHINES.get(store,MACHINES.get('LM11'))['name']; logged_user_name=session.get('user_name')
+    can_view_all_employee_attendance = role in ['admin','developer'] or session_has_permission('view_all_employee_attendance')
+    # Employees remain restricted to their own record unless this explicit read-only right is assigned.
+    selected_emp = request.args.get('employee','ALL') if can_view_all_employee_attendance else logged_user_id
+    if selected_emp != 'ALL' and selected_emp not in db_all:
+        selected_emp = 'ALL' if can_view_all_employee_attendance else logged_user_id
         
     today_str = datetime.now().strftime('%Y-%m-%d')
     start_date = request.args.get('start_date', today_str)
@@ -2667,6 +2672,7 @@ def index():
     return render_template_string(
         HTML_TEMPLATE,
         logs=logs, all_users=all_users, start_date=start_date, end_date=end_date, selected_emp=selected_emp,
+        can_view_all_employee_attendance=can_view_all_employee_attendance,
         grand_total_hours=g_hrs, grand_total_lunch_hours=g_l_hrs, grand_total_variance=g_var, stats=stats,
         raw_punches=raw_punches, role=role, logged_user_name=logged_user_name, portal_name=portal_name,
         leave_requests=current_user_leave_requests, pending_leaves_count=pending_leaves_count,
