@@ -153,6 +153,58 @@ EMPLOYEE_OVERRIDES = {
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
+
+def upload_file_to_github(local_path, github_path):
+    """Upload or update a file in the configured GitHub repository.
+
+    Returns True when the remote upload succeeds. If GitHub is not configured
+    or is temporarily unavailable, the local leave submission can still
+    continue and the failure is recorded in the application log.
+    """
+    if not GITHUB_TOKEN:
+        app.logger.warning(
+            'GITHUB_TOKEN is not configured; GitHub upload skipped for %s',
+            github_path
+        )
+        return False
+
+    try:
+        github_client = Github(GITHUB_TOKEN)
+        repo = github_client.get_repo(GITHUB_REPO_NAME)
+
+        with open(local_path, 'rb') as file_obj:
+            content = file_obj.read()
+
+        try:
+            existing_file = repo.get_contents(github_path, ref=GITHUB_BRANCH)
+            repo.update_file(
+                github_path,
+                f'Update leave document: {os.path.basename(github_path)}',
+                content,
+                existing_file.sha,
+                branch=GITHUB_BRANCH
+            )
+        except Exception as lookup_error:
+            # A 404 means the file does not exist yet. Other errors are logged,
+            # then create_file is attempted so transient lookup issues do not
+            # immediately break an employee's leave request.
+            app.logger.info(
+                'GitHub file lookup failed for %s; attempting create: %s',
+                github_path,
+                lookup_error
+            )
+            repo.create_file(
+                github_path,
+                f'Upload leave document: {os.path.basename(github_path)}',
+                content,
+                branch=GITHUB_BRANCH
+            )
+
+        return True
+    except Exception:
+        app.logger.exception('GitHub upload failed for %s', github_path)
+        return False
+
 def load_json_file(filepath):
     if os.path.exists(filepath):
         try:
@@ -3070,12 +3122,30 @@ def apply_leave():
     file = request.files.get('supporting_doc')
     if file and file.filename != '':
         if not allowed_file(file.filename):
-            flash('Invalid file format! Sirf PDF, JPG, PNG ya DOC files allowed hain.', 'danger')
+            flash('Invalid file format! Sirf PDF, JPG, PNG, DOC ya DOCX files allowed hain.', 'danger')
             return redirect(url_for('index'))
-        filename = secure_filename(file.filename)
+
+        original_filename = secure_filename(file.filename)
+        if not original_filename:
+            flash('Document filename invalid hai. File rename karke dobara try karein.', 'danger')
+            return redirect(url_for('index'))
+
+        # Unique filename prevents one employee's document from overwriting another.
+        filename = (
+            f"{user_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}_"
+            f"{uuid.uuid4().hex[:8]}_{original_filename}"
+        )
         local_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        file.save(local_path)
-        upload_file_to_github(local_path, f"leave_documents/{user_id}_{filename}")
+
+        try:
+            file.save(local_path)
+        except Exception:
+            app.logger.exception('Could not save leave document locally: %s', filename)
+            flash('Document save nahi hua. Please dobara try karein.', 'danger')
+            return redirect(url_for('index'))
+
+        # GitHub failure must not crash the complete leave submission.
+        upload_file_to_github(local_path, f"leave_documents/{filename}")
     save_leave_to_excel(user_id, name, start_date, end_date, leave_type, filename if filename else "No Document")
     LEAVE_REQUESTS.append({
         'id': len(LEAVE_REQUESTS) + 1, 'user_id': user_id, 'name': name, 'start_date': start_date,
