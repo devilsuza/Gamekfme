@@ -1,8 +1,10 @@
 import base64
-import hashlib
-import shutil
-import subprocess
+import ast
+import zipfile
 import threading
+import subprocess
+import shutil
+import hashlib
 import io
 import json
 import math
@@ -23,7 +25,7 @@ from zk import ZK, const
 from pypdf import PdfReader, PdfWriter
 
 app = Flask(__name__)
-APP_BUILD = '2026-10-12-SAFE-PORTAL-UPDATER-V14'
+APP_BUILD = '2026-10-12-RELEASE-MANAGER-V16'
 app.secret_key = os.getenv('SECRET_KEY', 'gamek_fresmart_secret_key_sonu')
 
 UPLOAD_FOLDER = os.getenv('UPLOAD_FOLDER', 'uploads')
@@ -1451,7 +1453,7 @@ HTML_TEMPLATE = """
 
                 <div class="flex items-center space-x-2 bg-slate-100 border border-slate-200 px-2.5 py-1.5 sm:px-3 sm:py-1.5 rounded-xl text-xs font-bold text-slate-700">
                     <button onclick="toggleModal('profile-modal',true)" class="flex items-center gap-1">{% if current_user.profile_photo %}<img src="/uploads/{{ current_user.profile_photo }}" class="w-7 h-7 rounded-full object-cover border">{% else %}<span>👤</span>{% endif %}<span class="hidden sm:inline">{{ logged_user_name }}</span></button>
-                    {% if role == 'developer' %}<a href="/developer/portal_update" class="text-indigo-700 hover:text-indigo-900 sm:ml-2 font-bold">Portal Update ⚙</a>{% endif %}
+                    {% if role == 'developer' %}<a href="/developer/releases" class="text-indigo-700 hover:text-indigo-900 sm:ml-2 font-bold">Portal Update & Roll Back ⚙</a>{% endif %}
                     <a href="/logout" class="text-rose-600 hover:text-rose-700 sm:ml-2 font-semibold">Logout 🔒</a>
                 </div>
 
@@ -3932,206 +3934,146 @@ def suite_employee_qr(uid):
 
 
 
-# === SAFE DEVELOPER PORTAL UPDATER ===
-PORTAL_UPDATE_DIR = Path(os.getenv('PORTAL_UPDATE_DIR', 'portal_updates')).resolve()
-PORTAL_BACKUP_DIR = Path(os.getenv('PORTAL_BACKUP_DIR', 'portal_backups')).resolve()
-PORTAL_UPDATE_HISTORY = PORTAL_UPDATE_DIR / 'update_history.json'
-PORTAL_STAGED_APP = PORTAL_UPDATE_DIR / 'staged_app.py'
-PORTAL_UPDATE_MAX_BYTES = int(os.getenv('PORTAL_UPDATE_MAX_MB', '5')) * 1024 * 1024
-PORTAL_UPDATE_DIR.mkdir(parents=True, exist_ok=True)
-PORTAL_BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+# === DEVELOPER RELEASE MANAGER V16 ===
+RELEASE_ROOT = Path(os.getenv('PORTAL_RELEASE_DIR', 'portal_releases')).resolve()
+RELEASE_FILES = RELEASE_ROOT / 'files'
+RELEASE_BACKUPS = RELEASE_ROOT / 'backups'
+RELEASE_HISTORY_FILE = RELEASE_ROOT / 'history.json'
+RELEASE_STATE_FILE = RELEASE_ROOT / 'state.json'
+RELEASE_FILES.mkdir(parents=True, exist_ok=True)
+RELEASE_BACKUPS.mkdir(parents=True, exist_ok=True)
+RELEASE_MAX_BYTES = int(os.getenv('PORTAL_UPDATE_MAX_MB', '8')) * 1024 * 1024
 
-# These are business data, not application code. The updater never replaces them.
-PORTAL_PROTECTED_FILES = [
+RELEASE_PROTECTED_FILES = [
     LEAVE_JSON_FILE, LEAVE_EXCEL_FILE, ATTENDANCE_OVERRIDES_FILE,
     MANUAL_PUNCHES_FILE, DUPLICATE_PUNCHES_FILE, ROSTER_JSON_FILE,
     CORRECTIONS_FILE, OVERTIME_APPROVALS_FILE, SALARY_SLIPS_FILE,
     USERS_DB_FILE, MACHINES_DB_FILE
 ]
 
-PORTAL_UPDATE_TEMPLATE = r"""<!doctype html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Developer Portal Update</title>
-<script src="https://cdn.tailwindcss.com"></script></head>
-<body class="bg-slate-100 text-slate-900">
-<div class="max-w-5xl mx-auto p-5 space-y-5">
-  <div class="flex justify-between items-center"><div><h1 class="text-2xl font-black">Developer Portal Update</h1><p class="text-sm text-slate-500">Current build: <b>{{ build }}</b></p></div><a href="/" class="bg-slate-900 text-white px-4 py-2 rounded-xl">Back to Dashboard</a></div>
-  {% with messages = get_flashed_messages(with_categories=true) %}{% for category,message in messages %}<div class="p-3 rounded-xl border {{ 'bg-emerald-50 border-emerald-300' if category=='success' else 'bg-amber-50 border-amber-300' if category=='warning' else 'bg-rose-50 border-rose-300' }}">{{ message }}</div>{% endfor %}{% endwith %}
-  <div class="bg-white border rounded-2xl p-5 shadow-sm">
-    <h2 class="font-bold text-lg">Upload New app.py</h2>
-    <p class="text-sm text-slate-600 mt-1">Only application code is replaced. Users, leave history, accepted overtime, salary records, attendance records and uploaded documents are not deleted or replaced.</p>
-    <form method="post" enctype="multipart/form-data" class="mt-4 grid md:grid-cols-3 gap-3 items-end">
-      <input type="hidden" name="action" value="stage">
-      <div><label class="text-xs font-bold">Python file</label><input type="file" name="app_file" accept=".py" required class="block w-full border rounded-xl p-2"></div>
-      <div><label class="text-xs font-bold">Deployment password</label><input type="password" name="deployment_password" required class="block w-full border rounded-xl p-2"></div>
-      <button class="bg-indigo-600 text-white font-bold rounded-xl p-2.5">Validate & Stage</button>
-    </form>
-  </div>
-  <div class="grid md:grid-cols-2 gap-5">
-    <div class="bg-white border rounded-2xl p-5 shadow-sm"><h2 class="font-bold">Staged Update</h2>
-      {% if staged %}<p class="text-sm mt-2">File: {{ staged.name }}<br>Size: {{ staged.size }} bytes<br>SHA-256: <span class="break-all text-xs">{{ staged.sha256 }}</span></p>
-      <form method="post" class="mt-4 space-y-3"><input type="hidden" name="action" value="install"><input type="password" name="deployment_password" placeholder="Deployment password" required class="w-full border rounded-xl p-2"><button class="w-full bg-emerald-600 text-white font-bold rounded-xl p-2.5">Install, Verify Data & Restart</button></form>
-      {% else %}<p class="text-sm text-slate-500 mt-2">No validated update staged.</p>{% endif %}
-    </div>
-    <div class="bg-white border rounded-2xl p-5 shadow-sm"><h2 class="font-bold">Rollback</h2><p class="text-sm text-slate-600 mt-2">Restores only an earlier app.py backup. Business data remains untouched.</p>
-      <form method="post" class="mt-4 space-y-3"><input type="hidden" name="action" value="rollback"><select name="backup_name" required class="w-full border rounded-xl p-2"><option value="">Select backup</option>{% for b in backups %}<option value="{{ b.name }}">{{ b.name }}</option>{% endfor %}</select><input type="password" name="deployment_password" placeholder="Deployment password" required class="w-full border rounded-xl p-2"><button class="w-full bg-amber-600 text-white font-bold rounded-xl p-2.5">Rollback & Restart</button></form>
-    </div>
-  </div>
-  <div class="bg-white border rounded-2xl p-5 shadow-sm"><h2 class="font-bold">Protected Data</h2><div class="grid md:grid-cols-2 gap-2 mt-3 text-xs">{% for item in protected %}<div class="border rounded-lg p-2"><b>{{ item.path }}</b><br>{{ 'Present' if item.exists else 'Not created yet' }}{% if item.sha256 %} · {{ item.sha256[:16] }}...{% endif %}</div>{% endfor %}<div class="border rounded-lg p-2"><b>uploads/</b><br>Preserved and never replaced by updater</div></div></div>
-  <div class="bg-white border rounded-2xl p-5 shadow-sm"><h2 class="font-bold">Update History</h2><div class="overflow-auto"><table class="w-full text-xs mt-3"><thead><tr class="text-left border-b"><th class="p-2">Time</th><th>Action</th><th>Status</th><th>User</th><th>Details</th></tr></thead><tbody>{% for h in history|reverse %}<tr class="border-b"><td class="p-2">{{ h.time }}</td><td>{{ h.action }}</td><td>{{ h.status }}</td><td>{{ h.user }}</td><td>{{ h.details }}</td></tr>{% else %}<tr><td colspan="5" class="p-4 text-center">No update history</td></tr>{% endfor %}</tbody></table></div></div>
-</div></body></html>"""
+RELEASE_TEMPLATE = r"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Portal Update & Roll Back</title><script src="https://cdn.tailwindcss.com"></script></head><body class="bg-slate-100 text-slate-900"><main class="max-w-7xl mx-auto p-5 space-y-5">
+<div class="flex flex-wrap justify-between gap-3 items-center"><div><h1 class="text-2xl font-black">Portal Update & Roll Back</h1><p class="text-sm text-slate-500">Current build: <b>{{ build }}</b> · Live version: <b>{{ state.live_version or 'Current server version' }}</b></p></div><a href="/" class="bg-slate-900 text-white px-4 py-2 rounded-xl">Dashboard</a></div>
+{% with messages=get_flashed_messages(with_categories=true) %}{% for category,message in messages %}<div class="p-3 rounded-xl border {{ 'bg-emerald-50 border-emerald-300' if category=='success' else 'bg-amber-50 border-amber-300' if category=='warning' else 'bg-rose-50 border-rose-300' }}">{{ message }}</div>{% endfor %}{% endwith %}
+<section class="bg-white border rounded-2xl p-5 shadow-sm"><h2 class="font-black text-lg">Upload New app.py</h2><p class="text-sm text-slate-600 mt-1">Version is required. Upload only stages a release and does not change the live portal.</p><form method="post" enctype="multipart/form-data" class="grid lg:grid-cols-5 gap-3 mt-4 items-end"><input type="hidden" name="action" value="upload"><div><label class="text-xs font-bold">app.py</label><input type="file" name="app_file" accept=".py" required class="w-full border rounded-xl p-2"></div><div><label class="text-xs font-bold">Version</label><input name="version" required placeholder="e.g. V16.1" class="w-full border rounded-xl p-2"></div><div><label class="text-xs font-bold">Title</label><input name="title" required placeholder="Update title" class="w-full border rounded-xl p-2"></div><div><label class="text-xs font-bold">Notes</label><input name="notes" required placeholder="Changes included" class="w-full border rounded-xl p-2"></div><div><label class="text-xs font-bold">Deployment password</label><input type="password" name="deployment_password" required class="w-full border rounded-xl p-2"></div><button class="lg:col-span-5 bg-indigo-600 text-white font-bold rounded-xl p-2.5">Validate & Add to History</button></form></section>
+<section class="bg-white border rounded-2xl p-5 shadow-sm"><h2 class="font-black text-lg">Release History</h2><p class="text-sm text-slate-600">History is append-only. Live publishes code after an automatic backup and protected-data verification. Roll Back creates a new history event and never deletes old entries.</p><div class="overflow-auto mt-4"><table class="w-full text-xs min-w-[1050px]"><thead><tr class="text-left border-b bg-slate-50"><th class="p-2">Date & Time</th><th>Version</th><th>Title / Notes</th><th>Status</th><th>SHA-256</th><th>Uploaded By</th><th>Audience</th><th>Action</th></tr></thead><tbody>{% for r in releases|reverse %}<tr class="border-b align-top"><td class="p-2 whitespace-nowrap">{{ r.created_at }}</td><td class="font-bold">{{ r.version }}</td><td><b>{{ r.title }}</b><br>{{ r.notes }}</td><td>{{ r.status }}</td><td class="font-mono break-all max-w-[180px]">{{ r.sha256[:20] }}...</td><td>{{ r.uploaded_by }}</td><td>{{ r.audience }}</td><td class="p-2">{% if r.file_name and r.status != 'LIVE' %}<form method="post" class="space-y-1"><input type="hidden" name="action" value="live"><input type="hidden" name="release_id" value="{{ r.id }}"><input type="password" name="deployment_password" required placeholder="Password" class="border rounded p-1 w-28"><button class="bg-emerald-600 text-white px-3 py-1 rounded-lg font-bold">Live</button></form>{% elif r.status == 'LIVE' %}<span class="inline-block bg-emerald-100 text-emerald-800 px-3 py-1 rounded-full font-bold">Currently Live</span>{% endif %}</td></tr>{% else %}<tr><td colspan="8" class="p-6 text-center text-slate-500">No release history yet.</td></tr>{% endfor %}</tbody></table></div></section>
+<section class="bg-white border rounded-2xl p-5"><h2 class="font-black">Roll Back Current Code</h2><form method="post" class="flex flex-wrap gap-3 mt-3"><input type="hidden" name="action" value="rollback"><select name="backup_name" required class="border rounded-xl p-2 min-w-[350px]"><option value="">Select automatic backup</option>{% for b in backups %}<option value="{{ b.name }}">{{ b.name }}</option>{% endfor %}</select><input type="password" name="deployment_password" required placeholder="Deployment password" class="border rounded-xl p-2"><button class="bg-rose-600 text-white px-5 rounded-xl font-bold">Roll Back</button></form></section>
+<section class="bg-white border rounded-2xl p-5"><h2 class="font-black">Protected Existing Data</h2><div class="grid md:grid-cols-3 gap-2 mt-3 text-xs">{% for p in protected %}<div class="border rounded-xl p-2"><b>{{ p.path }}</b><br>{{ p.count }} records/files · {{ 'Present' if p.exists else 'Not created yet' }}</div>{% endfor %}</div></section>
+</main></body></html>"""
 
 
-def _portal_file_sha256(path):
-    path = Path(path)
-    if not path.is_file():
-        return ''
-    digest = hashlib.sha256()
-    with path.open('rb') as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b''):
-            digest.update(chunk)
-    return digest.hexdigest()
+def _rel_read(path,default):
+    try: return json.loads(Path(path).read_text(encoding='utf-8'))
+    except Exception: return default
 
 
-def _portal_data_manifest():
-    result = []
-    for raw_path in PORTAL_PROTECTED_FILES:
-        path = Path(raw_path).resolve()
-        result.append({'path': str(raw_path), 'exists': path.is_file(), 'sha256': _portal_file_sha256(path)})
-    upload_path = Path(app.config['UPLOAD_FOLDER']).resolve()
-    upload_files = sorted(str(x.relative_to(upload_path)) for x in upload_path.rglob('*') if x.is_file()) if upload_path.exists() else []
-    result.append({'path': 'uploads/', 'exists': upload_path.exists(), 'sha256': hashlib.sha256('\n'.join(upload_files).encode()).hexdigest(), 'count': len(upload_files)})
-    return result
+def _rel_write(path,data):
+    tmp=Path(str(path)+'.tmp'); tmp.write_text(json.dumps(data,indent=2,ensure_ascii=False),encoding='utf-8'); os.replace(tmp,path)
 
 
-def _portal_history_load():
-    try:
-        data = json.loads(PORTAL_UPDATE_HISTORY.read_text(encoding='utf-8'))
-        return data if isinstance(data, list) else []
-    except Exception:
-        return []
+def _rel_sha(path):
+    h=hashlib.sha256()
+    with open(path,'rb') as f:
+        for chunk in iter(lambda:f.read(1024*1024),b''): h.update(chunk)
+    return h.hexdigest()
 
 
-def _portal_history_add(action, status, details):
-    history = _portal_history_load()
-    history.append({'time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'), 'action': action, 'status': status, 'user': session.get('user_id', 'unknown'), 'details': details})
-    PORTAL_UPDATE_HISTORY.write_text(json.dumps(history[-200:], indent=2, ensure_ascii=False), encoding='utf-8')
+def _rel_manifest():
+    rows=[]
+    for raw in RELEASE_PROTECTED_FILES:
+        path=Path(raw)
+        exists=path.is_file(); count=0
+        if exists and path.suffix.lower()=='.json':
+            data=_rel_read(path,[]); count=len(data) if isinstance(data,(list,dict)) else 1
+        elif exists: count=1
+        rows.append({'path':str(raw),'exists':exists,'count':count,'sha256':_rel_sha(path) if exists else ''})
+    up=Path(app.config['UPLOAD_FOLDER']); files=sorted(x for x in up.rglob('*') if x.is_file()) if up.exists() else []
+    digest=hashlib.sha256('\n'.join(f'{x.relative_to(up)}:{x.stat().st_size}:{_rel_sha(x)}' for x in files).encode()).hexdigest()
+    rows.append({'path':'uploads/','exists':up.exists(),'count':len(files),'sha256':digest})
+    return rows
 
 
-def _portal_password_ok(value):
-    expected = os.getenv('PORTAL_UPDATE_PASSWORD') or os.getenv('DEV_PWD')
-    return bool(expected) and value == expected
+def _rel_password(value):
+    expected=os.getenv('PORTAL_UPDATE_PASSWORD') or os.getenv('DEV_PWD')
+    return bool(expected) and value==expected
 
 
-def _portal_validate_python(path):
-    path = Path(path)
-    if path.name != 'staged_app.py' or path.suffix.lower() != '.py':
-        return False, 'Only app.py is accepted.'
-    if path.stat().st_size <= 0 or path.stat().st_size > PORTAL_UPDATE_MAX_BYTES:
-        return False, 'File is empty or exceeds update size limit.'
-    result = subprocess.run([sys.executable, '-m', 'py_compile', str(path)], capture_output=True, text=True, timeout=30)
-    if result.returncode != 0:
-        return False, (result.stderr or result.stdout or 'Python syntax validation failed')[-3000:]
-    content = path.read_text(encoding='utf-8', errors='replace')
-    required = ['Flask(', 'app = Flask', "if __name__ == '__main__'", 'LEAVE_JSON_FILE', 'OVERTIME_APPROVALS_FILE', 'UPLOAD_FOLDER']
-    missing = [item for item in required if item not in content]
-    if missing:
-        return False, 'Required application markers missing: ' + ', '.join(missing)
-    return True, 'Syntax and application markers validated.'
+def _rel_validate(path):
+    path=Path(path)
+    if not path.is_file() or path.stat().st_size<=0 or path.stat().st_size>RELEASE_MAX_BYTES: return False,'Invalid file or size'
+    result=subprocess.run([sys.executable,'-m','py_compile',str(path)],capture_output=True,text=True,timeout=45)
+    if result.returncode: return False,(result.stderr or 'Python compilation failed')[-3000:]
+    text=path.read_text(encoding='utf-8',errors='replace')
+    required=['app = Flask','LEAVE_JSON_FILE','OVERTIME_APPROVALS_FILE','USERS_DB_FILE','UPLOAD_FOLDER',"if __name__ == '__main__'"]
+    missing=[x for x in required if x not in text]
+    if missing: return False,'Required markers missing: '+', '.join(missing)
+    return True,'Validated'
 
 
-def _portal_restart():
-    os.execv(sys.executable, [sys.executable] + sys.argv)
+def _rel_append(event):
+    rows=_rel_read(RELEASE_HISTORY_FILE,[])
+    if not isinstance(rows,list): rows=[]
+    rows.append(event); _rel_write(RELEASE_HISTORY_FILE,rows)
 
 
-def _portal_schedule_restart():
-    threading.Timer(1.5, _portal_restart).start()
+def _rel_backup(label):
+    stamp=datetime.now().strftime('%Y%m%d_%H%M%S')
+    target=RELEASE_BACKUPS/f'app_{stamp}_{secure_filename(label)}.py'
+    shutil.copy2(Path(__file__).resolve(),target)
+    return target
 
 
-@app.route('/developer/portal_update', methods=['GET', 'POST'])
-def developer_portal_update():
-    if not session.get('logged_in'):
-        return redirect(url_for('login'))
-    if session.get('role') != 'developer':
-        return 'Developer access required', 403
+def _rel_restart(): os.execv(sys.executable,[sys.executable]+sys.argv)
+def _rel_restart_later(): threading.Timer(1.5,_rel_restart).start()
 
-    if request.method == 'POST':
-        action = request.form.get('action', '')
-        if not _portal_password_ok(request.form.get('deployment_password', '')):
-            _portal_history_add(action or 'unknown', 'DENIED', 'Invalid or missing deployment password')
-            flash('Deployment password invalid hai, ya PORTAL_UPDATE_PASSWORD configured nahi hai.', 'danger')
-            return redirect(url_for('developer_portal_update'))
 
-        if action == 'stage':
-            uploaded = request.files.get('app_file')
-            if not uploaded or secure_filename(uploaded.filename) != 'app.py':
-                flash('Exact filename app.py upload karein.', 'danger')
-                return redirect(url_for('developer_portal_update'))
-            temp = PORTAL_UPDATE_DIR / ('incoming_' + uuid.uuid4().hex + '.py')
-            uploaded.save(temp)
-            try:
-                shutil.copy2(temp, PORTAL_STAGED_APP)
-                ok, message = _portal_validate_python(PORTAL_STAGED_APP)
-                if not ok:
-                    PORTAL_STAGED_APP.unlink(missing_ok=True)
-                    _portal_history_add('STAGE', 'FAILED', message)
-                    flash('Validation failed: ' + message, 'danger')
-                else:
-                    _portal_history_add('STAGE', 'READY', message + ' SHA256=' + _portal_file_sha256(PORTAL_STAGED_APP))
-                    flash('New app.py validated and staged. Install button se apply karein.', 'success')
-            finally:
-                temp.unlink(missing_ok=True)
-            return redirect(url_for('developer_portal_update'))
-
-        if action in ('install', 'rollback'):
-            before = _portal_data_manifest()
-            current_app = Path(__file__).resolve()
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            safety_backup = PORTAL_BACKUP_DIR / f'app_before_{action}_{timestamp}.py'
-            shutil.copy2(current_app, safety_backup)
-            try:
-                if action == 'install':
-                    ok, message = _portal_validate_python(PORTAL_STAGED_APP)
-                    if not ok:
-                        raise RuntimeError(message)
-                    source = PORTAL_STAGED_APP
-                    details = 'Installed staged SHA256=' + _portal_file_sha256(source)
-                else:
-                    backup_name = secure_filename(request.form.get('backup_name', ''))
-                    source = (PORTAL_BACKUP_DIR / backup_name).resolve()
-                    if source.parent != PORTAL_BACKUP_DIR or not source.is_file() or source.suffix != '.py':
-                        raise RuntimeError('Invalid backup selection')
-                    ok, message = _portal_validate_python(source)
-                    # Backup filenames differ, so validate compile and markers directly.
-                    result = subprocess.run([sys.executable, '-m', 'py_compile', str(source)], capture_output=True, text=True, timeout=30)
-                    if result.returncode != 0:
-                        raise RuntimeError(result.stderr[-3000:])
-                    details = 'Rolled back to ' + source.name
-
-                replacement = current_app.with_name(current_app.name + '.new')
-                shutil.copy2(source, replacement)
-                os.replace(replacement, current_app)
-                after = _portal_data_manifest()
-                if before != after:
-                    shutil.copy2(safety_backup, current_app)
-                    raise RuntimeError('Protected business data changed during install; code rolled back automatically')
-                if action == 'install':
-                    PORTAL_STAGED_APP.unlink(missing_ok=True)
-                _portal_history_add(action.upper(), 'SUCCESS', details + '; protected data verified unchanged')
-                flash('Update installed. Portal restart ho raha hai; 5 seconds baad refresh karein.', 'success')
-                _portal_schedule_restart()
-                return render_template_string('<!doctype html><meta charset="utf-8"><title>Restarting</title><div style="font-family:Arial;padding:40px"><h2>Update installed safely</h2><p>Users, leave history, accepted overtime and uploaded documents verified unchanged.</p><p>Portal restart ho raha hai. 5 seconds baad <a href="/">Dashboard</a> open karein.</p><script>setTimeout(()=>location.href="/",5000)</script></div>')
-            except Exception as exc:
-                app.logger.exception('Portal update failed')
-                _portal_history_add(action.upper(), 'FAILED', str(exc))
-                flash('Update failed: ' + str(exc), 'danger')
-                return redirect(url_for('developer_portal_update'))
-
-    staged = None
-    if PORTAL_STAGED_APP.is_file():
-        staged = {'name': 'app.py', 'size': PORTAL_STAGED_APP.stat().st_size, 'sha256': _portal_file_sha256(PORTAL_STAGED_APP)}
-    backups = sorted(PORTAL_BACKUP_DIR.glob('*.py'), key=lambda x: x.stat().st_mtime, reverse=True)
-    return render_template_string(PORTAL_UPDATE_TEMPLATE, build=APP_BUILD, staged=staged, backups=backups, history=_portal_history_load(), protected=_portal_data_manifest())
+@app.route('/developer/releases',methods=['GET','POST'])
+def developer_releases():
+    if not session.get('logged_in'): return redirect(url_for('login'))
+    if session.get('role')!='developer': return 'Developer access required',403
+    releases=_rel_read(RELEASE_HISTORY_FILE,[])
+    if request.method=='POST':
+        action=request.form.get('action','')
+        if not _rel_password(request.form.get('deployment_password','')):
+            flash('Deployment password invalid or not configured.','danger'); return redirect(url_for('developer_releases'))
+        try:
+            if action=='upload':
+                upload=request.files.get('app_file'); version=request.form.get('version','').strip(); title=request.form.get('title','').strip(); notes=request.form.get('notes','').strip()
+                if not upload or secure_filename(upload.filename)!='app.py': raise RuntimeError('Exact filename app.py required')
+                if not version or not title or not notes: raise RuntimeError('Version, title and notes are required')
+                if any(str(x.get('version','')).lower()==version.lower() for x in releases): raise RuntimeError('Version already exists; use a new version number')
+                release_id=uuid.uuid4().hex; target=RELEASE_FILES/f'{release_id}_app.py'; upload.save(target)
+                ok,message=_rel_validate(target)
+                if not ok: target.unlink(missing_ok=True); raise RuntimeError(message)
+                event={'id':release_id,'created_at':datetime.now().strftime('%Y-%m-%d %H:%M:%S'),'version':version,'title':title,'notes':notes,'status':'STAGED','sha256':_rel_sha(target),'uploaded_by':session.get('user_id'),'audience':'Admin + Employee','file_name':target.name,'event':'UPLOAD'}
+                _rel_append(event); flash(f'Version {version} validated and added to history.','success')
+            elif action=='live':
+                rid=request.form.get('release_id',''); rows=_rel_read(RELEASE_HISTORY_FILE,[]); release=next((x for x in rows if x.get('id')==rid and x.get('file_name')),None)
+                if not release: raise RuntimeError('Release not found')
+                source=RELEASE_FILES/secure_filename(release['file_name']); ok,message=_rel_validate(source)
+                if not ok: raise RuntimeError(message)
+                before=_rel_manifest(); backup=_rel_backup('before_'+release.get('version','release')); current=Path(__file__).resolve(); replacement=current.with_suffix('.py.new'); shutil.copy2(source,replacement); os.replace(replacement,current)
+                after=_rel_manifest()
+                if before!=after: shutil.copy2(backup,current); raise RuntimeError('Protected data changed; code rolled back automatically')
+                for x in rows:
+                    if x.get('status')=='LIVE': x['status']='SUPERSEDED'
+                    if x.get('id')==rid: x['status']='LIVE'; x['live_at']=datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                _rel_write(RELEASE_HISTORY_FILE,rows)
+                _rel_append({'id':uuid.uuid4().hex,'created_at':datetime.now().strftime('%Y-%m-%d %H:%M:%S'),'version':release['version'],'title':'Release made live','notes':f'Backup: {backup.name}. Protected history and documents verified unchanged.','status':'AUDIT','sha256':release['sha256'],'uploaded_by':session.get('user_id'),'audience':'Admin + Employee','file_name':'','event':'LIVE'})
+                _rel_write(RELEASE_STATE_FILE,{'live_version':release['version'],'live_release_id':rid,'live_at':datetime.now().isoformat(),'audience':['admin','employee']})
+                _rel_restart_later(); return render_template_string('<h2>Release is live. Portal restarting...</h2><p>Existing data verified unchanged.</p><script>setTimeout(()=>location.href="/developer/releases",6000)</script>')
+            elif action=='rollback':
+                name=secure_filename(request.form.get('backup_name','')); source=(RELEASE_BACKUPS/name).resolve()
+                if source.parent!=RELEASE_BACKUPS or not source.is_file(): raise RuntimeError('Invalid backup')
+                ok,message=_rel_validate(source)
+                if not ok: raise RuntimeError(message)
+                before=_rel_manifest(); safety=_rel_backup('before_rollback'); current=Path(__file__).resolve(); replacement=current.with_suffix('.py.new'); shutil.copy2(source,replacement); os.replace(replacement,current)
+                if before!=_rel_manifest(): shutil.copy2(safety,current); raise RuntimeError('Protected data changed; rollback cancelled')
+                _rel_append({'id':uuid.uuid4().hex,'created_at':datetime.now().strftime('%Y-%m-%d %H:%M:%S'),'version':'ROLLBACK','title':'Code rollback','notes':f'Restored {source.name}; safety backup {safety.name}','status':'AUDIT','sha256':_rel_sha(source),'uploaded_by':session.get('user_id'),'audience':'Admin + Employee','file_name':'','event':'ROLLBACK'})
+                _rel_restart_later(); return render_template_string('<h2>Rollback applied. Restarting...</h2><script>setTimeout(()=>location.href="/developer/releases",6000)</script>')
+        except Exception as exc:
+            app.logger.exception('Release manager action failed'); flash('Action failed: '+str(exc),'danger')
+        return redirect(url_for('developer_releases'))
+    return render_template_string(RELEASE_TEMPLATE,build=APP_BUILD,releases=_rel_read(RELEASE_HISTORY_FILE,[]),backups=sorted(RELEASE_BACKUPS.glob('*.py'),key=lambda x:x.stat().st_mtime,reverse=True),protected=_rel_manifest(),state=_rel_read(RELEASE_STATE_FILE,{}))
 
 
 if __name__ == '__main__':
