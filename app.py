@@ -19,7 +19,7 @@ from zk import ZK, const
 from pypdf import PdfReader, PdfWriter
 
 app = Flask(__name__)
-APP_BUILD = '2026-10-10-ALL-EMP-ATTENDANCE-RIGHT-V8'
+APP_BUILD = '2026-10-12-LEAVE-GITHUB-EMP-EXPORT-FIX-V9'
 app.secret_key = os.getenv('SECRET_KEY', 'gamek_fresmart_secret_key_sonu')
 
 UPLOAD_FOLDER = os.getenv('UPLOAD_FOLDER', 'uploads')
@@ -155,51 +155,19 @@ def allowed_file(filename):
 
 
 def upload_file_to_github(local_path, github_path):
-    """Upload or update a file in the configured GitHub repository.
-
-    Returns True when the remote upload succeeds. If GitHub is not configured
-    or is temporarily unavailable, the local leave submission can still
-    continue and the failure is recorded in the application log.
-    """
+    """Upload/update a file; return False instead of crashing the request."""
     if not GITHUB_TOKEN:
-        app.logger.warning(
-            'GITHUB_TOKEN is not configured; GitHub upload skipped for %s',
-            github_path
-        )
+        app.logger.warning('GITHUB_TOKEN is not configured; GitHub upload skipped for %s', github_path)
         return False
-
     try:
-        github_client = Github(GITHUB_TOKEN)
-        repo = github_client.get_repo(GITHUB_REPO_NAME)
-
+        repo = Github(GITHUB_TOKEN).get_repo(GITHUB_REPO_NAME)
         with open(local_path, 'rb') as file_obj:
             content = file_obj.read()
-
         try:
-            existing_file = repo.get_contents(github_path, ref=GITHUB_BRANCH)
-            repo.update_file(
-                github_path,
-                f'Update leave document: {os.path.basename(github_path)}',
-                content,
-                existing_file.sha,
-                branch=GITHUB_BRANCH
-            )
-        except Exception as lookup_error:
-            # A 404 means the file does not exist yet. Other errors are logged,
-            # then create_file is attempted so transient lookup issues do not
-            # immediately break an employee's leave request.
-            app.logger.info(
-                'GitHub file lookup failed for %s; attempting create: %s',
-                github_path,
-                lookup_error
-            )
-            repo.create_file(
-                github_path,
-                f'Upload leave document: {os.path.basename(github_path)}',
-                content,
-                branch=GITHUB_BRANCH
-            )
-
+            existing = repo.get_contents(github_path, ref=GITHUB_BRANCH)
+            repo.update_file(github_path, f'Update {os.path.basename(github_path)}', content, existing.sha, branch=GITHUB_BRANCH)
+        except Exception:
+            repo.create_file(github_path, f'Upload {os.path.basename(github_path)}', content, branch=GITHUB_BRANCH)
         return True
     except Exception:
         app.logger.exception('GitHub upload failed for %s', github_path)
@@ -3122,29 +3090,20 @@ def apply_leave():
     file = request.files.get('supporting_doc')
     if file and file.filename != '':
         if not allowed_file(file.filename):
-            flash('Invalid file format! Sirf PDF, JPG, PNG, DOC ya DOCX files allowed hain.', 'danger')
+            flash('Invalid file format! Sirf PDF, JPG, PNG ya DOC files allowed hain.', 'danger')
             return redirect(url_for('index'))
-
         original_filename = secure_filename(file.filename)
         if not original_filename:
             flash('Document filename invalid hai. File rename karke dobara try karein.', 'danger')
             return redirect(url_for('index'))
-
-        # Unique filename prevents one employee's document from overwriting another.
-        filename = (
-            f"{user_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}_"
-            f"{uuid.uuid4().hex[:8]}_{original_filename}"
-        )
+        filename = f"{user_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:8]}_{original_filename}"
         local_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-
         try:
             file.save(local_path)
         except Exception:
             app.logger.exception('Could not save leave document locally: %s', filename)
             flash('Document save nahi hua. Please dobara try karein.', 'danger')
             return redirect(url_for('index'))
-
-        # GitHub failure must not crash the complete leave submission.
         upload_file_to_github(local_path, f"leave_documents/{filename}")
     save_leave_to_excel(user_id, name, start_date, end_date, leave_type, filename if filename else "No Document")
     LEAVE_REQUESTS.append({
@@ -3203,28 +3162,93 @@ def export_last_six_months():
 
 @app.route('/export')
 def export_excel():
-    if not session_has_permission('payroll'): return redirect(url_for('login'))
-    start_date = request.args.get('start_date', datetime.now().strftime('%Y-%m-%d'))
-    end_date = request.args.get('end_date', datetime.now().strftime('%Y-%m-%d'))
-    selected_emp = request.args.get('employee', 'ALL')
+    if not session_has_permission('payroll'):
+        return redirect(url_for('login'))
+
+    today_str = datetime.now().strftime('%Y-%m-%d')
+    start_date = request.args.get('start_date', today_str).strip()
+    end_date = request.args.get('end_date', today_str).strip()
+    selected_emp = request.args.get('employee', 'ALL').strip() or 'ALL'
     store = session.get('store', 'LM11')
-    
-    logs, _, g_hrs, g_l_hrs, g_var, _, _ = fetch_attendance_data(start_date, end_date, selected_emp, store)
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = "Attendance Report"
-    ws.append(["Attendance Portal - Attendance Report"])
-    ws.append([f"Period: {start_date} to {end_date}"])
-    ws.append([])
-    ws.append(["Sr. No.", "Date", "ID", "Employee Name", "Department", "Store In", "Lunch Out", "Lunch In", "Out Time", "Total Lunch", "Working Hours", "Total Hora Extra", "Status"])
-    for idx, log in enumerate(logs, 1):
-        ws.append([idx, log['date'], log['user_id'], log['name'], log['dept'], log['store_in'], log['lunch_out'], log['lunch_in'], log['out_time'], log['total_lunch'], log['total_hours'], log['net_variance'], log['status']])
-    ws.append([])
-    ws.append(["", "", "", "", "", "", "", "", "Total Summary:", g_l_hrs, g_hrs, g_var])
-    excel_io = io.BytesIO()
-    wb.save(excel_io)
-    excel_io.seek(0)
-    return send_file(excel_io, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', as_attachment=True, download_name=f"Attendance_Report_{start_date}_to_{end_date}.xlsx")
+
+    try:
+        start_dt = datetime.strptime(start_date, '%Y-%m-%d')
+        end_dt = datetime.strptime(end_date, '%Y-%m-%d')
+    except ValueError:
+        flash('Invalid attendance date. Please select valid dates.', 'danger')
+        return redirect(request.referrer or url_for('index'))
+
+    if start_dt > end_dt:
+        flash('Start date end date se aage nahi ho sakti.', 'danger')
+        return redirect(request.referrer or url_for('index'))
+    if (end_dt - start_dt).days > 366:
+        flash('Ek baar mein maximum 12 months ka attendance export karein.', 'danger')
+        return redirect(request.referrer or url_for('index'))
+
+    # Employee can export only their own attendance, even if URL is modified.
+    if session.get('role') == 'employee':
+        own_id = str(session.get('user_id', '')).strip()
+        if own_id:
+            selected_emp = own_id
+
+    def excel_safe(value):
+        if value is None:
+            return ''
+        if isinstance(value, str):
+            return re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F]', '', value)
+        if isinstance(value, (int, float, bool, datetime)):
+            return value
+        return re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F]', '', str(value))
+
+    try:
+        result = fetch_attendance_data(start_date, end_date, selected_emp, store)
+        if not isinstance(result, (tuple, list)) or len(result) < 7:
+            raise RuntimeError('Attendance service returned an invalid response')
+        logs, _, g_hrs, g_l_hrs, g_var, _, _ = result[:7]
+        logs = logs if isinstance(logs, list) else []
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = 'Attendance Report'
+        ws.append(['Attendance Portal - Attendance Report'])
+        ws.append([f'Period: {start_date} to {end_date}'])
+        ws.append([f'Employee: {selected_emp}'])
+        ws.append([])
+        ws.append(['Sr. No.', 'Date', 'ID', 'Employee Name', 'Department', 'Store In',
+                   'Lunch Out', 'Lunch In', 'Out Time', 'Total Lunch', 'Working Hours',
+                   'Total Hora Extra', 'Status'])
+
+        for idx, log in enumerate(logs, 1):
+            if not isinstance(log, dict):
+                app.logger.warning('Skipped invalid attendance export row: %r', log)
+                continue
+            ws.append([idx, excel_safe(log.get('date')), excel_safe(log.get('user_id')),
+                       excel_safe(log.get('name')), excel_safe(log.get('dept')),
+                       excel_safe(log.get('store_in')), excel_safe(log.get('lunch_out')),
+                       excel_safe(log.get('lunch_in')), excel_safe(log.get('out_time')),
+                       excel_safe(log.get('total_lunch')), excel_safe(log.get('total_hours')),
+                       excel_safe(log.get('net_variance')), excel_safe(log.get('status'))])
+
+        ws.append([])
+        ws.append(['', '', '', '', '', '', '', '', 'Total Summary:',
+                   excel_safe(g_l_hrs), excel_safe(g_hrs), excel_safe(g_var)])
+        ws.freeze_panes = 'A6'
+        ws.auto_filter.ref = f'A5:M{max(ws.max_row - 2, 5)}'
+        for col_idx, width in enumerate([10, 13, 16, 30, 22, 12, 12, 12, 12, 15, 16, 20, 18], 1):
+            ws.column_dimensions[openpyxl.utils.get_column_letter(col_idx)].width = width
+
+        excel_io = io.BytesIO()
+        wb.save(excel_io)
+        excel_io.seek(0)
+        return send_file(excel_io,
+                         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                         as_attachment=True,
+                         download_name=f'Attendance_Report_{start_date}_to_{end_date}.xlsx')
+    except Exception:
+        app.logger.exception('Attendance Excel export failed: employee=%s store=%s period=%s to %s',
+                             selected_emp, store, start_date, end_date)
+        flash('Attendance export generate nahi hua. Exact error server log mein save ho gaya hai.', 'danger')
+        return redirect(request.referrer or url_for('index'))
 
 @app.route('/export_matrix')
 def export_matrix():
