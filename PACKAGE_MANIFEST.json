@@ -1,0 +1,41 @@
+{
+  "build": "2026-10-12-ENTERPRISE-PORTAL-UPDATER-V15",
+  "files": {
+    ".env.example": {
+      "size": 747,
+      "sha256": "56da19e19e458d16f0ef47dcb1b189746e07ce42fc90642d3adb89f1b7097df1"
+    },
+    "README_SETUP.md": {
+      "size": 2757,
+      "sha256": "b3ddd05a9443e0c4eb0ef923c7ec03ace0028d3ce8039931b3e5a19e7e04932d"
+    },
+    "app.py": {
+      "size": 419546,
+      "sha256": "e97ff8281ad725cc9dec16006d7a725ed6bfd686ea3f22191b77548ed77deb75"
+    },
+    "install_linux.sh": {
+      "size": 283,
+      "sha256": "787b2ad6740ac016763ededb1371e97a4d023f9d5762cd0e940107cf1d869e97"
+    },
+    "install_windows.bat": {
+      "size": 364,
+      "sha256": "bbda91bbbca327e18457e6351b825955b471cccb513ea9a153fc41c7d6304c53"
+    },
+    "requirements.txt": {
+      "size": 145,
+      "sha256": "2f205e5339ce88b5f58468abef0cc42018334f069c8f69b82b9f125fb72f7705"
+    },
+    "start_linux.sh": {
+      "size": 79,
+      "sha256": "93947a4a35486a3588525bcfbbd17129c96f56366d7ba8633b398b6c95a59d38"
+    },
+    "start_portal.bat": {
+      "size": 110,
+      "sha256": "d530354b915e534cf4386db919b2f3e2fe42e16d28eb5d9ece0bee34b46cd161"
+    },
+    "verify_install.py": {
+      "size": 932,
+      "sha256": "c536b92508cbb5d6539e5dd0af65ff226ab229a546fc7a666c4ed3525af4ae67"
+    }
+  }
+}

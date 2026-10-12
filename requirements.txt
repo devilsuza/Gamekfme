@@ -1,8 +1,8 @@
-Flask>=3.0,<4
-PyGithub>=2.3,<3
-openpyxl>=3.1,<4
-Werkzeug>=3.0,<4
-pyzk>=0.9
-pypdf>=5,<7
-qrcode[pil]>=7.4,<9
-gunicorn>=22,<24
+Flask>=3.0,<4.0
+Werkzeug>=3.0,<4.0
+PyGithub>=2.3,<3.0
+openpyxl>=3.1,<4.0
+qrcode[pil]>=7.4,<9.0
+Pillow>=10.0,<13.0
+pyzk>=0.9,<1.0
+pypdf>=4.0,<7.0
