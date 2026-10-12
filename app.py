@@ -1,11 +1,8 @@
 import base64
-import logging
-import ast
-import zipfile
-import threading
-import subprocess
-import shutil
 import hashlib
+import shutil
+import subprocess
+import threading
 import io
 import json
 import math
@@ -26,7 +23,7 @@ from zk import ZK, const
 from pypdf import PdfReader, PdfWriter
 
 app = Flask(__name__)
-APP_BUILD = '2026-10-12-ENTERPRISE-PORTAL-UPDATER-V15'
+APP_BUILD = '2026-10-12-SAFE-PORTAL-UPDATER-V14'
 app.secret_key = os.getenv('SECRET_KEY', 'gamek_fresmart_secret_key_sonu')
 
 UPLOAD_FOLDER = os.getenv('UPLOAD_FOLDER', 'uploads')
@@ -1454,7 +1451,7 @@ HTML_TEMPLATE = """
 
                 <div class="flex items-center space-x-2 bg-slate-100 border border-slate-200 px-2.5 py-1.5 sm:px-3 sm:py-1.5 rounded-xl text-xs font-bold text-slate-700">
                     <button onclick="toggleModal('profile-modal',true)" class="flex items-center gap-1">{% if current_user.profile_photo %}<img src="/uploads/{{ current_user.profile_photo }}" class="w-7 h-7 rounded-full object-cover border">{% else %}<span>👤</span>{% endif %}<span class="hidden sm:inline">{{ logged_user_name }}</span></button>
-                    {% if role == 'developer' %}<a href="/developer/portal_update" class="text-indigo-700 hover:text-indigo-900 sm:ml-2 font-bold">Deployment Center ⚙</a>{% endif %}
+                    {% if role == 'developer' %}<a href="/developer/portal_update" class="text-indigo-700 hover:text-indigo-900 sm:ml-2 font-bold">Portal Update ⚙</a>{% endif %}
                     <a href="/logout" class="text-rose-600 hover:text-rose-700 sm:ml-2 font-semibold">Logout 🔒</a>
                 </div>
 
@@ -3933,22 +3930,18 @@ def suite_employee_qr(uid):
     payload=json.dumps({'employee_code':uid,'name':info.get('name'),'store':st,'designation':info.get('designation'),'status':info.get('status')},ensure_ascii=False)
     img=qrcode.make(payload);out=io.BytesIO();img.save(out,format='PNG');out.seek(0);return send_file(out,mimetype='image/png')
 
-# === ENTERPRISE SAFE DEVELOPER PORTAL UPDATER ===
-PORTAL_ROOT = Path(os.getenv('PORTAL_ROOT', Path(__file__).resolve().parent)).resolve()
-PORTAL_UPDATE_DIR = Path(os.getenv('PORTAL_UPDATE_DIR', str(PORTAL_ROOT / 'portal_updates'))).resolve()
-PORTAL_BACKUP_DIR = Path(os.getenv('PORTAL_BACKUP_DIR', str(PORTAL_ROOT / 'portal_backups'))).resolve()
+
+
+# === SAFE DEVELOPER PORTAL UPDATER ===
+PORTAL_UPDATE_DIR = Path(os.getenv('PORTAL_UPDATE_DIR', 'portal_updates')).resolve()
+PORTAL_BACKUP_DIR = Path(os.getenv('PORTAL_BACKUP_DIR', 'portal_backups')).resolve()
 PORTAL_UPDATE_HISTORY = PORTAL_UPDATE_DIR / 'update_history.json'
-PORTAL_UPDATE_LOG = PORTAL_UPDATE_DIR / 'portal_update.log'
 PORTAL_STAGED_APP = PORTAL_UPDATE_DIR / 'staged_app.py'
-PORTAL_STAGED_META = PORTAL_UPDATE_DIR / 'staged_meta.json'
-PORTAL_SCHEDULE_FILE = PORTAL_UPDATE_DIR / 'scheduled_update.json'
-PORTAL_MAINTENANCE_FILE = PORTAL_UPDATE_DIR / 'maintenance.json'
-PORTAL_PENDING_HEALTH = PORTAL_UPDATE_DIR / 'pending_health.json'
-PORTAL_UPDATE_MAX_BYTES = int(os.getenv('PORTAL_UPDATE_MAX_MB', '8')) * 1024 * 1024
-PORTAL_BACKUP_RETENTION = int(os.getenv('PORTAL_BACKUP_RETENTION', '10'))
+PORTAL_UPDATE_MAX_BYTES = int(os.getenv('PORTAL_UPDATE_MAX_MB', '5')) * 1024 * 1024
 PORTAL_UPDATE_DIR.mkdir(parents=True, exist_ok=True)
 PORTAL_BACKUP_DIR.mkdir(parents=True, exist_ok=True)
 
+# These are business data, not application code. The updater never replaces them.
 PORTAL_PROTECTED_FILES = [
     LEAVE_JSON_FILE, LEAVE_EXCEL_FILE, ATTENDANCE_OVERRIDES_FILE,
     MANUAL_PUNCHES_FILE, DUPLICATE_PUNCHES_FILE, ROSTER_JSON_FILE,
@@ -3956,336 +3949,189 @@ PORTAL_PROTECTED_FILES = [
     USERS_DB_FILE, MACHINES_DB_FILE
 ]
 
-if not any(isinstance(h, logging.FileHandler) and getattr(h, 'baseFilename', '') == str(PORTAL_UPDATE_LOG) for h in app.logger.handlers):
-    _update_handler = logging.FileHandler(PORTAL_UPDATE_LOG, encoding='utf-8')
-    _update_handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(message)s'))
-    app.logger.addHandler(_update_handler)
-
-PORTAL_UPDATE_TEMPLATE = r"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Developer Deployment Center</title><script src="https://cdn.tailwindcss.com"></script></head>
-<body class="bg-slate-100 text-slate-900"><div class="max-w-7xl mx-auto p-4 md:p-6 space-y-5">
-<div class="flex flex-wrap gap-3 justify-between items-center"><div><h1 class="text-2xl font-black">Developer Deployment Center</h1><p class="text-sm text-slate-500">Build <b>{{ build }}</b> | Maintenance: <b>{{ 'ON' if maintenance.enabled else 'OFF' }}</b></p></div><div class="flex gap-2"><a href="/developer/recovery" class="bg-amber-600 text-white px-4 py-2 rounded-xl">Emergency Recovery</a><a href="/" class="bg-slate-900 text-white px-4 py-2 rounded-xl">Dashboard</a></div></div>
-{% with messages=get_flashed_messages(with_categories=true) %}{% for category,message in messages %}<div class="p-3 rounded-xl border {{ 'bg-emerald-50 border-emerald-300' if category=='success' else 'bg-amber-50 border-amber-300' if category=='warning' else 'bg-rose-50 border-rose-300' }}">{{ message }}</div>{% endfor %}{% endwith %}
-<div class="grid xl:grid-cols-3 gap-4">
-<section class="bg-white border rounded-2xl p-5"><h2 class="font-black">1. Upload & Validate</h2><form method="post" enctype="multipart/form-data" class="space-y-3 mt-3"><input type="hidden" name="action" value="stage"><input type="file" name="app_file" accept=".py" required class="w-full border p-2 rounded-xl"><input name="version" required placeholder="Version e.g. V15" class="w-full border p-2 rounded-xl"><input name="title" required placeholder="Update title" class="w-full border p-2 rounded-xl"><textarea name="notes" required placeholder="What changed?" class="w-full border p-2 rounded-xl"></textarea><input type="password" name="deployment_password" required placeholder="Deployment password" class="w-full border p-2 rounded-xl"><button class="w-full bg-indigo-600 text-white p-2.5 rounded-xl font-bold">Validate, Scan & Stage</button></form></section>
-<section class="bg-white border rounded-2xl p-5"><h2 class="font-black">Deploy from GitHub</h2><form method="post" class="space-y-3 mt-3"><input type="hidden" name="action" value="stage_github"><input name="github_path" value="app.py" required class="w-full border p-2 rounded-xl"><input name="github_ref" value="{{ github_branch }}" required class="w-full border p-2 rounded-xl"><input name="version" required placeholder="Version" class="w-full border p-2 rounded-xl"><input name="title" required placeholder="Update title" class="w-full border p-2 rounded-xl"><textarea name="notes" required placeholder="Release notes" class="w-full border p-2 rounded-xl"></textarea><input type="password" name="deployment_password" required placeholder="Deployment password" class="w-full border p-2 rounded-xl"><button class="w-full bg-slate-800 text-white p-2.5 rounded-xl font-bold">Fetch & Stage Commit/Branch</button></form></section>
-<section class="bg-white border rounded-2xl p-5"><h2 class="font-black">Staged Release</h2>{% if staged %}<div class="text-xs mt-3 space-y-1"><p><b>{{ staged.version }}</b> - {{ staged.title }}</p><p>{{ staged.notes }}</p><p>Size {{ staged.size }} bytes</p><p class="break-all">SHA-256 {{ staged.sha256 }}</p><p>Routes {{ staged.route_count }} | Validation {{ staged.validation }}</p></div><form method="post" class="space-y-3 mt-4"><input type="hidden" name="action" value="install"><input type="datetime-local" name="install_at" class="w-full border p-2 rounded-xl"><input type="password" name="deployment_password" required placeholder="Deployment password" class="w-full border p-2 rounded-xl"><input type="password" name="approval_password" placeholder="Second approval password (if configured)" class="w-full border p-2 rounded-xl"><button class="w-full bg-emerald-600 text-white p-2.5 rounded-xl font-bold">Install Now / Schedule</button></form>{% else %}<p class="text-sm text-slate-500 mt-3">No release staged.</p>{% endif %}</section>
-</div>
-<div class="grid lg:grid-cols-3 gap-4">
-<section class="bg-white border rounded-2xl p-5"><h2 class="font-black">Maintenance Mode</h2><form method="post" class="space-y-3 mt-3"><input type="hidden" name="action" value="maintenance"><textarea name="message" class="w-full border p-2 rounded-xl">{{ maintenance.message }}</textarea><input type="password" name="deployment_password" required placeholder="Deployment password" class="w-full border p-2 rounded-xl"><div class="grid grid-cols-2 gap-2"><button name="mode" value="on" class="bg-amber-600 text-white p-2 rounded-xl">Enable</button><button name="mode" value="off" class="bg-slate-700 text-white p-2 rounded-xl">Disable</button></div></form></section>
-<section class="bg-white border rounded-2xl p-5"><h2 class="font-black">Backup & Logs</h2><div class="space-y-2 mt-3"><a href="/developer/portal_backup/create" class="block text-center bg-blue-600 text-white p-2 rounded-xl">Create Full Backup</a><a href="/developer/portal_logs" class="block text-center bg-slate-700 text-white p-2 rounded-xl">Download Update Log</a>{% if backups %}<a href="/developer/portal_backup/download/{{ backups[0].name }}" class="block text-center bg-emerald-600 text-white p-2 rounded-xl">Download Latest Backup</a>{% endif %}</div></section>
-<section class="bg-white border rounded-2xl p-5"><h2 class="font-black">Rollback</h2><form method="post" class="space-y-3 mt-3"><input type="hidden" name="action" value="rollback"><select name="backup_name" required class="w-full border p-2 rounded-xl"><option value="">Select backup ZIP</option>{% for b in backups %}<option value="{{ b.name }}">{{ b.name }}</option>{% endfor %}</select><input type="password" name="deployment_password" required placeholder="Deployment password" class="w-full border p-2 rounded-xl"><input type="password" name="approval_password" placeholder="Second approval (if configured)" class="w-full border p-2 rounded-xl"><button class="w-full bg-rose-600 text-white p-2.5 rounded-xl font-bold">Rollback Code Only</button></form></section>
-</div>
-<section class="bg-white border rounded-2xl p-5"><h2 class="font-black">Protected Data Verification</h2><div class="grid md:grid-cols-3 gap-2 mt-3 text-xs">{% for x in protected %}<div class="border rounded-xl p-2"><b>{{ x.path }}</b><br>Records/files: {{ x.count }} | {{ 'Present' if x.exists else 'Not created' }}<br><span class="break-all">{{ x.sha256[:20] if x.sha256 else '' }}</span></div>{% endfor %}</div></section>
-<section class="bg-white border rounded-2xl p-5"><h2 class="font-black">Audit & Release History</h2><div class="overflow-auto"><table class="w-full text-xs mt-3"><thead><tr class="border-b text-left"><th class="p-2">Time</th><th>Action</th><th>Status</th><th>User</th><th>Details</th></tr></thead><tbody>{% for h in history|reverse %}<tr class="border-b"><td class="p-2 whitespace-nowrap">{{ h.time }}</td><td>{{ h.action }}</td><td>{{ h.status }}</td><td>{{ h.user }}</td><td>{{ h.details }}</td></tr>{% else %}<tr><td colspan="5" class="p-4 text-center">No history</td></tr>{% endfor %}</tbody></table></div></section>
+PORTAL_UPDATE_TEMPLATE = r"""<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Developer Portal Update</title>
+<script src="https://cdn.tailwindcss.com"></script></head>
+<body class="bg-slate-100 text-slate-900">
+<div class="max-w-5xl mx-auto p-5 space-y-5">
+  <div class="flex justify-between items-center"><div><h1 class="text-2xl font-black">Developer Portal Update</h1><p class="text-sm text-slate-500">Current build: <b>{{ build }}</b></p></div><a href="/" class="bg-slate-900 text-white px-4 py-2 rounded-xl">Back to Dashboard</a></div>
+  {% with messages = get_flashed_messages(with_categories=true) %}{% for category,message in messages %}<div class="p-3 rounded-xl border {{ 'bg-emerald-50 border-emerald-300' if category=='success' else 'bg-amber-50 border-amber-300' if category=='warning' else 'bg-rose-50 border-rose-300' }}">{{ message }}</div>{% endfor %}{% endwith %}
+  <div class="bg-white border rounded-2xl p-5 shadow-sm">
+    <h2 class="font-bold text-lg">Upload New app.py</h2>
+    <p class="text-sm text-slate-600 mt-1">Only application code is replaced. Users, leave history, accepted overtime, salary records, attendance records and uploaded documents are not deleted or replaced.</p>
+    <form method="post" enctype="multipart/form-data" class="mt-4 grid md:grid-cols-3 gap-3 items-end">
+      <input type="hidden" name="action" value="stage">
+      <div><label class="text-xs font-bold">Python file</label><input type="file" name="app_file" accept=".py" required class="block w-full border rounded-xl p-2"></div>
+      <div><label class="text-xs font-bold">Deployment password</label><input type="password" name="deployment_password" required class="block w-full border rounded-xl p-2"></div>
+      <button class="bg-indigo-600 text-white font-bold rounded-xl p-2.5">Validate & Stage</button>
+    </form>
+  </div>
+  <div class="grid md:grid-cols-2 gap-5">
+    <div class="bg-white border rounded-2xl p-5 shadow-sm"><h2 class="font-bold">Staged Update</h2>
+      {% if staged %}<p class="text-sm mt-2">File: {{ staged.name }}<br>Size: {{ staged.size }} bytes<br>SHA-256: <span class="break-all text-xs">{{ staged.sha256 }}</span></p>
+      <form method="post" class="mt-4 space-y-3"><input type="hidden" name="action" value="install"><input type="password" name="deployment_password" placeholder="Deployment password" required class="w-full border rounded-xl p-2"><button class="w-full bg-emerald-600 text-white font-bold rounded-xl p-2.5">Install, Verify Data & Restart</button></form>
+      {% else %}<p class="text-sm text-slate-500 mt-2">No validated update staged.</p>{% endif %}
+    </div>
+    <div class="bg-white border rounded-2xl p-5 shadow-sm"><h2 class="font-bold">Rollback</h2><p class="text-sm text-slate-600 mt-2">Restores only an earlier app.py backup. Business data remains untouched.</p>
+      <form method="post" class="mt-4 space-y-3"><input type="hidden" name="action" value="rollback"><select name="backup_name" required class="w-full border rounded-xl p-2"><option value="">Select backup</option>{% for b in backups %}<option value="{{ b.name }}">{{ b.name }}</option>{% endfor %}</select><input type="password" name="deployment_password" placeholder="Deployment password" required class="w-full border rounded-xl p-2"><button class="w-full bg-amber-600 text-white font-bold rounded-xl p-2.5">Rollback & Restart</button></form>
+    </div>
+  </div>
+  <div class="bg-white border rounded-2xl p-5 shadow-sm"><h2 class="font-bold">Protected Data</h2><div class="grid md:grid-cols-2 gap-2 mt-3 text-xs">{% for item in protected %}<div class="border rounded-lg p-2"><b>{{ item.path }}</b><br>{{ 'Present' if item.exists else 'Not created yet' }}{% if item.sha256 %} · {{ item.sha256[:16] }}...{% endif %}</div>{% endfor %}<div class="border rounded-lg p-2"><b>uploads/</b><br>Preserved and never replaced by updater</div></div></div>
+  <div class="bg-white border rounded-2xl p-5 shadow-sm"><h2 class="font-bold">Update History</h2><div class="overflow-auto"><table class="w-full text-xs mt-3"><thead><tr class="text-left border-b"><th class="p-2">Time</th><th>Action</th><th>Status</th><th>User</th><th>Details</th></tr></thead><tbody>{% for h in history|reverse %}<tr class="border-b"><td class="p-2">{{ h.time }}</td><td>{{ h.action }}</td><td>{{ h.status }}</td><td>{{ h.user }}</td><td>{{ h.details }}</td></tr>{% else %}<tr><td colspan="5" class="p-4 text-center">No update history</td></tr>{% endfor %}</tbody></table></div></div>
 </div></body></html>"""
 
 
-def _pu_sha(path):
-    path=Path(path)
-    if not path.is_file(): return ''
-    h=hashlib.sha256()
-    with path.open('rb') as f:
-        for chunk in iter(lambda:f.read(1024*1024),b''): h.update(chunk)
-    return h.hexdigest()
+def _portal_file_sha256(path):
+    path = Path(path)
+    if not path.is_file():
+        return ''
+    digest = hashlib.sha256()
+    with path.open('rb') as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b''):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
-def _pu_json_read(path, default):
-    try: return json.loads(Path(path).read_text(encoding='utf-8'))
-    except Exception: return default
+def _portal_data_manifest():
+    result = []
+    for raw_path in PORTAL_PROTECTED_FILES:
+        path = Path(raw_path).resolve()
+        result.append({'path': str(raw_path), 'exists': path.is_file(), 'sha256': _portal_file_sha256(path)})
+    upload_path = Path(app.config['UPLOAD_FOLDER']).resolve()
+    upload_files = sorted(str(x.relative_to(upload_path)) for x in upload_path.rglob('*') if x.is_file()) if upload_path.exists() else []
+    result.append({'path': 'uploads/', 'exists': upload_path.exists(), 'sha256': hashlib.sha256('\n'.join(upload_files).encode()).hexdigest(), 'count': len(upload_files)})
+    return result
 
 
-def _pu_json_write(path, data):
-    tmp=Path(str(path)+'.tmp'); tmp.write_text(json.dumps(data,indent=2,ensure_ascii=False),encoding='utf-8'); os.replace(tmp,path)
-
-
-def _pu_history(action,status,details):
-    rows=_pu_json_read(PORTAL_UPDATE_HISTORY,[])
-    if not isinstance(rows,list): rows=[]
-    rows.append({'time':datetime.now().strftime('%Y-%m-%d %H:%M:%S'),'action':action,'status':status,'user':session.get('user_id','system') if session else 'system','details':str(details)[:4000]})
-    _pu_json_write(PORTAL_UPDATE_HISTORY,rows[-500:])
-    app.logger.info('PORTAL_UPDATE %s %s %s',action,status,details)
-
-
-def _pu_count(path):
-    path=Path(path)
-    if not path.exists(): return 0
-    if path.is_dir(): return sum(1 for x in path.rglob('*') if x.is_file())
-    if path.suffix.lower()=='.json':
-        data=_pu_json_read(path,[])
-        return len(data) if isinstance(data,(list,dict)) else 1
-    return 1
-
-
-def _pu_manifest():
-    rows=[]
-    for raw in PORTAL_PROTECTED_FILES:
-        path=(PORTAL_ROOT/raw).resolve() if not Path(raw).is_absolute() else Path(raw).resolve()
-        rows.append({'path':str(raw),'exists':path.exists(),'count':_pu_count(path),'sha256':_pu_sha(path)})
-    uploads=(PORTAL_ROOT/app.config['UPLOAD_FOLDER']).resolve() if not Path(app.config['UPLOAD_FOLDER']).is_absolute() else Path(app.config['UPLOAD_FOLDER']).resolve()
-    file_rows=sorted(f'{x.relative_to(uploads)}:{x.stat().st_size}:{_pu_sha(x)}' for x in uploads.rglob('*') if x.is_file()) if uploads.exists() else []
-    rows.append({'path':'uploads/','exists':uploads.exists(),'count':len(file_rows),'sha256':hashlib.sha256('\n'.join(file_rows).encode()).hexdigest()})
-    return rows
-
-
-def _pu_password(value,approval=False):
-    name='PORTAL_UPDATE_APPROVAL_PASSWORD' if approval else 'PORTAL_UPDATE_PASSWORD'
-    expected=os.getenv(name,'').strip()
-    if not expected and not approval: expected=os.getenv('DEV_PWD','').strip()
-    return (not expected and approval) or (bool(expected) and value==expected)
-
-
-def _pu_require_developer():
-    return bool(session.get('logged_in') and session.get('role')=='developer')
-
-
-def _pu_extract_constants(tree):
-    found={}
-    for node in tree.body:
-        if isinstance(node,ast.Assign) and len(node.targets)==1 and isinstance(node.targets[0],ast.Name):
-            try: found[node.targets[0].id]=ast.literal_eval(node.value)
-            except Exception: pass
-    return found
-
-
-def _pu_validate(path, strict_name=False):
-    path=Path(path)
-    if not path.is_file() or path.suffix.lower()!='.py': return False,{},'Python file missing or invalid extension'
-    if strict_name and path.name!='staged_app.py': return False,{},'Staged filename invalid'
-    if path.stat().st_size<=0 or path.stat().st_size>PORTAL_UPDATE_MAX_BYTES: return False,{},'File empty or above size limit'
-    compile_result=subprocess.run([sys.executable,'-m','py_compile',str(path)],capture_output=True,text=True,timeout=45)
-    if compile_result.returncode: return False,{},(compile_result.stderr or 'Compilation failed')[-4000:]
-    try: tree=ast.parse(path.read_text(encoding='utf-8'))
-    except Exception as exc: return False,{},str(exc)
-    constants=_pu_extract_constants(tree)
-    current_tree=ast.parse(Path(__file__).read_text(encoding='utf-8'))
-    current_constants=_pu_extract_constants(current_tree)
-    protected_names=['LEAVE_JSON_FILE','LEAVE_EXCEL_FILE','OVERTIME_APPROVALS_FILE','SALARY_SLIPS_FILE','USERS_DB_FILE','MACHINES_DB_FILE','UPLOAD_FOLDER']
-    changed=[name for name in protected_names if name in current_constants and constants.get(name)!=current_constants.get(name)]
-    if changed: return False,{},'Protected storage constants changed: '+', '.join(changed)
-    routes=[]
-    for node in ast.walk(tree):
-        if isinstance(node,(ast.FunctionDef,ast.AsyncFunctionDef)):
-            for dec in node.decorator_list:
-                if isinstance(dec,ast.Call) and isinstance(dec.func,ast.Attribute) and dec.func.attr=='route' and dec.args:
-                    try: routes.append(ast.literal_eval(dec.args[0]))
-                    except Exception: pass
-    duplicates=sorted({r for r in routes if routes.count(r)>1})
-    if duplicates: return False,{},'Duplicate Flask routes: '+', '.join(duplicates[:20])
-    required_routes=['/','/login','/apply_leave','/export']
-    missing=[r for r in required_routes if r not in routes]
-    if missing: return False,{},'Required routes missing: '+', '.join(missing)
-    imports=sorted({n.names[0].name.split('.')[0] for n in tree.body if isinstance(n,ast.Import) for _ in [0]} | {n.module.split('.')[0] for n in tree.body if isinstance(n,ast.ImportFrom) and n.module})
-    missing_imports=[]
-    for name in imports:
-        if name in sys.stdlib_module_names: continue
-        result=subprocess.run([sys.executable,'-c',f'import {name}'],capture_output=True,text=True,timeout=15)
-        if result.returncode: missing_imports.append(name)
-    critical_missing=[x for x in missing_imports if x in ('flask','openpyxl','github','zk','pypdf','qrcode')]
-    if critical_missing: return False,{},'Required Python packages unavailable: '+', '.join(critical_missing)
-    info={'route_count':len(routes),'imports':imports,'missing_optional_imports':missing_imports,'sha256':_pu_sha(path),'size':path.stat().st_size,'validation':'PASSED'}
-    return True,info,'Compatibility, syntax, routes, storage and imports passed'
-
-
-def _pu_backup(reason):
-    stamp=datetime.now().strftime('%Y%m%d_%H%M%S')
-    target=PORTAL_BACKUP_DIR/f'portal_{stamp}_{secure_filename(reason) or "backup"}.zip'
-    manifest=_pu_manifest()
-    with zipfile.ZipFile(target,'w',zipfile.ZIP_DEFLATED) as z:
-        z.write(Path(__file__).resolve(),'app.py')
-        for raw in PORTAL_PROTECTED_FILES:
-            path=(PORTAL_ROOT/raw).resolve() if not Path(raw).is_absolute() else Path(raw).resolve()
-            if path.is_file(): z.write(path,'data/'+path.name)
-        uploads=(PORTAL_ROOT/app.config['UPLOAD_FOLDER']).resolve() if not Path(app.config['UPLOAD_FOLDER']).is_absolute() else Path(app.config['UPLOAD_FOLDER']).resolve()
-        if uploads.exists():
-            for item in uploads.rglob('*'):
-                if item.is_file(): z.write(item,'uploads/'+str(item.relative_to(uploads)))
-        z.writestr('backup_manifest.json',json.dumps({'created':datetime.now().isoformat(),'reason':reason,'build':APP_BUILD,'manifest':manifest},indent=2))
-    _pu_retention()
-    return target
-
-
-def _pu_retention():
-    files=sorted(PORTAL_BACKUP_DIR.glob('portal_*.zip'),key=lambda x:x.stat().st_mtime,reverse=True)
-    for old in files[max(PORTAL_BACKUP_RETENTION,2):]:
-        try: old.unlink()
-        except OSError: pass
-
-
-def _pu_set_maintenance(enabled,message='Portal update in progress. Please try again shortly.'):
-    _pu_json_write(PORTAL_MAINTENANCE_FILE,{'enabled':bool(enabled),'message':message,'time':datetime.now().isoformat()})
-
-
-def _pu_install_now(source,meta,action='INSTALL'):
-    before=_pu_manifest(); backup=_pu_backup(action.lower()); current=Path(__file__).resolve()
-    ok,info,message=_pu_validate(source)
-    if not ok: raise RuntimeError(message)
-    replacement=current.with_suffix(current.suffix+'.new'); shutil.copy2(source,replacement); os.replace(replacement,current)
-    after=_pu_manifest()
-    if before!=after:
-        with zipfile.ZipFile(backup) as z: z.extract('app.py',PORTAL_UPDATE_DIR)
-        shutil.copy2(PORTAL_UPDATE_DIR/'app.py',current)
-        raise RuntimeError('Protected data changed; application code rolled back')
-    _pu_json_write(PORTAL_PENDING_HEALTH,{'backup':str(backup),'installed':datetime.now().isoformat(),'meta':meta,'status':'awaiting_restart_health'})
-    _pu_history(action,'SUCCESS',f'{meta.get("version","")} {meta.get("title","")} backup={backup.name}; data verified unchanged')
-    PORTAL_STAGED_APP.unlink(missing_ok=True); PORTAL_STAGED_META.unlink(missing_ok=True)
-    return backup
-
-
-def _pu_restart(): os.execv(sys.executable,[sys.executable]+sys.argv)
-def _pu_restart_later(): threading.Timer(1.5,_pu_restart).start()
-
-
-def _pu_stage_meta(version,title,notes,source,info):
-    meta={'version':version.strip(),'title':title.strip(),'notes':notes.strip(),'source':source,'created':datetime.now().isoformat(),**info}
-    _pu_json_write(PORTAL_STAGED_META,meta); return meta
-
-
-def _pu_schedule_worker(delay):
-    def run():
-        try:
-            schedule=_pu_json_read(PORTAL_SCHEDULE_FILE,{})
-            if not schedule: return
-            _pu_set_maintenance(True,'Scheduled portal update is being installed.')
-            meta=_pu_json_read(PORTAL_STAGED_META,{})
-            _pu_install_now(PORTAL_STAGED_APP,meta,'SCHEDULED_INSTALL')
-            PORTAL_SCHEDULE_FILE.unlink(missing_ok=True); _pu_restart()
-        except Exception as exc:
-            app.logger.exception('Scheduled portal update failed: %s',exc); _pu_set_maintenance(False)
-    threading.Timer(max(delay,1),run).start()
-
-
-@app.before_request
-def portal_maintenance_guard():
-    if request.path.startswith('/static/') or request.path in ['/login','/logout','/api/build'] or request.path.startswith('/developer/'):
-        return None
-    state=_pu_json_read(PORTAL_MAINTENANCE_FILE,{'enabled':False})
-    if state.get('enabled') and session.get('role')!='developer':
-        return render_template_string('<!doctype html><meta charset="utf-8"><title>Maintenance</title><div style="font-family:Arial;max-width:700px;margin:80px auto;padding:30px;border:1px solid #ddd;border-radius:18px"><h1>Portal Maintenance</h1><p>{{ message }}</p></div>',message=state.get('message')),503
-    return None
-
-
-@app.route('/developer/portal_update',methods=['GET','POST'])
-def developer_portal_update():
-    if not _pu_require_developer(): return redirect(url_for('login')) if not session.get('logged_in') else ('Developer access required',403)
-    if request.method=='POST':
-        action=request.form.get('action','')
-        if not _pu_password(request.form.get('deployment_password','')):
-            _pu_history(action,'DENIED','Invalid deployment password'); flash('Deployment password invalid or not configured.','danger'); return redirect(url_for('developer_portal_update'))
-        try:
-            if action in ('stage','stage_github'):
-                if action=='stage':
-                    upload=request.files.get('app_file')
-                    if not upload or secure_filename(upload.filename)!='app.py': raise RuntimeError('Exact filename app.py required')
-                    upload.save(PORTAL_STAGED_APP); source='portal upload'
-                else:
-                    if not GITHUB_TOKEN: raise RuntimeError('GITHUB_TOKEN missing')
-                    repo=Github(GITHUB_TOKEN).get_repo(GITHUB_REPO_NAME); ref=request.form.get('github_ref') or GITHUB_BRANCH; gp=request.form.get('github_path') or 'app.py'
-                    content=repo.get_contents(gp,ref=ref).decoded_content; PORTAL_STAGED_APP.write_bytes(content); source=f'GitHub {GITHUB_REPO_NAME}:{gp}@{ref}'
-                ok,info,message=_pu_validate(PORTAL_STAGED_APP,True)
-                if not ok: PORTAL_STAGED_APP.unlink(missing_ok=True); raise RuntimeError(message)
-                meta=_pu_stage_meta(request.form.get('version',''),request.form.get('title',''),request.form.get('notes',''),source,info)
-                _pu_history('STAGE','READY',f'{meta["version"]} {message} SHA={info["sha256"]}'); flash('Update validated, compatibility-scanned and staged.','success')
-            elif action=='maintenance':
-                enabled=request.form.get('mode')=='on'; _pu_set_maintenance(enabled,request.form.get('message','')); _pu_history('MAINTENANCE','ON' if enabled else 'OFF',request.form.get('message','')); flash('Maintenance mode updated.','success')
-            elif action=='install':
-                if not _pu_password(request.form.get('approval_password',''),True): raise RuntimeError('Second approval password invalid')
-                meta=_pu_json_read(PORTAL_STAGED_META,{})
-                if not PORTAL_STAGED_APP.is_file() or not meta: raise RuntimeError('No validated release staged')
-                install_at=request.form.get('install_at','').strip()
-                if install_at:
-                    target=datetime.fromisoformat(install_at); delay=(target-datetime.now()).total_seconds()
-                    if delay>30:
-                        _pu_json_write(PORTAL_SCHEDULE_FILE,{'install_at':target.isoformat(),'meta':meta}); _pu_schedule_worker(delay); _pu_history('SCHEDULE','READY',target.isoformat()); flash(f'Update scheduled for {target}.','success'); return redirect(url_for('developer_portal_update'))
-                _pu_set_maintenance(True,'Portal update is being installed. Please wait.')
-                _pu_install_now(PORTAL_STAGED_APP,meta); flash('Installed safely. Restarting portal.','success'); _pu_restart_later()
-                return render_template_string('<!doctype html><meta charset="utf-8"><h2>Update installed safely</h2><p>Protected data verified unchanged. Restarting...</p><script>setTimeout(()=>location.href="/developer/portal_update",6000)</script>')
-            elif action=='rollback':
-                if not _pu_password(request.form.get('approval_password',''),True): raise RuntimeError('Second approval password invalid')
-                name=secure_filename(request.form.get('backup_name','')); backup=(PORTAL_BACKUP_DIR/name).resolve()
-                if backup.parent!=PORTAL_BACKUP_DIR or not backup.is_file(): raise RuntimeError('Invalid backup')
-                before=_pu_manifest()
-                with zipfile.ZipFile(backup) as z:
-                    code=z.read('app.py'); temp=PORTAL_UPDATE_DIR/'rollback_app.py'; temp.write_bytes(code)
-                ok,info,message=_pu_validate(temp)
-                if not ok: raise RuntimeError(message)
-                current=Path(__file__).resolve(); replacement=current.with_suffix('.py.new'); shutil.copy2(temp,replacement); os.replace(replacement,current); temp.unlink(missing_ok=True)
-                if before!=_pu_manifest(): raise RuntimeError('Protected data changed during rollback')
-                _pu_history('ROLLBACK','SUCCESS',backup.name); _pu_set_maintenance(True,'Portal rollback restart in progress.'); _pu_restart_later()
-                return render_template_string('<h2>Rollback installed. Restarting...</h2><script>setTimeout(()=>location.href="/",6000)</script>')
-        except Exception as exc:
-            app.logger.exception('Portal deployment action failed'); _pu_history(action,'FAILED',exc); flash('Action failed: '+str(exc),'danger')
-        return redirect(url_for('developer_portal_update'))
-    staged=_pu_json_read(PORTAL_STAGED_META,{}) if PORTAL_STAGED_APP.is_file() else None
-    backups=sorted(PORTAL_BACKUP_DIR.glob('portal_*.zip'),key=lambda x:x.stat().st_mtime,reverse=True)
-    maintenance=_pu_json_read(PORTAL_MAINTENANCE_FILE,{'enabled':False,'message':'Portal update in progress.'})
-    return render_template_string(PORTAL_UPDATE_TEMPLATE,build=APP_BUILD,staged=staged,backups=backups,history=_pu_json_read(PORTAL_UPDATE_HISTORY,[]),protected=_pu_manifest(),maintenance=maintenance,github_branch=GITHUB_BRANCH)
-
-
-@app.route('/developer/portal_backup/create')
-def developer_backup_create():
-    if not _pu_require_developer(): return 'Developer access required',403
-    backup=_pu_backup('manual'); _pu_history('BACKUP','SUCCESS',backup.name); return send_file(backup,as_attachment=True,download_name=backup.name)
-
-
-@app.route('/developer/portal_backup/download/<name>')
-def developer_backup_download(name):
-    if not _pu_require_developer(): return 'Developer access required',403
-    safe=secure_filename(name); path=(PORTAL_BACKUP_DIR/safe).resolve()
-    if path.parent!=PORTAL_BACKUP_DIR or not path.is_file(): return 'Backup not found',404
-    return send_file(path,as_attachment=True,download_name=path.name)
-
-
-@app.route('/developer/portal_logs')
-def developer_portal_logs():
-    if not _pu_require_developer(): return 'Developer access required',403
-    if not PORTAL_UPDATE_LOG.exists(): PORTAL_UPDATE_LOG.write_text('No deployment logs yet.\n',encoding='utf-8')
-    return send_file(PORTAL_UPDATE_LOG,as_attachment=True,download_name='portal_update.log')
-
-
-@app.route('/developer/recovery')
-def developer_recovery():
-    if not _pu_require_developer(): return 'Developer access required',403
-    pending=_pu_json_read(PORTAL_PENDING_HEALTH,{})
-    backups=sorted(PORTAL_BACKUP_DIR.glob('portal_*.zip'),key=lambda x:x.stat().st_mtime,reverse=True)
-    html="""<!doctype html><meta charset="utf-8"><title>Emergency Recovery</title><style>body{font-family:Arial;max-width:900px;margin:30px auto;padding:20px}a{display:inline-block;padding:10px;margin:5px;background:#172033;color:white;text-decoration:none;border-radius:8px}</style><h1>Emergency Recovery</h1><p>Build: <b>{{ build }}</b></p><p>Pending health: {{ pending }}</p><a href="/developer/portal_update">Deployment Center</a><a href="/developer/portal_logs">Download Logs</a><a href="/developer/portal_backup/create">Create Full Backup</a><h3>Backups</h3>{% for b in backups %}<div>{{ b.name }} <a href="/developer/portal_backup/download/{{ b.name }}">Download</a></div>{% endfor %}"""
-    return render_template_string(html,build=APP_BUILD,pending=pending,backups=backups)
-
-
-@app.route('/developer/update_health')
-def developer_update_health():
-    if not _pu_require_developer(): return jsonify({'ok':False}),403
-    pending=_pu_json_read(PORTAL_PENDING_HEALTH,{})
-    checks={'app_loaded':True,'users_readable':isinstance(load_users_db(),dict),'leave_readable':isinstance(LEAVE_REQUESTS,list),'uploads_exists':Path(app.config['UPLOAD_FOLDER']).exists()}
-    ok=all(checks.values())
-    if ok and pending:
-        pending['status']='healthy'; pending['verified']=datetime.now().isoformat(); _pu_json_write(PORTAL_PENDING_HEALTH,pending); _pu_set_maintenance(False); _pu_history('HEALTH','PASSED',checks)
-    return jsonify({'ok':ok,'checks':checks,'pending':pending,'build':APP_BUILD})
-
-
-@app.route('/api/build')
-def api_build():
-    return jsonify({'build':APP_BUILD,'healthy':True,'maintenance':_pu_json_read(PORTAL_MAINTENANCE_FILE,{}).get('enabled',False)})
-
-
-# Restore a future scheduled deployment after an application restart.
-_saved_schedule = _pu_json_read(PORTAL_SCHEDULE_FILE, {})
-if isinstance(_saved_schedule, dict) and _saved_schedule.get('install_at'):
+def _portal_history_load():
     try:
-        _saved_target = datetime.fromisoformat(_saved_schedule['install_at'])
-        _saved_delay = (_saved_target - datetime.now()).total_seconds()
-        if _saved_delay > 0:
-            _pu_schedule_worker(_saved_delay)
+        data = json.loads(PORTAL_UPDATE_HISTORY.read_text(encoding='utf-8'))
+        return data if isinstance(data, list) else []
     except Exception:
-        app.logger.exception('Could not restore scheduled portal update')
+        return []
 
-@app.after_request
-def portal_build_cache_headers(response):
-    if response.mimetype == 'text/html':
-        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
-        response.headers['Pragma'] = 'no-cache'
-        response.headers['Expires'] = '0'
-    response.headers['X-Portal-Build'] = APP_BUILD
-    return response
+
+def _portal_history_add(action, status, details):
+    history = _portal_history_load()
+    history.append({'time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'), 'action': action, 'status': status, 'user': session.get('user_id', 'unknown'), 'details': details})
+    PORTAL_UPDATE_HISTORY.write_text(json.dumps(history[-200:], indent=2, ensure_ascii=False), encoding='utf-8')
+
+
+def _portal_password_ok(value):
+    expected = os.getenv('PORTAL_UPDATE_PASSWORD') or os.getenv('DEV_PWD')
+    return bool(expected) and value == expected
+
+
+def _portal_validate_python(path):
+    path = Path(path)
+    if path.name != 'staged_app.py' or path.suffix.lower() != '.py':
+        return False, 'Only app.py is accepted.'
+    if path.stat().st_size <= 0 or path.stat().st_size > PORTAL_UPDATE_MAX_BYTES:
+        return False, 'File is empty or exceeds update size limit.'
+    result = subprocess.run([sys.executable, '-m', 'py_compile', str(path)], capture_output=True, text=True, timeout=30)
+    if result.returncode != 0:
+        return False, (result.stderr or result.stdout or 'Python syntax validation failed')[-3000:]
+    content = path.read_text(encoding='utf-8', errors='replace')
+    required = ['Flask(', 'app = Flask', "if __name__ == '__main__'", 'LEAVE_JSON_FILE', 'OVERTIME_APPROVALS_FILE', 'UPLOAD_FOLDER']
+    missing = [item for item in required if item not in content]
+    if missing:
+        return False, 'Required application markers missing: ' + ', '.join(missing)
+    return True, 'Syntax and application markers validated.'
+
+
+def _portal_restart():
+    os.execv(sys.executable, [sys.executable] + sys.argv)
+
+
+def _portal_schedule_restart():
+    threading.Timer(1.5, _portal_restart).start()
+
+
+@app.route('/developer/portal_update', methods=['GET', 'POST'])
+def developer_portal_update():
+    if not session.get('logged_in'):
+        return redirect(url_for('login'))
+    if session.get('role') != 'developer':
+        return 'Developer access required', 403
+
+    if request.method == 'POST':
+        action = request.form.get('action', '')
+        if not _portal_password_ok(request.form.get('deployment_password', '')):
+            _portal_history_add(action or 'unknown', 'DENIED', 'Invalid or missing deployment password')
+            flash('Deployment password invalid hai, ya PORTAL_UPDATE_PASSWORD configured nahi hai.', 'danger')
+            return redirect(url_for('developer_portal_update'))
+
+        if action == 'stage':
+            uploaded = request.files.get('app_file')
+            if not uploaded or secure_filename(uploaded.filename) != 'app.py':
+                flash('Exact filename app.py upload karein.', 'danger')
+                return redirect(url_for('developer_portal_update'))
+            temp = PORTAL_UPDATE_DIR / ('incoming_' + uuid.uuid4().hex + '.py')
+            uploaded.save(temp)
+            try:
+                shutil.copy2(temp, PORTAL_STAGED_APP)
+                ok, message = _portal_validate_python(PORTAL_STAGED_APP)
+                if not ok:
+                    PORTAL_STAGED_APP.unlink(missing_ok=True)
+                    _portal_history_add('STAGE', 'FAILED', message)
+                    flash('Validation failed: ' + message, 'danger')
+                else:
+                    _portal_history_add('STAGE', 'READY', message + ' SHA256=' + _portal_file_sha256(PORTAL_STAGED_APP))
+                    flash('New app.py validated and staged. Install button se apply karein.', 'success')
+            finally:
+                temp.unlink(missing_ok=True)
+            return redirect(url_for('developer_portal_update'))
+
+        if action in ('install', 'rollback'):
+            before = _portal_data_manifest()
+            current_app = Path(__file__).resolve()
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            safety_backup = PORTAL_BACKUP_DIR / f'app_before_{action}_{timestamp}.py'
+            shutil.copy2(current_app, safety_backup)
+            try:
+                if action == 'install':
+                    ok, message = _portal_validate_python(PORTAL_STAGED_APP)
+                    if not ok:
+                        raise RuntimeError(message)
+                    source = PORTAL_STAGED_APP
+                    details = 'Installed staged SHA256=' + _portal_file_sha256(source)
+                else:
+                    backup_name = secure_filename(request.form.get('backup_name', ''))
+                    source = (PORTAL_BACKUP_DIR / backup_name).resolve()
+                    if source.parent != PORTAL_BACKUP_DIR or not source.is_file() or source.suffix != '.py':
+                        raise RuntimeError('Invalid backup selection')
+                    ok, message = _portal_validate_python(source)
+                    # Backup filenames differ, so validate compile and markers directly.
+                    result = subprocess.run([sys.executable, '-m', 'py_compile', str(source)], capture_output=True, text=True, timeout=30)
+                    if result.returncode != 0:
+                        raise RuntimeError(result.stderr[-3000:])
+                    details = 'Rolled back to ' + source.name
+
+                replacement = current_app.with_name(current_app.name + '.new')
+                shutil.copy2(source, replacement)
+                os.replace(replacement, current_app)
+                after = _portal_data_manifest()
+                if before != after:
+                    shutil.copy2(safety_backup, current_app)
+                    raise RuntimeError('Protected business data changed during install; code rolled back automatically')
+                if action == 'install':
+                    PORTAL_STAGED_APP.unlink(missing_ok=True)
+                _portal_history_add(action.upper(), 'SUCCESS', details + '; protected data verified unchanged')
+                flash('Update installed. Portal restart ho raha hai; 5 seconds baad refresh karein.', 'success')
+                _portal_schedule_restart()
+                return render_template_string('<!doctype html><meta charset="utf-8"><title>Restarting</title><div style="font-family:Arial;padding:40px"><h2>Update installed safely</h2><p>Users, leave history, accepted overtime and uploaded documents verified unchanged.</p><p>Portal restart ho raha hai. 5 seconds baad <a href="/">Dashboard</a> open karein.</p><script>setTimeout(()=>location.href="/",5000)</script></div>')
+            except Exception as exc:
+                app.logger.exception('Portal update failed')
+                _portal_history_add(action.upper(), 'FAILED', str(exc))
+                flash('Update failed: ' + str(exc), 'danger')
+                return redirect(url_for('developer_portal_update'))
+
+    staged = None
+    if PORTAL_STAGED_APP.is_file():
+        staged = {'name': 'app.py', 'size': PORTAL_STAGED_APP.stat().st_size, 'sha256': _portal_file_sha256(PORTAL_STAGED_APP)}
+    backups = sorted(PORTAL_BACKUP_DIR.glob('*.py'), key=lambda x: x.stat().st_mtime, reverse=True)
+    return render_template_string(PORTAL_UPDATE_TEMPLATE, build=APP_BUILD, staged=staged, backups=backups, history=_portal_history_load(), protected=_portal_data_manifest())
 
 
 if __name__ == '__main__':
