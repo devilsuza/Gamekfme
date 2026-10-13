@@ -1,10 +1,4 @@
 import base64
-import ast
-import zipfile
-import threading
-import subprocess
-import shutil
-import hashlib
 import io
 import json
 import math
@@ -25,7 +19,7 @@ from zk import ZK, const
 from pypdf import PdfReader, PdfWriter
 
 app = Flask(__name__)
-APP_BUILD = '2026-10-12-RELEASE-MANAGER-V16'
+APP_BUILD = '2026-10-10-ALL-EMP-ATTENDANCE-RIGHT-V8'
 app.secret_key = os.getenv('SECRET_KEY', 'gamek_fresmart_secret_key_sonu')
 
 UPLOAD_FOLDER = os.getenv('UPLOAD_FOLDER', 'uploads')
@@ -44,6 +38,11 @@ MACHINES = {
 GITHUB_TOKEN = os.getenv('GITHUB_TOKEN', '')
 GITHUB_REPO_NAME = os.getenv('GITHUB_REPO_NAME', 'devilsuza/Gamekfme')
 GITHUB_BRANCH = os.getenv('GITHUB_BRANCH', 'main')
+PORTAL_APP_PATH = os.getenv('PORTAL_APP_PATH', 'app.py')
+PORTAL_HEALTH_URL = os.getenv('PORTAL_HEALTH_URL', '').strip()
+PORTAL_VERSION_HISTORY_FILE = os.getenv('PORTAL_VERSION_HISTORY_FILE', 'portal_version_history.json')
+PORTAL_WORKFLOW_PATH = '.github/workflows/portal-auto-rollback.yml'
+PORTAL_MAX_FILE_MB = int(os.getenv('PORTAL_MAX_FILE_MB', '5'))
 
 # Persistent Storage Files
 LEAVE_JSON_FILE = 'leave_requests.json'
@@ -170,6 +169,127 @@ def save_json_file(filepath, data):
     try:
         with open(filepath, 'w', encoding='utf-8') as f: json.dump(data, f, indent=4, ensure_ascii=False)
     except Exception as e: print(f"Error saving {filepath}: {e}")
+
+def _developer_required():
+    return session.get('logged_in') and session.get('role') == 'developer'
+
+def _portal_history():
+    data = load_json_file(PORTAL_VERSION_HISTORY_FILE)
+    return data if isinstance(data, list) else []
+
+def _save_portal_history(rows):
+    save_json_file(PORTAL_VERSION_HISTORY_FILE, rows[-200:])
+
+def _validate_uploaded_app(content):
+    if not isinstance(content, (bytes, bytearray)) or not content:
+        raise ValueError('Uploaded app.py is empty.')
+    if len(content) > PORTAL_MAX_FILE_MB * 1024 * 1024:
+        raise ValueError(f'app.py must be smaller than {PORTAL_MAX_FILE_MB} MB.')
+    if b'\x00' in content:
+        raise ValueError('Binary/NUL content is not allowed.')
+    try:
+        text = content.decode('utf-8')
+    except UnicodeDecodeError as exc:
+        raise ValueError('app.py must be UTF-8 encoded.') from exc
+    compile(text, 'app.py', 'exec')
+    if 'Flask(' not in text or "__name__" not in text:
+        raise ValueError('Uploaded file does not look like a Flask app.py.')
+    return text
+
+def _github_repo():
+    if not GITHUB_TOKEN:
+        raise RuntimeError('GITHUB_TOKEN is not configured on the server.')
+    return Github(GITHUB_TOKEN).get_repo(GITHUB_REPO_NAME)
+
+def _workflow_yaml():
+    return r"""name: Portal deploy health check and rollback
+
+on:
+  push:
+    branches: [main]
+    paths: [app.py]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: portal-production-deploy
+  cancel-in-progress: false
+
+jobs:
+  health-check:
+    if: "!contains(github.event.head_commit.message, '[auto-rollback]')"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 3
+      - name: Wait for deployment
+        run: sleep 90
+      - name: Check portal health
+        id: health
+        env:
+          PORTAL_HEALTH_URL: ${{ secrets.PORTAL_HEALTH_URL }}
+        run: |
+          if [ -z "$PORTAL_HEALTH_URL" ]; then
+            echo "PORTAL_HEALTH_URL repository secret is missing"
+            exit 1
+          fi
+          for attempt in 1 2 3 4 5; do
+            if curl --fail --silent --show-error --max-time 20 "$PORTAL_HEALTH_URL"; then
+              exit 0
+            fi
+            sleep 20
+          done
+          exit 1
+      - name: Roll back failed app.py commit
+        if: failure()
+        run: |
+          git config user.name "portal-auto-rollback"
+          git config user.email "actions@users.noreply.github.com"
+          git revert --no-edit HEAD
+          git commit --amend -m "[auto-rollback] Revert failed portal deployment $GITHUB_SHA"
+          git push origin HEAD:${{ github.ref_name }}
+"""
+
+def _ensure_rollback_workflow(repo):
+    # The branch is configurable in app.py; the workflow branch is adjusted before upload.
+    workflow = _workflow_yaml().replace('branches: [main]', f'branches: [{GITHUB_BRANCH}]').replace('paths: [app.py]', f'paths: [{PORTAL_APP_PATH}]')
+    try:
+        old = repo.get_contents(PORTAL_WORKFLOW_PATH, ref=GITHUB_BRANCH)
+        current = base64.b64decode(old.content).decode('utf-8')
+        if current != workflow:
+            repo.update_file(PORTAL_WORKFLOW_PATH, 'Update portal auto rollback workflow', workflow, old.sha, branch=GITHUB_BRANCH)
+    except Exception as exc:
+        # A missing file is expected on first setup. Other GitHub errors will surface on create.
+        if getattr(exc, 'status', None) == 404:
+            repo.create_file(PORTAL_WORKFLOW_PATH, 'Add portal auto rollback workflow', workflow, branch=GITHUB_BRANCH)
+        else:
+            raise
+
+def _github_app_file(repo):
+    return repo.get_contents(PORTAL_APP_PATH, ref=GITHUB_BRANCH)
+
+def _record_portal_version(version, notes, commit_sha, previous_sha, status, action='deploy'):
+    rows = _portal_history()
+    for row in rows:
+        if row.get('status') == 'active':
+            row['status'] = 'previous'
+    rows.append({
+        'id': uuid.uuid4().hex,
+        'version': version,
+        'notes': notes,
+        'commit_sha': commit_sha,
+        'previous_sha': previous_sha,
+        'status': status,
+        'action': action,
+        'uploaded_by': session.get('user_name', session.get('user_id', 'developer')),
+        'uploaded_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    })
+    _save_portal_history(rows)
+
+def _content_at_commit(repo, commit_sha):
+    return repo.get_contents(PORTAL_APP_PATH, ref=commit_sha)
 
 def load_machines_db():
     global MACHINES
@@ -1312,6 +1432,7 @@ HTML_TEMPLATE = """
                 
                 {% if role == 'developer' %}
                 <a href="#" onclick="toggleModal('machine-mgmt-modal', true); return false;" class="flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 font-medium text-xs transition"><span>🖥️</span><span>Biometric Machines</span></a>
+                <a href="/developer/portal-update" class="flex items-center space-x-3 px-3 py-2.5 rounded-xl text-cyan-800 bg-cyan-50 hover:bg-cyan-100 font-black text-xs border border-cyan-200"><span>🚀</span><span>Portal Update & Rollback</span></a>
                 <a href="#" onclick="toggleModal('user-mgmt-modal', true); return false;" class="flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 font-medium text-xs transition border border-transparent hover:border-slate-200">
                     <span>🪪</span>
                     <span>User Management</span>
@@ -1453,7 +1574,6 @@ HTML_TEMPLATE = """
 
                 <div class="flex items-center space-x-2 bg-slate-100 border border-slate-200 px-2.5 py-1.5 sm:px-3 sm:py-1.5 rounded-xl text-xs font-bold text-slate-700">
                     <button onclick="toggleModal('profile-modal',true)" class="flex items-center gap-1">{% if current_user.profile_photo %}<img src="/uploads/{{ current_user.profile_photo }}" class="w-7 h-7 rounded-full object-cover border">{% else %}<span>👤</span>{% endif %}<span class="hidden sm:inline">{{ logged_user_name }}</span></button>
-                    {% if role == 'developer' %}<a href="/developer/releases" class="text-indigo-700 hover:text-indigo-900 sm:ml-2 font-bold">Portal Update & Roll Back ⚙</a>{% endif %}
                     <a href="/logout" class="text-rose-600 hover:text-rose-700 sm:ml-2 font-semibold">Logout 🔒</a>
                 </div>
 
@@ -2325,6 +2445,88 @@ ID_CARD_TEMPLATE = """
 </body>
 </html>
 """
+
+PORTAL_UPDATE_TEMPLATE = r"""
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Portal Update Manager</title><script src="https://cdn.tailwindcss.com"></script></head>
+<body class="bg-slate-100 min-h-screen text-slate-800"><main class="max-w-6xl mx-auto p-4 sm:p-8 space-y-6">
+<div class="flex flex-col sm:flex-row gap-3 justify-between sm:items-center"><div><h1 class="text-2xl font-black">🚀 Portal Update & Rollback</h1><p class="text-sm text-slate-500">Validated GitHub deployment, release history and rollback.</p></div><a href="/" class="bg-slate-900 text-white px-4 py-2 rounded-xl text-sm font-bold">← Dashboard</a></div>
+{% with messages=get_flashed_messages(with_categories=true) %}{% for category,message in messages %}<div class="rounded-xl p-4 font-bold text-sm {% if category=='success' %}bg-emerald-100 text-emerald-800{% else %}bg-rose-100 text-rose-800{% endif %}">{{message}}</div>{% endfor %}{% endwith %}
+<div class="grid lg:grid-cols-3 gap-5"><section class="lg:col-span-2 bg-white rounded-2xl shadow-sm border p-5"><h2 class="font-black mb-4">Upload new app.py</h2>
+<form action="/developer/portal-update/deploy" method="post" enctype="multipart/form-data" class="space-y-4" onsubmit="this.querySelector('button').disabled=true;this.querySelector('button').textContent='Uploading...';">
+<div class="grid sm:grid-cols-2 gap-3"><label class="text-xs font-bold">Version<input name="version" required pattern="[A-Za-z0-9._-]{1,40}" placeholder="v2.5.0" class="mt-1 w-full border rounded-xl p-3 font-normal"></label><label class="text-xs font-bold">New app.py<input type="file" name="app_file" accept=".py,text/x-python" required class="mt-1 w-full border rounded-xl p-2 font-normal"></label></div>
+<label class="text-xs font-bold block">Release notes<textarea name="notes" maxlength="1000" rows="3" placeholder="What changed in this release?" class="mt-1 w-full border rounded-xl p-3 font-normal"></textarea></label>
+<label class="flex gap-2 items-start text-xs rounded-xl bg-amber-50 border border-amber-200 p-3"><input type="checkbox" name="confirm_deploy" value="yes" required class="mt-0.5">I understand this updates {{repo_name}} / {{branch}} / {{app_path}}.</label>
+<button class="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-3 rounded-xl font-black">Validate & Deploy to GitHub</button></form></section>
+<aside class="bg-white rounded-2xl shadow-sm border p-5 space-y-3"><h2 class="font-black">Deployment safety</h2><div class="text-xs space-y-2 text-slate-600"><p>✅ Python syntax is compiled before GitHub update.</p><p>✅ Existing JSON, uploads, leave, overtime and document files are not changed.</p><p>✅ Git commit SHA is saved for every version.</p><p>✅ Manual rollback restores the selected app.py content as a new commit.</p><p>✅ GitHub Actions checks <code>/health</code> and reverts a failed deployment.</p></div><div class="rounded-xl bg-slate-100 p-3 text-xs"><b>Health URL:</b><br>{{health_url or 'Set GitHub secret PORTAL_HEALTH_URL'}}<br><br><b>Repository:</b><br>{{repo_name}} ({{branch}})</div></aside></div>
+<section class="bg-white rounded-2xl shadow-sm border overflow-hidden"><div class="p-5 border-b"><h2 class="font-black">Version history</h2></div><div class="overflow-x-auto"><table class="w-full min-w-[850px] text-xs"><thead class="bg-slate-900 text-white"><tr><th class="p-3 text-left">Version</th><th class="p-3 text-left">Date / By</th><th class="p-3 text-left">Commit</th><th class="p-3 text-left">Notes</th><th class="p-3 text-left">Status</th><th class="p-3 text-left">Action</th></tr></thead><tbody>{% for row in history|reverse %}<tr class="border-b"><td class="p-3 font-black">{{row.version}}</td><td class="p-3">{{row.uploaded_at}}<br>{{row.uploaded_by}}</td><td class="p-3 font-mono">{{row.commit_sha[:12]}}</td><td class="p-3 max-w-xs">{{row.notes or '-'}}</td><td class="p-3"><span class="px-2 py-1 rounded-full bg-slate-100">{{row.status}}</span></td><td class="p-3">{% if row.commit_sha %}<form action="/developer/portal-update/rollback/{{row.id}}" method="post" onsubmit="return confirm('Rollback app.py to version {{row.version}}?');"><button class="bg-rose-600 text-white px-3 py-2 rounded-lg font-bold">Rollback</button></form>{% endif %}</td></tr>{% else %}<tr><td colspan="6" class="p-8 text-center text-slate-400">No portal deployment history yet.</td></tr>{% endfor %}</tbody></table></div></section>
+</main></body></html>
+"""
+
+@app.route('/health')
+def portal_health():
+    return jsonify({'status':'ok','build':APP_BUILD,'time':datetime.now().isoformat(timespec='seconds')}), 200
+
+@app.route('/developer/portal-update')
+def portal_update_manager():
+    if not _developer_required():
+        return redirect(url_for('login'))
+    return render_template_string(PORTAL_UPDATE_TEMPLATE, history=_portal_history(), repo_name=GITHUB_REPO_NAME, branch=GITHUB_BRANCH, app_path=PORTAL_APP_PATH, health_url=PORTAL_HEALTH_URL)
+
+@app.route('/developer/portal-update/deploy', methods=['POST'])
+def portal_update_deploy():
+    if not _developer_required():
+        return 'Developer access required', 403
+    if request.form.get('confirm_deploy') != 'yes':
+        flash('Deployment confirmation is required.', 'danger')
+        return redirect(url_for('portal_update_manager'))
+    version = (request.form.get('version') or '').strip()
+    notes = (request.form.get('notes') or '').strip()[:1000]
+    if not re.fullmatch(r'[A-Za-z0-9._-]{1,40}', version):
+        flash('Version may contain only letters, numbers, dot, underscore and hyphen.', 'danger')
+        return redirect(url_for('portal_update_manager'))
+    upload = request.files.get('app_file')
+    if not upload or secure_filename(upload.filename or '').lower() != 'app.py':
+        flash('Please select a file named app.py.', 'danger')
+        return redirect(url_for('portal_update_manager'))
+    try:
+        new_source = _validate_uploaded_app(upload.read())
+        repo = _github_repo()
+        _ensure_rollback_workflow(repo)
+        current = _github_app_file(repo)
+        result = repo.update_file(PORTAL_APP_PATH, f'Portal release {version}: {notes[:80]}', new_source, current.sha, branch=GITHUB_BRANCH)
+        commit_sha = result['commit'].sha
+        _record_portal_version(version, notes, commit_sha, current.sha, 'active', 'deploy')
+        flash(f'Version {version} deployed to GitHub. Commit: {commit_sha[:12]}', 'success')
+    except SyntaxError as exc:
+        flash(f'Upload blocked. Python syntax error at line {exc.lineno}: {exc.msg}', 'danger')
+    except Exception as exc:
+        flash(f'Deployment failed safely: {str(exc)[:350]}', 'danger')
+    return redirect(url_for('portal_update_manager'))
+
+@app.route('/developer/portal-update/rollback/<history_id>', methods=['POST'])
+def portal_update_rollback(history_id):
+    if not _developer_required():
+        return 'Developer access required', 403
+    rows = _portal_history()
+    target = next((x for x in rows if x.get('id') == history_id), None)
+    if not target or not target.get('commit_sha'):
+        flash('Selected version was not found.', 'danger')
+        return redirect(url_for('portal_update_manager'))
+    try:
+        repo = _github_repo()
+        target_file = _content_at_commit(repo, target['commit_sha'])
+        target_source = base64.b64decode(target_file.content).decode('utf-8')
+        _validate_uploaded_app(target_source.encode('utf-8'))
+        current = _github_app_file(repo)
+        version = f"rollback-{target.get('version','version')}"
+        result = repo.update_file(PORTAL_APP_PATH, f'Manual rollback to {target.get("version", target["commit_sha"][:12])}', target_source, current.sha, branch=GITHUB_BRANCH)
+        commit_sha = result['commit'].sha
+        _record_portal_version(version, f"Rollback to {target.get('version','selected version')}", commit_sha, current.sha, 'active', 'rollback')
+        flash(f'Rollback completed. New commit: {commit_sha[:12]}', 'success')
+    except Exception as exc:
+        flash(f'Rollback failed safely: {str(exc)[:350]}', 'danger')
+    return redirect(url_for('portal_update_manager'))
 
 @app.errorhandler(413)
 def upload_too_large(error):
@@ -3932,148 +4134,6 @@ def suite_employee_qr(uid):
     payload=json.dumps({'employee_code':uid,'name':info.get('name'),'store':st,'designation':info.get('designation'),'status':info.get('status')},ensure_ascii=False)
     img=qrcode.make(payload);out=io.BytesIO();img.save(out,format='PNG');out.seek(0);return send_file(out,mimetype='image/png')
 
-
-
-# === DEVELOPER RELEASE MANAGER V16 ===
-RELEASE_ROOT = Path(os.getenv('PORTAL_RELEASE_DIR', 'portal_releases')).resolve()
-RELEASE_FILES = RELEASE_ROOT / 'files'
-RELEASE_BACKUPS = RELEASE_ROOT / 'backups'
-RELEASE_HISTORY_FILE = RELEASE_ROOT / 'history.json'
-RELEASE_STATE_FILE = RELEASE_ROOT / 'state.json'
-RELEASE_FILES.mkdir(parents=True, exist_ok=True)
-RELEASE_BACKUPS.mkdir(parents=True, exist_ok=True)
-RELEASE_MAX_BYTES = int(os.getenv('PORTAL_UPDATE_MAX_MB', '8')) * 1024 * 1024
-
-RELEASE_PROTECTED_FILES = [
-    LEAVE_JSON_FILE, LEAVE_EXCEL_FILE, ATTENDANCE_OVERRIDES_FILE,
-    MANUAL_PUNCHES_FILE, DUPLICATE_PUNCHES_FILE, ROSTER_JSON_FILE,
-    CORRECTIONS_FILE, OVERTIME_APPROVALS_FILE, SALARY_SLIPS_FILE,
-    USERS_DB_FILE, MACHINES_DB_FILE
-]
-
-RELEASE_TEMPLATE = r"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Portal Update & Roll Back</title><script src="https://cdn.tailwindcss.com"></script></head><body class="bg-slate-100 text-slate-900"><main class="max-w-7xl mx-auto p-5 space-y-5">
-<div class="flex flex-wrap justify-between gap-3 items-center"><div><h1 class="text-2xl font-black">Portal Update & Roll Back</h1><p class="text-sm text-slate-500">Current build: <b>{{ build }}</b> · Live version: <b>{{ state.live_version or 'Current server version' }}</b></p></div><a href="/" class="bg-slate-900 text-white px-4 py-2 rounded-xl">Dashboard</a></div>
-{% with messages=get_flashed_messages(with_categories=true) %}{% for category,message in messages %}<div class="p-3 rounded-xl border {{ 'bg-emerald-50 border-emerald-300' if category=='success' else 'bg-amber-50 border-amber-300' if category=='warning' else 'bg-rose-50 border-rose-300' }}">{{ message }}</div>{% endfor %}{% endwith %}
-<section class="bg-white border rounded-2xl p-5 shadow-sm"><h2 class="font-black text-lg">Upload New app.py</h2><p class="text-sm text-slate-600 mt-1">Version is required. Upload only stages a release and does not change the live portal.</p><form method="post" enctype="multipart/form-data" class="grid lg:grid-cols-5 gap-3 mt-4 items-end"><input type="hidden" name="action" value="upload"><div><label class="text-xs font-bold">app.py</label><input type="file" name="app_file" accept=".py" required class="w-full border rounded-xl p-2"></div><div><label class="text-xs font-bold">Version</label><input name="version" required placeholder="e.g. V16.1" class="w-full border rounded-xl p-2"></div><div><label class="text-xs font-bold">Title</label><input name="title" required placeholder="Update title" class="w-full border rounded-xl p-2"></div><div><label class="text-xs font-bold">Notes</label><input name="notes" required placeholder="Changes included" class="w-full border rounded-xl p-2"></div><div><label class="text-xs font-bold">Deployment password</label><input type="password" name="deployment_password" required class="w-full border rounded-xl p-2"></div><button class="lg:col-span-5 bg-indigo-600 text-white font-bold rounded-xl p-2.5">Validate & Add to History</button></form></section>
-<section class="bg-white border rounded-2xl p-5 shadow-sm"><h2 class="font-black text-lg">Release History</h2><p class="text-sm text-slate-600">History is append-only. Live publishes code after an automatic backup and protected-data verification. Roll Back creates a new history event and never deletes old entries.</p><div class="overflow-auto mt-4"><table class="w-full text-xs min-w-[1050px]"><thead><tr class="text-left border-b bg-slate-50"><th class="p-2">Date & Time</th><th>Version</th><th>Title / Notes</th><th>Status</th><th>SHA-256</th><th>Uploaded By</th><th>Audience</th><th>Action</th></tr></thead><tbody>{% for r in releases|reverse %}<tr class="border-b align-top"><td class="p-2 whitespace-nowrap">{{ r.created_at }}</td><td class="font-bold">{{ r.version }}</td><td><b>{{ r.title }}</b><br>{{ r.notes }}</td><td>{{ r.status }}</td><td class="font-mono break-all max-w-[180px]">{{ r.sha256[:20] }}...</td><td>{{ r.uploaded_by }}</td><td>{{ r.audience }}</td><td class="p-2">{% if r.file_name and r.status != 'LIVE' %}<form method="post" class="space-y-1"><input type="hidden" name="action" value="live"><input type="hidden" name="release_id" value="{{ r.id }}"><input type="password" name="deployment_password" required placeholder="Password" class="border rounded p-1 w-28"><button class="bg-emerald-600 text-white px-3 py-1 rounded-lg font-bold">Live</button></form>{% elif r.status == 'LIVE' %}<span class="inline-block bg-emerald-100 text-emerald-800 px-3 py-1 rounded-full font-bold">Currently Live</span>{% endif %}</td></tr>{% else %}<tr><td colspan="8" class="p-6 text-center text-slate-500">No release history yet.</td></tr>{% endfor %}</tbody></table></div></section>
-<section class="bg-white border rounded-2xl p-5"><h2 class="font-black">Roll Back Current Code</h2><form method="post" class="flex flex-wrap gap-3 mt-3"><input type="hidden" name="action" value="rollback"><select name="backup_name" required class="border rounded-xl p-2 min-w-[350px]"><option value="">Select automatic backup</option>{% for b in backups %}<option value="{{ b.name }}">{{ b.name }}</option>{% endfor %}</select><input type="password" name="deployment_password" required placeholder="Deployment password" class="border rounded-xl p-2"><button class="bg-rose-600 text-white px-5 rounded-xl font-bold">Roll Back</button></form></section>
-<section class="bg-white border rounded-2xl p-5"><h2 class="font-black">Protected Existing Data</h2><div class="grid md:grid-cols-3 gap-2 mt-3 text-xs">{% for p in protected %}<div class="border rounded-xl p-2"><b>{{ p.path }}</b><br>{{ p.count }} records/files · {{ 'Present' if p.exists else 'Not created yet' }}</div>{% endfor %}</div></section>
-</main></body></html>"""
-
-
-def _rel_read(path,default):
-    try: return json.loads(Path(path).read_text(encoding='utf-8'))
-    except Exception: return default
-
-
-def _rel_write(path,data):
-    tmp=Path(str(path)+'.tmp'); tmp.write_text(json.dumps(data,indent=2,ensure_ascii=False),encoding='utf-8'); os.replace(tmp,path)
-
-
-def _rel_sha(path):
-    h=hashlib.sha256()
-    with open(path,'rb') as f:
-        for chunk in iter(lambda:f.read(1024*1024),b''): h.update(chunk)
-    return h.hexdigest()
-
-
-def _rel_manifest():
-    rows=[]
-    for raw in RELEASE_PROTECTED_FILES:
-        path=Path(raw)
-        exists=path.is_file(); count=0
-        if exists and path.suffix.lower()=='.json':
-            data=_rel_read(path,[]); count=len(data) if isinstance(data,(list,dict)) else 1
-        elif exists: count=1
-        rows.append({'path':str(raw),'exists':exists,'count':count,'sha256':_rel_sha(path) if exists else ''})
-    up=Path(app.config['UPLOAD_FOLDER']); files=sorted(x for x in up.rglob('*') if x.is_file()) if up.exists() else []
-    digest=hashlib.sha256('\n'.join(f'{x.relative_to(up)}:{x.stat().st_size}:{_rel_sha(x)}' for x in files).encode()).hexdigest()
-    rows.append({'path':'uploads/','exists':up.exists(),'count':len(files),'sha256':digest})
-    return rows
-
-
-def _rel_password(value):
-    expected=os.getenv('PORTAL_UPDATE_PASSWORD') or os.getenv('DEV_PWD')
-    return bool(expected) and value==expected
-
-
-def _rel_validate(path):
-    path=Path(path)
-    if not path.is_file() or path.stat().st_size<=0 or path.stat().st_size>RELEASE_MAX_BYTES: return False,'Invalid file or size'
-    result=subprocess.run([sys.executable,'-m','py_compile',str(path)],capture_output=True,text=True,timeout=45)
-    if result.returncode: return False,(result.stderr or 'Python compilation failed')[-3000:]
-    text=path.read_text(encoding='utf-8',errors='replace')
-    required=['app = Flask','LEAVE_JSON_FILE','OVERTIME_APPROVALS_FILE','USERS_DB_FILE','UPLOAD_FOLDER',"if __name__ == '__main__'"]
-    missing=[x for x in required if x not in text]
-    if missing: return False,'Required markers missing: '+', '.join(missing)
-    return True,'Validated'
-
-
-def _rel_append(event):
-    rows=_rel_read(RELEASE_HISTORY_FILE,[])
-    if not isinstance(rows,list): rows=[]
-    rows.append(event); _rel_write(RELEASE_HISTORY_FILE,rows)
-
-
-def _rel_backup(label):
-    stamp=datetime.now().strftime('%Y%m%d_%H%M%S')
-    target=RELEASE_BACKUPS/f'app_{stamp}_{secure_filename(label)}.py'
-    shutil.copy2(Path(__file__).resolve(),target)
-    return target
-
-
-def _rel_restart(): os.execv(sys.executable,[sys.executable]+sys.argv)
-def _rel_restart_later(): threading.Timer(1.5,_rel_restart).start()
-
-
-@app.route('/developer/releases',methods=['GET','POST'])
-def developer_releases():
-    if not session.get('logged_in'): return redirect(url_for('login'))
-    if session.get('role')!='developer': return 'Developer access required',403
-    releases=_rel_read(RELEASE_HISTORY_FILE,[])
-    if request.method=='POST':
-        action=request.form.get('action','')
-        if not _rel_password(request.form.get('deployment_password','')):
-            flash('Deployment password invalid or not configured.','danger'); return redirect(url_for('developer_releases'))
-        try:
-            if action=='upload':
-                upload=request.files.get('app_file'); version=request.form.get('version','').strip(); title=request.form.get('title','').strip(); notes=request.form.get('notes','').strip()
-                if not upload or secure_filename(upload.filename)!='app.py': raise RuntimeError('Exact filename app.py required')
-                if not version or not title or not notes: raise RuntimeError('Version, title and notes are required')
-                if any(str(x.get('version','')).lower()==version.lower() for x in releases): raise RuntimeError('Version already exists; use a new version number')
-                release_id=uuid.uuid4().hex; target=RELEASE_FILES/f'{release_id}_app.py'; upload.save(target)
-                ok,message=_rel_validate(target)
-                if not ok: target.unlink(missing_ok=True); raise RuntimeError(message)
-                event={'id':release_id,'created_at':datetime.now().strftime('%Y-%m-%d %H:%M:%S'),'version':version,'title':title,'notes':notes,'status':'STAGED','sha256':_rel_sha(target),'uploaded_by':session.get('user_id'),'audience':'Admin + Employee','file_name':target.name,'event':'UPLOAD'}
-                _rel_append(event); flash(f'Version {version} validated and added to history.','success')
-            elif action=='live':
-                rid=request.form.get('release_id',''); rows=_rel_read(RELEASE_HISTORY_FILE,[]); release=next((x for x in rows if x.get('id')==rid and x.get('file_name')),None)
-                if not release: raise RuntimeError('Release not found')
-                source=RELEASE_FILES/secure_filename(release['file_name']); ok,message=_rel_validate(source)
-                if not ok: raise RuntimeError(message)
-                before=_rel_manifest(); backup=_rel_backup('before_'+release.get('version','release')); current=Path(__file__).resolve(); replacement=current.with_suffix('.py.new'); shutil.copy2(source,replacement); os.replace(replacement,current)
-                after=_rel_manifest()
-                if before!=after: shutil.copy2(backup,current); raise RuntimeError('Protected data changed; code rolled back automatically')
-                for x in rows:
-                    if x.get('status')=='LIVE': x['status']='SUPERSEDED'
-                    if x.get('id')==rid: x['status']='LIVE'; x['live_at']=datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                _rel_write(RELEASE_HISTORY_FILE,rows)
-                _rel_append({'id':uuid.uuid4().hex,'created_at':datetime.now().strftime('%Y-%m-%d %H:%M:%S'),'version':release['version'],'title':'Release made live','notes':f'Backup: {backup.name}. Protected history and documents verified unchanged.','status':'AUDIT','sha256':release['sha256'],'uploaded_by':session.get('user_id'),'audience':'Admin + Employee','file_name':'','event':'LIVE'})
-                _rel_write(RELEASE_STATE_FILE,{'live_version':release['version'],'live_release_id':rid,'live_at':datetime.now().isoformat(),'audience':['admin','employee']})
-                _rel_restart_later(); return render_template_string('<h2>Release is live. Portal restarting...</h2><p>Existing data verified unchanged.</p><script>setTimeout(()=>location.href="/developer/releases",6000)</script>')
-            elif action=='rollback':
-                name=secure_filename(request.form.get('backup_name','')); source=(RELEASE_BACKUPS/name).resolve()
-                if source.parent!=RELEASE_BACKUPS or not source.is_file(): raise RuntimeError('Invalid backup')
-                ok,message=_rel_validate(source)
-                if not ok: raise RuntimeError(message)
-                before=_rel_manifest(); safety=_rel_backup('before_rollback'); current=Path(__file__).resolve(); replacement=current.with_suffix('.py.new'); shutil.copy2(source,replacement); os.replace(replacement,current)
-                if before!=_rel_manifest(): shutil.copy2(safety,current); raise RuntimeError('Protected data changed; rollback cancelled')
-                _rel_append({'id':uuid.uuid4().hex,'created_at':datetime.now().strftime('%Y-%m-%d %H:%M:%S'),'version':'ROLLBACK','title':'Code rollback','notes':f'Restored {source.name}; safety backup {safety.name}','status':'AUDIT','sha256':_rel_sha(source),'uploaded_by':session.get('user_id'),'audience':'Admin + Employee','file_name':'','event':'ROLLBACK'})
-                _rel_restart_later(); return render_template_string('<h2>Rollback applied. Restarting...</h2><script>setTimeout(()=>location.href="/developer/releases",6000)</script>')
-        except Exception as exc:
-            app.logger.exception('Release manager action failed'); flash('Action failed: '+str(exc),'danger')
-        return redirect(url_for('developer_releases'))
-    return render_template_string(RELEASE_TEMPLATE,build=APP_BUILD,releases=_rel_read(RELEASE_HISTORY_FILE,[]),backups=sorted(RELEASE_BACKUPS.glob('*.py'),key=lambda x:x.stat().st_mtime,reverse=True),protected=_rel_manifest(),state=_rel_read(RELEASE_STATE_FILE,{}))
 
 
 if __name__ == '__main__':
